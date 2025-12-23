@@ -1,0 +1,63 @@
+schema: '2.0'
+stages:
+  prepare:
+    cmd: uv run python src/data/prepare_dataset.py
+    deps:
+    - path: external_data/cifar10
+      hash: md5
+      md5: 21845d8d0e799c44fca2f3e6d04b7757.dir
+      size: 113048310
+      nfiles: 50000
+    - path: external_data/road_issues_dataset
+      hash: md5
+      md5: b3731d4dc9e3f87b9ddb0c5c05a6eb23.dir
+      size: 502784989
+      nfiles: 9660
+    - path: src/data/prepare_dataset.py
+      hash: md5
+      md5: 13abea5ce05ed936bdfb23cbf1c50f16
+      size: 2544
+    outs:
+    - path: data/raw
+      hash: md5
+      md5: 447a5c4fa7a12eb99bab40a56f2dfd2d.dir
+      size: 169203299
+      nfiles: 4691
+  train:
+    cmd: uv run python src/ml/training/train.py
+    deps:
+    - path: configs/
+      hash: md5
+      md5: 11ccf5f76b530f15117b2a27cfd75561.dir
+      size: 500
+      nfiles: 5
+    - path: data/raw
+      hash: md5
+      md5: 447a5c4fa7a12eb99bab40a56f2dfd2d.dir
+      size: 169203299
+      nfiles: 4691
+    - path: src/ml/data/dataloader.py
+      hash: md5
+      md5: 56fbd54fc531b97d014d1e478b828763
+      size: 2389
+    - path: src/ml/evaluation/evaluator.py
+      hash: md5
+      md5: 88304fc10d420748c6521be2601c4f23
+      size: 1388
+    - path: src/ml/models/model.py
+      hash: md5
+      md5: 104fae6574d4f55215ab0374cb0e9351
+      size: 365
+    - path: src/ml/training/train.py
+      hash: md5
+      md5: 81301e2cdb277661173385d1c56a2e4a
+      size: 2885
+    - path: src/ml/training/trainer.py
+      hash: md5
+      md5: 97725eef5eed915c9443a1b9ee323033
+      size: 758
+    outs:
+    - path: models/model.pth
+      hash: md5
+      md5: 360286f9c81d6e906c80b1682e48b260
+      size: 9139403

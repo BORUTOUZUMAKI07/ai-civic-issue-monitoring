@@ -1,0 +1,21 @@
+stages:
+  prepare:
+    cmd: uv run python src/data/prepare_dataset.py
+    deps:
+      - src/data/prepare_dataset.py
+      - external_data/road_issues_dataset
+      - external_data/cifar10
+    outs:
+      - data/raw
+  train:
+    cmd: uv run python src/ml/training/train.py
+    deps:
+      - src/ml/training/train.py
+      - src/ml/training/trainer.py
+      - src/ml/models/model.py
+      - src/ml/data/dataloader.py
+      - src/ml/evaluation/evaluator.py
+      - data/raw
+      - configs/
+    outs:
+      - models/model.pth
