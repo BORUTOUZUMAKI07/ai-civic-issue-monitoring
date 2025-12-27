@@ -3,8 +3,7 @@ stages:
     cmd: uv run python src/data/prepare_dataset.py
     deps:
       - src/data/prepare_dataset.py
-      - external_data/road_issues_dataset
-      - external_data/cifar10
+      - data/balanced_gold
     outs:
       - data/raw
   train:
