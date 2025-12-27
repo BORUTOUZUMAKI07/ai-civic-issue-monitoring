@@ -23,8 +23,8 @@ stages:
     deps:
     - path: configs/
       hash: md5
-      md5: 859226f68e38c6bd9e8952f629ceb970.dir
-      size: 690
+      md5: 5b9b8a3f1bc77897e6160e4ebcd4c318.dir
+      size: 610
       nfiles: 5
     - path: data/raw
       hash: md5
@@ -41,12 +41,12 @@ stages:
       size: 1388
     - path: src/ml/models/model.py
       hash: md5
-      md5: b6501378a976daaed3a29abe17ed5dcf
-      size: 2631
+      md5: 2ced794a7ea16d22a14d98b756d0541f
+      size: 2422
     - path: src/ml/training/train.py
       hash: md5
-      md5: 074c2c68c35a98791c10bea85d776b79
-      size: 6161
+      md5: 3c4dd23fdc6e71bb6b866359efe5d01c
+      size: 6079
     - path: src/ml/training/trainer.py
       hash: md5
       md5: 81e7253858799057ec2dc5bb7c81d368
@@ -54,5 +54,5 @@ stages:
     outs:
     - path: models/model.pth
       hash: md5
-      md5: 64c303cad45b4b3437d8c5892750d300
+      md5: 8c538558f21bd91c7c98b361ecea2318
       size: 9139403
