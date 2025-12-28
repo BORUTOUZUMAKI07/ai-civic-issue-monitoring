@@ -10,6 +10,8 @@ jobs:
   backend-qa:
     name: Backend CI (Python)
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
     steps:
       - uses: actions/checkout@v4
       
