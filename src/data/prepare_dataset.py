@@ -4,7 +4,6 @@ Replaces the old CIFAR-10 based approach with high-quality balanced data
 """
 from pathlib import Path
 import shutil
-import random
 from sklearn.model_selection import train_test_split
 
 # Paths
@@ -92,7 +91,7 @@ def prepare_dataset():
     
     print(f"\n✅ Grand Total: {grand_total} images")
     print(f"📁 Output: {RAW_DATA_DIR}")
-    print(f"\n🎯 READY FOR TRAINING")
+    print("\n🎯 READY FOR TRAINING")
     print("="*80)
 
 if __name__ == "__main__":

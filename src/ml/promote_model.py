@@ -2,11 +2,8 @@ import hydra
 from omegaconf import DictConfig
 import optuna
 import mlflow
-import torch
-import os
 from dotenv import load_dotenv
 from ml.training.train import run_training
-from common.paths import BEST_MODEL_PATH
 
 load_dotenv()
 

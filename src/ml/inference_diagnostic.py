@@ -1,8 +1,6 @@
-import torch
 from PIL import Image
 from pathlib import Path
 from app.core.inference import predict_issue
-import os
 
 GOLD_DIR = Path("data/balanced_gold")
 CLASSES = ["debris", "garbage", "non_civic", "pothole"]

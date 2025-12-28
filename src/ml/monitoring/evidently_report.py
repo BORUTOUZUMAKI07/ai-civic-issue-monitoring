@@ -1,7 +1,6 @@
 import pandas as pd
 from evidently.report import Report
 from evidently.metric_preset import DataDriftPreset, TargetDriftPreset, DataQualityPreset
-from pathlib import Path
 from loguru import logger
 
 from common.paths import PROJECT_ROOT

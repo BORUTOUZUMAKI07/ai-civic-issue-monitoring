@@ -81,16 +81,16 @@ def select_best_from_folders():
         all_images = [f for f in folder_path.rglob("*") if f.suffix.lower() in [".jpg", ".jpeg", ".png"]]
         
         if not all_images:
-            print(f"  ⚠️  No images found")
+            print("  ⚠️  No images found")
             continue
         
         print(f"  Found: {len(all_images)} images")
         
         # Calculate sharpness for each image
-        print(f"  🔍 Calculating sharpness...")
+        print("  🔍 Calculating sharpness...")
         image_scores = []
         
-        for img_path in tqdm(all_images, desc=f"  Scoring", leave=False):
+        for img_path in tqdm(all_images, desc="  Scoring", leave=False):
             sharpness = calculate_sharpness(img_path)
             if sharpness > BLUR_THRESHOLD:
                 image_scores.append((img_path, sharpness))
@@ -98,7 +98,7 @@ def select_best_from_folders():
         print(f"  ✅ Sharp images: {len(image_scores)}")
         
         if not image_scores:
-            print(f"  ⚠️  No sharp images found (all below threshold)")
+            print("  ⚠️  No sharp images found (all below threshold)")
             continue
         
         # Sort by sharpness (descending)

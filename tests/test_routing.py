@@ -1,4 +1,3 @@
-import pytest
 from app.core.routing import get_engineer_for_ward
 
 def test_routing_valid_ward():

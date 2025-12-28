@@ -1,7 +1,6 @@
 import torch
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import classification_report
 import mlflow
-import numpy as np
 from loguru import logger
 from ml.utils.device import get_device
 

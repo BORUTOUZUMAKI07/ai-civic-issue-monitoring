@@ -1,4 +1,3 @@
-import pytest
 from app.core.geofencing import get_ward
 
 def test_get_ward_vadodara_center():

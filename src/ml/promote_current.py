@@ -2,7 +2,6 @@ import hydra
 from omegaconf import DictConfig
 import mlflow
 import torch
-from pathlib import Path
 from dotenv import load_dotenv
 
 from common.paths import BEST_MODEL_PATH
@@ -36,7 +35,7 @@ def promote_current(cfg: DictConfig):
     mlflow.set_tracking_uri(dagshub_uri)
     mlflow.set_experiment(cfg.experiment.mlflow.experiment_name)
     
-    print(f"☁️  Uploading to DagsHub as a new run...")
+    print("☁️  Uploading to DagsHub as a new run...")
     
     with mlflow.start_run(run_name="manual-promotion"):
         # Log what we know
@@ -49,7 +48,7 @@ def promote_current(cfg: DictConfig):
         
         # 4. Upload the artifact
         mlflow.log_artifact(str(BEST_MODEL_PATH))
-        print(f"✅ Promotion Complete! Metrics and model are now on DagsHub.")
+        print("✅ Promotion Complete! Metrics and model are now on DagsHub.")
 
 if __name__ == "__main__":
     promote_current()
