@@ -24,8 +24,10 @@ COPY --chown=appuser:appuser pyproject.toml ./
 # Switch to non-root user
 USER appuser
 
-# Install dependencies as the user
-ENV UV_COMPILE_BYTECODE=1 \
+# Force CPU-only resolution globally for this build
+ENV UV_INDEX_URL=https://download.pytorch.org/whl/cpu \
+    UV_EXTRA_INDEX_URL=https://pypi.org/simple \
+    UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH=/app/src \
@@ -33,9 +35,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     APP_ENV=production
 
 # Force CPU-only installation by allowing uv to resolve from pyproject.toml
-RUN uv sync --no-install-project --no-dev \
-    --index-url https://download.pytorch.org/whl/cpu \
-    --extra-index-url https://pypi.org/simple
+RUN uv sync --no-install-project --no-dev
 
 # Copy source code with correct ownership
 COPY --chown=appuser:appuser src ./src

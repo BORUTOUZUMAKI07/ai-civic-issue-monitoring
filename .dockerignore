@@ -1,6 +1,9 @@
 .venv
 .git
 .github
+.dvc
+.vscode
+.idea
 data/
 external_data/
 models/
@@ -14,3 +17,6 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 *.egg-info/
+mlruns/
+outputs/
+reports/
