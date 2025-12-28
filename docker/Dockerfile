@@ -9,34 +9,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
+# Create non-root user early
+RUN useradd -m -u 1000 appuser
+
 WORKDIR /app
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
-# Copy dependency files
-COPY pyproject.toml uv.lock ./
+# Copy dependency files and change ownership
+COPY --chown=appuser:appuser pyproject.toml uv.lock ./
 
-# Install dependencies (works fine on Linux/WSL!)
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy
-
-RUN uv sync --frozen --no-install-project --no-dev
-
-# Copy source code
-COPY src ./src
-
-# Create non-root user
-RUN useradd -m -u 1000 appuser && \
-    chown -R appuser:appuser /app
-
+# Switch to non-root user
 USER appuser
 
-# Environment variables
-ENV PATH="/app/.venv/bin:$PATH" \
+# Install dependencies as the user (ensures correct ownership from start)
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH=/app/src \
     PYTHONUNBUFFERED=1 \
     APP_ENV=production
+
+RUN uv sync --frozen --no-install-project --no-dev
+
+# Copy source code with correct ownership
+COPY --chown=appuser:appuser src ./src
 
 EXPOSE 8000
 
