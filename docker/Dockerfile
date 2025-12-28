@@ -24,7 +24,7 @@ COPY --chown=appuser:appuser pyproject.toml uv.lock ./
 # Switch to non-root user
 USER appuser
 
-# Install dependencies as the user (ensures correct ownership from start)
+# Install dependencies as the user
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     PATH="/app/.venv/bin:$PATH" \
@@ -32,7 +32,10 @@ ENV UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     APP_ENV=production
 
-RUN uv sync --frozen --no-install-project --no-dev
+# Force CPU-only index for Torch to save ~5GB of CUDA libraries
+RUN uv sync --frozen --no-install-project --no-dev \
+    --index-url https://download.pytorch.org/whl/cpu \
+    --extra-index-url https://pypi.org/simple
 
 # Copy source code with correct ownership
 COPY --chown=appuser:appuser src ./src
