@@ -1,5 +1,6 @@
 @echo off
 echo 🚀 Starting AI Civic Issue Monitoring...
+echo 💡 Using hybrid Mamba + uv workflow
 
 echo 📦 Starting Backend (FastAPI)...
 start cmd /k "uv sync && uv run python src/app/main.py"
