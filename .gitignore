@@ -32,18 +32,21 @@ env/
 mamba/
 
 # --- ML/Data (Tracked by DVC) ---
-data/raw/
-data/processed/
-external_data/
+data/*
+!data/.gitkeep
+external_data/*
+!external_data/.gitkeep
 models/*.pth
-mlruns/
-outputs/
+# mlruns/  # KEEP: Contains offline training history
+# outputs/  # KEEP: Contains training artifacts
 .hydra/
 
 # --- Logs & Monitoring ---
 logs/
 *.log
 reports/
+# !mlflow.db  # KEEP: MLflow training history
+# !optuna.db  # KEEP: Hyperparameter tuning history
 
 # --- IDEs ---
 .vscode/

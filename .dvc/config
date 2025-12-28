@@ -1,0 +1,4 @@
+[core]
+    remote = origin
+['remote "origin"']
+    url = https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring.dvc

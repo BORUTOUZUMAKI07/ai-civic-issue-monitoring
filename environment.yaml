@@ -1,0 +1,14 @@
+name: civic-ai
+channels:
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.11
+  - pip
+  - mamba
+  - uv
+  - jupyterlab
+  - notebook
+  - pytorch
+  - torchvision
+  - cpuonly

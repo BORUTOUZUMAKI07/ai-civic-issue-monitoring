@@ -1,0 +1,12 @@
+.venv
+data/
+external_data/
+models/
+logs/
+frontend/node_modules/
+frontend/dist/
+*.db
+*.pth
+*.log
+__pycache__/
+*.pyc
