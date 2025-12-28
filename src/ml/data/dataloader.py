@@ -1,5 +1,5 @@
 from torchvision import datasets, transforms
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 
 def to_rgb(img):
     return img.convert("RGB")
@@ -38,7 +38,6 @@ def get_dataloaders(data_dir, batch_size=32, train_split=0.7, val_split=0.15):
     num_data = len(full_dataset)
     train_size = int(train_split * num_data)
     val_size = int(val_split * num_data)
-    test_size = num_data - train_size - val_size
     
     # Split indices (Deterministic)
     import torch

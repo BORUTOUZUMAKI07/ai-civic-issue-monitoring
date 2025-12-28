@@ -7,20 +7,18 @@ import mlflow
 import optuna
 from pathlib import Path
 from dotenv import load_dotenv
-import os
 
-# Load credentials from .env
-load_dotenv()
-
-from common.paths import BEST_MODEL_PATH, MODELS_DIR
+from ml.training.trainer import train_one_epoch, validate_one_epoch
+from ml.evaluation.evaluator import evaluate_model
+from common.paths import BEST_MODEL_PATH
 from ml.data.dataloader import get_dataloaders
 from ml.models.model import build_model
 from ml.utils.device import get_device
-from ml.training.trainer import train_one_epoch, validate_one_epoch
 
 
 @hydra.main(config_path="../../../configs", config_name="config", version_base=None)
 def train(cfg: DictConfig):
+    load_dotenv()
     mlflow.set_tracking_uri(cfg.experiment.mlflow.tracking_uri)
     mlflow.set_experiment(cfg.experiment.mlflow.experiment_name)
 
@@ -28,9 +26,9 @@ def train(cfg: DictConfig):
         optimize_hyperparameters(cfg)
     else:
         run_training(cfg)
-from ml.evaluation.evaluator import evaluate_model
 
 def run_training(cfg: DictConfig, trial=None):
+    load_dotenv()
     device = get_device()
     train_loader, val_loader, test_loader, classes = get_dataloaders(cfg.data.data_dir, cfg.train.batch_size)
 
@@ -81,7 +79,7 @@ def run_training(cfg: DictConfig, trial=None):
     
     criterion = nn.CrossEntropyLoss(weight=class_weights)
     
-    print(f"\n📊 Class Distribution:")
+    print("\n📊 Class Distribution:")
     for i, cls in enumerate(classes):
         print(f"  {cls:12}: {class_counts[i]:4} samples (weight: {class_weights[i]:.2f})")
     print()
