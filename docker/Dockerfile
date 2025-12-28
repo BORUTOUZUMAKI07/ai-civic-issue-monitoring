@@ -18,8 +18,8 @@ RUN chown appuser:appuser /app
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
-# Copy dependency files and change ownership
-COPY --chown=appuser:appuser pyproject.toml uv.lock ./
+# Copy pyproject.toml (Omit uv.lock to force fresh CPU-only resolution)
+COPY --chown=appuser:appuser pyproject.toml ./
 
 # Switch to non-root user
 USER appuser
@@ -32,8 +32,8 @@ ENV UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     APP_ENV=production
 
-# Force CPU-only installation by ignoring the GPU-locked uv.lock
-RUN uv sync --no-locked --no-install-project --no-dev \
+# Force CPU-only installation by allowing uv to resolve from pyproject.toml
+RUN uv sync --no-install-project --no-dev \
     --index-url https://download.pytorch.org/whl/cpu \
     --extra-index-url https://pypi.org/simple
 
