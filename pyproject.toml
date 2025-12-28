@@ -37,6 +37,7 @@ dev = [
     "pytest>=7.3",
     "httpx>=0.24",
     "black>=23.3",
+    "ruff>=0.1.0",
     "flake8>=6.0",
     "flake8-pyproject",
     "mypy>=1.3",
