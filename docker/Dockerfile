@@ -32,8 +32,8 @@ ENV UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     APP_ENV=production
 
-# Force CPU-only index for Torch to save ~5GB of CUDA libraries
-RUN uv sync --frozen --no-install-project --no-dev \
+# Force CPU-only installation by ignoring the GPU-locked uv.lock
+RUN uv sync --no-locked --no-install-project --no-dev \
     --index-url https://download.pytorch.org/whl/cpu \
     --extra-index-url https://pypi.org/simple
 
