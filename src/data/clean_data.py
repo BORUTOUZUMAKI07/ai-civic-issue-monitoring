@@ -9,7 +9,7 @@ from tqdm import tqdm
 from loguru import logger
 
 # Configuration
-INPUT_DIR = Path("external_data/source_images")
+INPUT_DIR = Path("external_data")
 BASE_ACCEPTED_DIR = Path("data/balanced_gold")
 REJECTED_DIR = Path("data/rejected")
 BLURRY_DIR = REJECTED_DIR / "blurry"
