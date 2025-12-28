@@ -1,12 +1,9 @@
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, Depends
 from PIL import Image
 import io
 
 from app.core.security import verify_token
 from app.core.image_validation import validate_image
-from app.core.geofencing import get_ward
-from app.core.routing import get_engineer_for_ward
-from app.core.inference import predict_issue
 from app.models.issue import IssueResponse, HealthResponse
 
 from app.services.issue_service import IssueService

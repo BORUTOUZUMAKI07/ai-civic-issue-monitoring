@@ -1,5 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form
-from dotenv import load_dotenv
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.core.logging import setup_logging
@@ -32,7 +31,7 @@ def create_app() -> FastAPI:
 
     # Rate Limiting
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
     # Monitoring
     Instrumentator().instrument(app).expose(app)

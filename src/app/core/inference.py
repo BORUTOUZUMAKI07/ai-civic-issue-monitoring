@@ -3,7 +3,6 @@ from torchvision import transforms
 from PIL import Image
 from pathlib import Path
 from common.paths import BEST_MODEL_PATH
-from ml.models.model import build_model
 from ml.models.model import build_model, robust_load_state_dict
 from ml.utils.device import get_device
 
@@ -58,7 +57,7 @@ def predict_issue(image: Image.Image):
 
     confidence, pred_idx = torch.max(probs, dim=1)
     
-    label = LABELS[pred_idx.item()]
+    label = LABELS[int(pred_idx.item())]
     conf_val = round(confidence.item(), 3)
 
     return {
