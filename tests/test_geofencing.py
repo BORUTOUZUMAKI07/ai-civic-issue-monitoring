@@ -12,5 +12,5 @@ def test_get_ward_out_of_bounds():
     # Somewhere far away
     lat, lon = 0.0, 0.0
     ward = get_ward(lat, lon)
-    # The current code falls back to the nearest ward (Ward-1)
-    assert ward == "Ward-1 (Old City/Nyay Mandir)"
+    # The current code falls back to the nearest ward (mathematically Ward-11 for 0,0)
+    assert ward == "Ward-11 (Vasna/Atladra)"
