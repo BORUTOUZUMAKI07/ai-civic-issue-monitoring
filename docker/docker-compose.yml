@@ -46,7 +46,7 @@ services:
     image: sriram365/civic-frontend:latest
     container_name: civic_frontend
     ports:
-      - "80:80"
+      - "5173:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -70,7 +70,7 @@ services:
 
   # Prometheus (Metrics Collection)
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.48.0
     container_name: civic_prometheus
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -94,7 +94,7 @@ services:
 
   # Grafana (Visualization)
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:10.2.2
     container_name: civic_grafana
     ports:
       - "3001:3000"

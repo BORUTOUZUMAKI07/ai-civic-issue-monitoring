@@ -1,44 +1,58 @@
-# Windows-optimized backend Dockerfile
+# ---------- BUILD STAGE ----------
+FROM python:3.11-slim AS builder
+
+# Install system dependencies and uv
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install uv efficiently
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+# Copy dependency files
+COPY pyproject.toml uv.lock ./
+
+# Mount uv cache to keep it out of the image layers
+# This installs dependencies into /app/.venv
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_INDEX_URL=https://download.pytorch.org/whl/cpu \
+    UV_EXTRA_INDEX_URL=https://pypi.org/simple
+    
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-install-project --no-dev
+
+# ---------- RUNTIME STAGE ----------
 FROM python:3.11-slim
 
-# Install system dependencies and uv in one layer
+# Install runtime-only system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
-    curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user early
+# Create non-root user
 RUN useradd -m -u 1000 appuser
 
 WORKDIR /app
 RUN chown appuser:appuser /app
 
-# Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+# Copy the virtual environment from the builder
+COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
 
-# Copy pyproject.toml (Omit uv.lock to force fresh CPU-only resolution)
-COPY --chown=appuser:appuser pyproject.toml ./
+# Copy source code
+COPY --chown=appuser:appuser src ./src
 
-# Switch to non-root user
-USER appuser
-
-# Force CPU-only resolution globally for this build
-ENV UV_INDEX_URL=https://download.pytorch.org/whl/cpu \
-    UV_EXTRA_INDEX_URL=https://pypi.org/simple \
-    UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    PATH="/app/.venv/bin:$PATH" \
+# Set environment variables
+ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH=/app/src \
     PYTHONUNBUFFERED=1 \
     APP_ENV=production
 
-# Force CPU-only installation by allowing uv to resolve from pyproject.toml
-RUN uv sync --no-install-project --no-dev
-
-# Copy source code with correct ownership
-COPY --chown=appuser:appuser src ./src
+USER appuser
 
 EXPOSE 8000
 
