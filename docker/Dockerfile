@@ -13,7 +13,9 @@ WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 # Copy dependency files
-COPY pyproject.toml uv.lock ./
+# We OMIT uv.lock here to force a fresh resolution for CPU-only in the builder
+# since the local uv.lock might contain GPU/CUDA specific versions.
+COPY pyproject.toml ./
 
 # Mount uv cache to keep it out of the image layers
 # This installs dependencies into /app/.venv
