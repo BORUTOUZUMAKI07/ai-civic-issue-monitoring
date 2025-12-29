@@ -1,11 +1,11 @@
 services:
   # Civic Monitoring API (Backend)
   backend:
-    # build:
-    #   context: ..
-    #   dockerfile: docker/Dockerfile
-    #   args:
-    #     - BUILDKIT_INLINE_CACHE=1
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
     image: sriram365/civic-backend:latest
     container_name: civic_backend
     ports:
@@ -37,12 +37,12 @@ services:
 
   # Dashboard UI (Frontend)
   frontend:
-    # build:
-    #   context: ../frontend
-    #   dockerfile: Dockerfile
-    #   args:
-    #     - VITE_API_URL=${VITE_API_URL:-http://localhost:8000}
-    #     - VITE_API_TOKEN=${VITE_API_TOKEN:-secret-token}
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL:-http://localhost:8000}
+        - VITE_API_TOKEN=${VITE_API_TOKEN:-secret-token}
     image: sriram365/civic-frontend:latest
     container_name: civic_frontend
     ports:
