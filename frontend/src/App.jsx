@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
-import { Activity, Camera, Bell, LayoutDashboard } from 'lucide-react';
+import { Activity, Camera, Bell, LayoutDashboard, ClipboardCheck } from 'lucide-react';
 import { StatsWidget } from './components/features/StatsWidget';
 import { MapView } from './components/features/MapView';
 import { IssueReportModal } from './components/features/IssueReportModal';
+import { ResolutionModal } from './components/features/ResolutionModal';
 import { Button } from './components/ui/Button';
 import { Toaster } from 'sonner';
 
 function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isResolutionModalOpen, setIsResolutionModalOpen] = useState(false);
   const [viewMode, setViewMode] = useState('standard'); // 'standard' | 'map-focus'
 
   return (
@@ -55,6 +57,10 @@ function App() {
                         <LayoutDashboard className="w-4 h-4 mr-2" />
                         Focus Map
                      </Button>
+                     <Button variant="secondary" className="shadow-sm bg-green-50 border-green-200 text-green-700 hover:bg-green-100" onClick={() => setIsResolutionModalOpen(true)}>
+                        <ClipboardCheck className="w-4 h-4 mr-2" />
+                        Resolve Issue
+                     </Button>
                     <Button onClick={() => setIsModalOpen(true)}>
                         <Camera className="w-5 h-5 mr-2" />
                         New Report
@@ -90,8 +96,9 @@ function App() {
             </div>
         </main>
 
-        {/* Modal */}
+        {/* Modals */}
         <IssueReportModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+        <ResolutionModal isOpen={isResolutionModalOpen} onClose={() => setIsResolutionModalOpen(false)} />
     </div>
   );
 }
