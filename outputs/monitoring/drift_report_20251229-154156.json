@@ -1,0 +1,14 @@
+{
+  "label_drift": {
+    "is_drift": true,
+    "p_value": 3.5515522814333345e-12,
+    "distance": 52.727272033691406,
+    "threshold": 0.05
+  },
+  "confidence_drift": {
+    "is_drift": true,
+    "p_value": 4.7223758247746335e-43,
+    "distance": 0.8600000143051147,
+    "threshold": 0.05
+  }
+}

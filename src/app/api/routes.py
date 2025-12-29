@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, Form, Depends
+from fastapi import APIRouter, UploadFile, File, Form, Depends, BackgroundTasks
 from PIL import Image
 import io
 
@@ -7,6 +7,7 @@ from app.core.image_validation import validate_image
 from app.models.issue import IssueResponse, HealthResponse
 
 from app.services.issue_service import IssueService
+from app.services.monitoring_service import MonitoringService
 
 from app.core.wards import WARDS
 
@@ -24,6 +25,7 @@ def get_wards_list():
 
 @router.post("/upload-issue", tags=["Issues"], response_model=IssueResponse)
 async def upload_issue(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     latitude: str = Form(...),
     longitude: str = Form(...),
@@ -41,5 +43,12 @@ async def upload_issue(
 
     # Phase 3 & 5: Process Issue via Service
     result = await IssueService.process_issue(image, lat_val, lon_val)
+
+    # Phase 6: Real-time Drift Monitoring (Background Task)
+    background_tasks.add_task(
+        MonitoringService.record_prediction, 
+        issue_type=result.issue_type, 
+        confidence=result.confidence
+    )
 
     return result
