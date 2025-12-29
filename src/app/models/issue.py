@@ -18,3 +18,10 @@ class IssueResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     version: str = "0.1.0"
+
+class ResolutionResponse(BaseModel):
+    issue_id: str
+    status: str = "Resolved"
+    resolution_message: str
+    resolved_by: Optional[str] = None
+    resolved_at: datetime = Field(default_factory=datetime.utcnow)
