@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*.*.*' # Trigger on version tags (e.g., v1.0.0)
+  workflow_dispatch:
 
 jobs:
   build-and-push:
@@ -50,7 +51,7 @@ jobs:
       - name: Build and push Frontend
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ./frontend
           file: ./frontend/Dockerfile
           push: true
           tags: ${{ env.docker_username }}/civic-frontend:latest,${{ env.docker_username }}/civic-frontend:${{ github.ref_name }}

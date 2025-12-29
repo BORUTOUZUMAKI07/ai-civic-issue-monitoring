@@ -1,6 +1,9 @@
 # AI-Based Civic Issue Monitoring System
 
-A professional, production-grade system for monitoring and managing civic issues for the Vadodara Municipal Corporation. This system uses Computer Vision to classify issues (potholes, garbage, etc.) and Real-Time Drift Detection to ensure model reliability.
+A professional, production-grade system for monitoring and managing civic issues for the Vadodara Municipal Corporation.
+
+![CI Status](https://github.com/ram.atchutratna/ai-civic-issue-monitoring/actions/workflows/ci.yml/badge.svg)
+ This system uses Computer Vision to classify issues (potholes, garbage, etc.) and Real-Time Drift Detection to ensure model reliability.
 
 ---
 
