@@ -1,3 +1,4 @@
+from typing import Any, Dict, Deque, Optional
 import pandas as pd
 import numpy as np
 from loguru import logger
@@ -32,8 +33,8 @@ class DriftDetector:
             return
 
         self.window_size = window_size
-        self.prediction_buffer = deque(maxlen=window_size)
-        self.detectors = {}
+        self.prediction_buffer: Deque[Dict[str, Any]] = deque(maxlen=window_size)
+        self.detectors: Dict[str, Any] = {}
         
         # Load reference data if not provided (Try to load from a default path or generate dummy)
         if reference_data is None:

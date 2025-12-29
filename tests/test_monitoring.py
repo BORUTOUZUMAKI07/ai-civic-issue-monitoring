@@ -1,8 +1,5 @@
-import pytest
-from app.services.monitoring_service import MonitoringService, DRIFT_DETECTED_CONFIDENCE, DRIFT_DETECTED_LABEL, DRIFT_P_VALUE_CONFIDENCE
+from app.services.monitoring_service import MonitoringService, DRIFT_DETECTED_CONFIDENCE
 from ml.monitoring.drift_detection import DriftDetector
-import pandas as pd
-import numpy as np
 
 def test_monitoring_service_buffering():
     # 1. Reset Singleton for test
