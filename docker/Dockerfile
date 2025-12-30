@@ -13,9 +13,7 @@ WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 # Copy dependency files
-# We OMIT uv.lock here to force a fresh resolution for CPU-only in the builder
-# since the local uv.lock might contain GPU/CUDA specific versions.
-COPY pyproject.toml ./
+COPY pyproject.toml uv.lock ./
 
 # Mount uv cache to keep it out of the image layers
 # This installs dependencies into /app/.venv
@@ -25,7 +23,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_EXTRA_INDEX_URL=https://pypi.org/simple
     
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-install-project --no-dev
+    uv sync --frozen --no-install-project --no-dev
 
 # ---------- RUNTIME STAGE ----------
 FROM python:3.11-slim

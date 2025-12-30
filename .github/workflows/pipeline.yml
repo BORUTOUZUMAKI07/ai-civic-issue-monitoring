@@ -1,5 +1,9 @@
 name: AI Civic Monitoring Pipeline
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [ main ]
@@ -91,7 +95,9 @@ jobs:
             ${{ steps.prep.outputs.user }}/civic-backend:latest
             ${{ steps.prep.outputs.user }}/civic-backend:${{ github.ref_name }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
+          provenance: false
+          sbom: false
 
       - name: Build and push Frontend
         uses: docker/build-push-action@v5
@@ -103,4 +109,6 @@ jobs:
             ${{ steps.prep.outputs.user }}/civic-frontend:latest
             ${{ steps.prep.outputs.user }}/civic-frontend:${{ github.ref_name }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
+          provenance: false
+          sbom: false
