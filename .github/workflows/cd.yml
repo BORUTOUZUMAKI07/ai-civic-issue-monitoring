@@ -36,7 +36,9 @@ jobs:
           context: .
           file: docker/Dockerfile
           push: true
-          tags: ${{ env.DOCKER_USER }}/civic-backend:latest,${{ env.DOCKER_USER }}/civic-backend:${{ github.ref_name }}
+          tags: |
+            ${{ env.DOCKER_USER }}/civic-backend:latest
+            ${{ env.DOCKER_USER }}/civic-backend:${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -46,6 +48,8 @@ jobs:
           context: ./frontend
           file: ./frontend/Dockerfile
           push: true
-          tags: ${{ env.DOCKER_USER }}/civic-frontend:latest,${{ env.DOCKER_USER }}/civic-frontend:${{ github.ref_name }}
+          tags: |
+            ${{ env.DOCKER_USER }}/civic-frontend:latest
+            ${{ env.DOCKER_USER }}/civic-frontend:${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
