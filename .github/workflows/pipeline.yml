@@ -1,13 +1,57 @@
-name: Production Deployment (CD)
+name: AI Civic Monitoring Pipeline
 
 on:
   push:
-    tags:
-      - 'v*.*.*' # Trigger on version tags (e.g., v1.0.0)
-  workflow_dispatch:
+    branches: [ main ]
+    tags: [ 'v*.*.*' ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
-  build-and-push:
+  backend-qa:
+    name: Backend CI (Python)
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          enable-cache: true
+      - name: "Set up Python"
+        run: uv python install 3.11
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+      - name: Run Linting
+        run: |
+          uv run ruff check . --exit-zero
+          uv run mypy src --ignore-missing-imports --no-strict-optional
+      - name: Run Tests
+        run: uv run pytest tests/ --junitxml=junit.xml
+
+  frontend-qa:
+    name: Frontend CI (React)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: cd frontend && npm ci
+      - name: Run Build
+        run: cd frontend && npm run build
+
+  deploy:
+    name: Build & Push (Production)
+    needs: [backend-qa, frontend-qa]
+    # Run on tags OR manual dispatch (if we add it)
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - name: Free up disk space
@@ -26,7 +70,6 @@ jobs:
           if [ -z "$USER_VAL" ]; then
             USER_VAL="sriram365"
           fi
-          # Trim and output
           echo "user=$(echo $USER_VAL | xargs)" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx

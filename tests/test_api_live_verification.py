@@ -45,6 +45,4 @@ def test_live_resolve():
     else:
         print(f"❌ Live Resolution Failed: {response.text}")
 
-if __name__ == "__main__":
-    test_live_upload()
-    test_live_resolve()
+
