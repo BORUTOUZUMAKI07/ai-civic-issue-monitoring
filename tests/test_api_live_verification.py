@@ -1,5 +1,6 @@
 import requests
 import io
+import pytest
 from PIL import Image
 
 API_URL = "http://localhost:8000"
@@ -12,6 +13,7 @@ def create_test_image():
     buf.seek(0)
     return buf
 
+@pytest.mark.skip(reason="Requires running server on localhost:8000")
 def test_live_upload():
     print(f"📡 Testing Live Upload to {API_URL}...")
     image_buf = create_test_image()
@@ -27,6 +29,7 @@ def test_live_upload():
     else:
         print(f"❌ Live Upload Failed: {response.text}")
 
+@pytest.mark.skip(reason="Requires running server on localhost:8000")
 def test_live_resolve():
     print(f"\n📡 Testing Live Resolution to {API_URL}...")
     image_buf = create_test_image()

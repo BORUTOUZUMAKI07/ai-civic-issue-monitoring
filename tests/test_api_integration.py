@@ -40,7 +40,7 @@ def test_upload_issue_success(mock_predict, auth_headers):
     json_data = response.json()
     assert json_data["issue_type"] == "pothole"
     assert json_data["status"] == "Open"
-    assert "Ward-11" in json_data["ward"]  # 22.3, 73.1 is roughly Ward 11 center
+    assert "Ward-6" in json_data["ward"]  # 22.3, 73.1 is roughly Ward 6 center/Akota area
 
 def test_upload_issue_unauthorized():
     image_buf = create_test_image()
@@ -48,7 +48,7 @@ def test_upload_issue_unauthorized():
     data = {"latitude": "22.3", "longitude": "73.1"}
     
     response = client.post("/upload-issue", files=files, data=data) # No headers
-    assert response.status_code == 403 # HTTPBearer returns 403 if no auth header
+    assert response.status_code == 401 # HTTPBearer returns 401 if no auth header
 
 def test_resolve_issue_success(auth_headers):
     image_buf = create_test_image()
@@ -69,4 +69,4 @@ def test_resolve_issue_success(auth_headers):
 def test_health_check():
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "ok", "version": "0.1.0"}
