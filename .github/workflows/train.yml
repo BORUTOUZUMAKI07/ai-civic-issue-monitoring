@@ -1,0 +1,67 @@
+name: Train PEFT Classifier
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      n_trials:
+        description: "Number of Optuna trials"
+        required: false
+        default: "5"
+
+env:
+  DATA_PATH: data/raw
+  MLFLOW_TRACKING_URI: https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring.mlflow
+  MLFLOW_TRACKING_USERNAME: ram.atchutratna
+  MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install DVC
+        run: pip install "dvc[s3]"
+
+      - name: Pull training data
+        env:
+          DVC_REMOTE_URL: https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring.dvc
+        run: |
+          dvc remote modify origin auth basic
+          dvc remote modify origin user ram.atchutratna
+          dvc remote modify origin password "${{ secrets.DAGSHUB_TOKEN }}"
+          dvc pull -r origin --jobs 4
+
+      - name: Install training dependencies
+        run: |
+          pip install torch torchvision peft optuna mlflow scikit-learn pandas pillow pyyaml
+
+      - name: Run training
+        run: |
+          cd backend
+          python -m src.ml.training.train
+
+      - name: Push model to DVC
+        run: |
+          dvc add models/model.pth models/adapter || true
+          git config user.email "dagshub-action"
+          git config user.name "DagsHub Action"
+          git add models/model.pth.dvc models/adapter.dvc metrics/
+          git diff --cached --quiet || git commit -m "Update model (DagsHub Action)"
+          dvc push -r origin
+
+      - name: Upload adapter as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: peft-adapter
+          path: models/adapter/
+          retention-days: 30

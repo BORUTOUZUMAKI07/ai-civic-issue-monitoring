@@ -38,6 +38,7 @@ pixi.lock
 # --- ML/Data (Tracked by DVC) ---
 data/*
 !data/.gitkeep
+!data/*.dvc
 external_data/*
 !external_data/.gitkeep
 models/*.pth
@@ -61,12 +62,16 @@ Thumbs.db
 # --- DVC ---
 /data/raw
 /models/model.pth
+/models/adapter
+/metrics
+/optuna_data
 
 # --- Uploads ---
 uploads/
 
 # --- Databases ---
 *.db
+/optuna.db
 
 # --- ML Runs & Outputs ---
 mlruns/

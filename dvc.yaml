@@ -1,21 +1,16 @@
 stages:
-  prepare:
-    cmd: uv run python src/data/prepare_dataset.py
-    deps:
-      - data/balanced_gold
-      - src/data/prepare_dataset.py
-    outs:
-      - data/raw
-
   train:
-    cmd: uv run python src/ml/training/train.py
+    cmd: python -m src.ml.training.train
     deps:
-      - configs/
+      - backend/src/ml/training/train.py
+      - backend/src/ml/training/peft_wrapper.py
+      - backend/src/ml/models/build_model.py
+      - backend/configs/mlflow.yaml
       - data/raw
-      - src/ml/data/dataloader.py
-      - src/ml/evaluation/evaluator.py
-      - src/ml/models/model.py
-      - src/ml/training/train.py
-      - src/ml/training/trainer.py
     outs:
+      - models/adapter:
+          persist: true
       - models/model.pth
+    metrics:
+      - metrics/train.json:
+          cache: false

@@ -2,7 +2,7 @@
 # Docs: https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring
 
 tracking_uri: "https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring.mlflow"
-experiment_name: "civicpulse-mobilenetv2"
+experiment_name: "civicpulse-peft-lora"
 model_name: "civic-issue-classifier"
 
 # Training
@@ -14,6 +14,18 @@ training:
   num_classes: 4
   class_names: ["debris", "garbage", "non_civic", "pothole"]
 
+# PEFT
+peft:
+  method: lora  # lora or dora
+  lora_r: [4, 8, 16, 32]
+  lora_alpha: [8, 16, 32]
+  lora_dropout: [0.05, 0.1, 0.2]
+  use_dora: [true, false]
+  target_modules:
+    - features.14.conv.0
+    - features.15.conv.0
+    - features.16.conv.0
+
 # Optuna
 optuna:
   n_trials: 20
@@ -22,6 +34,7 @@ optuna:
 
 # DVC
 dvc:
-  data_path: "data/balanced_gold"
+  data_path: "data/raw"
   model_path: "models/model.pth"
+  adapter_path: "models/adapter"
   remote: "origin"

@@ -1,5 +1,15 @@
 name: mobilenet_v2
 pretrained: true
 num_classes: 4
-unfreeze_last_n: 5 # Stage 2: Unfreeze last 5 layers for fine-tuning
-checkpoint_path: models/model.pth # Load Stage 1 weights
+unfreeze_last_n: 5
+checkpoint_path: models/model.pth
+
+peft:
+  method: lora  # lora or dora
+  r: 8
+  alpha: 16
+  dropout: 0.1
+  target_modules:
+    - features.14.conv.0
+    - features.15.conv.0
+    - features.16.conv.0
