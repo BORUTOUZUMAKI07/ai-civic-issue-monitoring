@@ -1,21 +1,21 @@
 stages:
   prepare:
-    cmd: echo "Data preparation handled by DagsHub pipeline"
+    cmd: uv run python src/data/prepare_dataset.py
     deps:
-      - backend/src/ml/training/train.py
+      - data/balanced_gold
+      - src/data/prepare_dataset.py
     outs:
-      - data/balanced_gold:
-          persist: true
+      - data/raw
 
   train:
-    cmd: pixi run --frozen python -c "print('Use backend/src/ml/training/train.py for training')"
+    cmd: uv run python src/ml/training/train.py
     deps:
-      - backend/src/ml/training/train.py
-      - backend/src/ml/models/build_model.py
-      - data/balanced_gold
-      - backend/configs/
+      - configs/
+      - data/raw
+      - src/ml/data/dataloader.py
+      - src/ml/evaluation/evaluator.py
+      - src/ml/models/model.py
+      - src/ml/training/train.py
+      - src/ml/training/trainer.py
     outs:
       - models/model.pth
-    metrics:
-      - metrics/train.json:
-          cache: false
