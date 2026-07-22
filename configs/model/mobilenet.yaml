@@ -1,0 +1,5 @@
+name: mobilenet_v2
+pretrained: true
+num_classes: 4
+unfreeze_last_n: 5 # Stage 2: Unfreeze last 5 layers for fine-tuning
+checkpoint_path: models/model.pth # Load Stage 1 weights

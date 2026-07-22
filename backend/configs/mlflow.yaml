@@ -1,0 +1,27 @@
+# MLflow configuration for DagsHub
+# Docs: https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring
+
+tracking_uri: "https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring.mlflow"
+experiment_name: "civicpulse-mobilenetv2"
+model_name: "civic-issue-classifier"
+
+# Training
+training:
+  epochs: 20
+  batch_size: 32
+  learning_rate: 0.000968
+  unfreeze_last_n: 5
+  num_classes: 4
+  class_names: ["debris", "garbage", "non_civic", "pothole"]
+
+# Optuna
+optuna:
+  n_trials: 20
+  direction: "minimize"
+  storage: "sqlite:///optuna.db"
+
+# DVC
+dvc:
+  data_path: "data/balanced_gold"
+  model_path: "models/model.pth"
+  remote: "origin"

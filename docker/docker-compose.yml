@@ -1,0 +1,46 @@
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: civicpulse_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL must be set}
+      - ASYNC_DATABASE_URI=${DATABASE_URL:?DATABASE_URL must be set}
+      - REDIS_URL=${REDIS_URL:?REDIS_URL must be set}
+      - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL:?UPSTASH_REDIS_REST_URL must be set}
+      - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN:?UPSTASH_REDIS_REST_TOKEN must be set}
+      - MONGODB_URI=${MONGODB_URI:?MONGODB_URI must be set}
+      - MONGODB_DB=civicpulse_analytics
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - OPENAI_BASE_URL=https://api.groq.com/openai/v1
+      - OPENAI_API_KEY=${OPENAI_API_KEY:?OPENAI_API_KEY must be set}
+      - HF_TOKEN=${HF_TOKEN:?HF_TOKEN must be set}
+    restart: unless-stopped
+    networks:
+      - frontend-net
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: civicpulse_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - frontend-net
+
+networks:
+  frontend-net:
+    driver: bridge

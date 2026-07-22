@@ -1,0 +1,95 @@
+[workspace]
+name = "civicpulse"
+description = "AI-Powered Civic Issue Monitoring System for Vadodara"
+channels = ["conda-forge", "pytorch"]
+platforms = ["linux-64", "win-64", "osx-arm64"]
+
+[dependencies]
+python = "3.12.*"
+pip = ">=24.0"
+dvc = ">=3.67.1,<4"
+
+[pypi-dependencies]
+fastapi = ">=0.115.0"
+uvicorn = ">=0.32.0"
+pydantic = ">=2.10.0"
+pydantic-settings = ">=2.7.0"
+sqlalchemy = ">=2.0.36"
+asyncpg = ">=0.30.0"
+alembic = ">=1.14.0"
+beanie = ">=1.29.0"
+motor = ">=3.6.0"
+redis = ">=5.2.0"
+upstash-redis = ">=1.0.0"
+python-jose = {version = ">=3.3.0", extras = ["cryptography"]}
+passlib = {version = ">=1.7.4", extras = ["argon2"]}
+argon2-cffi = ">=23.1.0"
+python-multipart = ">=0.0.18"
+email-validator = ">=2.2.0"
+httpx = ">=0.28.0"
+pillow = ">=11.0.0"
+python-json-logger = ">=2.0.0"
+pgvector = ">=0.3.0"
+langgraph = ">=0.2.0"
+langchain-core = ">=0.3.0"
+openai = ">=1.50.0"
+numpy = ">=1.26.0"
+civicpulse-backend = {path = "./backend", editable = true}
+
+[pypi-dependencies.pytest]
+version = ">=8.0.0"
+
+[pypi-dependencies.pytest-asyncio]
+version = ">=0.24.0"
+
+[pypi-dependencies.pytest-cov]
+version = ">=6.0.0"
+
+[pypi-dependencies.pytest-timeout]
+version = ">=2.3.0"
+
+[pypi-dependencies.mongomock]
+version = ">=4.3.0"
+
+[pypi-dependencies.aiosqlite]
+version = ">=0.20.0"
+
+[feature.dev.dependencies]
+ruff = ">=0.8.0"
+mypy = ">=1.13.0"
+pre-commit = ">=4.0.0"
+
+[feature.ml.dependencies]
+scikit-learn = ">=1.5.0"
+
+[feature.ml.pypi-dependencies]
+torch = ">=2.0.0"
+torchvision = ">=0.15.0"
+civicpulse-backend = {path = "./backend", editable = true, extras = ["ml"]}
+
+[tasks]
+dev = { cmd = "uvicorn src.main:app --reload --host 0.0.0.0 --port 8000", cwd = "backend" }
+start = { cmd = "python -m uvicorn src.main:app --host 0.0.0.0 --port 8000", cwd = "backend" }
+test = { cmd = "python -m pytest tests/ -v --timeout=60", cwd = "backend" }
+test-ci = { cmd = "python -m pytest tests/ -v --timeout=60 -m 'not integration'", cwd = "backend" }
+lint = { cmd = "ruff check src/ && ruff format --check src/", cwd = "backend" }
+lint-fix = { cmd = "ruff check src/ --fix && ruff format src/", cwd = "backend" }
+typecheck = { cmd = "mypy src/", cwd = "backend" }
+format = { cmd = "ruff format src/", cwd = "backend" }
+migrate = { cmd = "python -m alembic upgrade head", cwd = "backend" }
+migrate-create = { cmd = "python -m alembic revision --autogenerate", cwd = "backend" }
+seed = { cmd = "python scripts/seed_wards.py", cwd = "backend" }
+train = { cmd = "echo 'Training requires a separate venv. See backend/src/ml/training/README.md'", cwd = "backend" }
+dvc-pull = { cmd = "dvc pull -r origin --jobs 4" }
+dvc-status = { cmd = "dvc status" }
+frontend = { cmd = "npm run dev", cwd = "frontend" }
+frontend-build = { cmd = "npm run build", cwd = "frontend" }
+frontend-test = { cmd = "npm run test", cwd = "frontend" }
+all = { cmd = "echo 'Run pixi run dev in one terminal and pixi run frontend in another'", depends-on = [] }
+clean = { cmd = "python -c \"import shutil; [shutil.rmtree(d, True) for d in ['__pycache__', 'backend/__pycache__', '.pytest_cache', 'backend/.pytest_cache']]; print('Cleaned')\"" }
+setup = { cmd = "pre-commit install && echo 'Pre-commit hooks installed'" }
+
+[environments]
+default = { features = ["dev", "ml"], solve-group = "default" }
+ml = { features = ["ml"], solve-group = "default" }
+ci = { features = ["dev"], solve-group = "default" }

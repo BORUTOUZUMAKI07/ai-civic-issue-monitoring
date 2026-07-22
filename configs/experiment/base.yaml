@@ -1,0 +1,3 @@
+mlflow:
+  experiment_name: civic_issue_monitoring_v2
+  tracking_uri: sqlite:///mlflow.db

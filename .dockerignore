@@ -1,0 +1,49 @@
+# Environments
+.venv/
+venv/
+ENV/
+.env
+
+# Git & CI/CD
+.git/
+.github/
+.gitignore
+.dockerignore
+
+# Data & Models (Should be mounted via volumes)
+data/
+external_data/
+models/
+outputs/
+reports/
+logs/
+mlruns/
+*.db
+mlflow.db
+optuna.db
+
+# DVC
+.dvc/
+.dvcignore
+dvc.yaml
+dvc.lock
+
+# Build & Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+*.egg-info/
+dist/
+build/
+
+# Frontend (if present in build context)
+frontend/node_modules/
+frontend/dist/
+
+# System Files
+.DS_Store
+Thumbs.db

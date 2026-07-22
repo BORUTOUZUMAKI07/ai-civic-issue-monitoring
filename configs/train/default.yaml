@@ -1,0 +1,4 @@
+epochs: 20
+batch_size: 32
+learning_rate: 0.000968 # Best from Optuna (Trial 14)
+n_trials: 20
