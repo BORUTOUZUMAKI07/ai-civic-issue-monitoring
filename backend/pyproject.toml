@@ -55,6 +55,8 @@ ml = [
     "peft>=0.14.0",
     "optuna>=4.0.0",
     "pyyaml>=6.0",
+    "onnxruntime>=1.19.0",
+    "onnx>=1.16.0",
 ]
 
 [tool.pytest.ini_options]
