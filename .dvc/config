@@ -1,6 +1,9 @@
 [core]
-    remote = origin
+    remote = s3dagshub
 ['remote "origin"']
     url = https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring.dvc
     auth = basic
     user = ram.atchutratna
+['remote "s3dagshub"']
+    url = s3://dvc
+    endpointurl = https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring.s3
