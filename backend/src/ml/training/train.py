@@ -309,6 +309,13 @@ def main():
     torch.save(merged.state_dict(), str(model_path))
     logger.info("Saved merged model to %s (%.2f MB)", model_path, model_path.stat().st_size / 1e6)
 
+    # Export to ONNX for faster CPU inference
+    try:
+        from src.ml.models.export_onnx import export_to_onnx
+        export_to_onnx(num_classes=len(CLASS_NAMES), opset=18)
+    except Exception as e:
+        logger.warning("ONNX export failed (non-fatal): %s", e)
+
     # Save metrics
     METRICS_PATH.parent.mkdir(parents=True, exist_ok=True)
     metrics = {
