@@ -33,7 +33,7 @@ from retrain_model import retrain_model_flow  # noqa: E402
 from sla_monitoring import sla_monitoring_flow  # noqa: E402
 
 WORK_POOL = os.getenv("PREFECT_WORK_POOL", "prefect-managed")
-IMAGE = os.getenv("PREFECT_IMAGE", "ghcr.io/ramatchutratna/civicpulse-flows:latest")
+IMAGE = os.getenv("PREFECT_IMAGE", "ghcr.io/borutouzumaaki07/civicpulse-flows:latest")
 
 # Exactly 5 deployments = Hobby plan limit. retrain-model handles both the
 # weekly trigger (mode="trigger") and the event-driven poller (mode="check").
