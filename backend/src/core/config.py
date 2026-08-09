@@ -90,6 +90,11 @@ class Settings(BaseSettings):
     DRIFT_WINDOW_SIZE: int = 10
     DRIFT_ALERT_THRESHOLD: float = 0.05
 
+    # --- A/B Testing ---
+    AB_TEST_ENABLED: bool = False
+    AB_TEST_MODE: str = "shadow"  # "shadow" or "traffic_split"
+    AB_TEST_TRAFFIC_PCT: float = 0.1  # 10% to challenger
+
     # --- DagsHub / MLflow ---
     DAGSHUB_USERNAME: str = "ram.atchutratna"
     DAGSHUB_REPO: str = "ai-civic-issue-monitoring"

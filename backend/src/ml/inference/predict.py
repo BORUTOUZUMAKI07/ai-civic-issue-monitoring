@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -116,9 +118,11 @@ def predict_issue(image: Image.Image) -> dict:
     """Run inference on an image.
 
     Prefers ONNX Runtime (faster on CPU), falls back to PyTorch.
+    Logs prediction to MongoDB for drift detection.
 
     Returns {"label": str, "confidence": float, "probabilities": dict}.
     """
+    start_time = time.perf_counter()
     session = _get_onnx_session()
 
     if session is not None:
@@ -132,39 +136,60 @@ def predict_issue(image: Image.Image) -> dict:
         pred_idx = int(np.argmax(probs, axis=1)[0])
         confidence = float(probs[0][pred_idx])
         all_probs = {CLASS_NAMES[i]: round(float(probs[0][i]), 4) for i in range(len(CLASS_NAMES))}
+        model_type = "onnx"
+        model_path = str(ONNX_PATH)
+    else:
+        import torch
+        model = _get_torch_model()
+        device = _get_device()
+        img_tensor = _transform(image).unsqueeze(0).to(device)
 
-        return {
-            "label": CLASS_NAMES[pred_idx],
-            "confidence": round(confidence, 4),
-            "probabilities": all_probs,
-            "model": "mobilenet_v2_onnx",
-            "model_path": str(ONNX_PATH),
-            "adapter_path": None,
-        }
+        with torch.no_grad():
+            outputs = model(img_tensor)
+            probs = torch.softmax(outputs, dim=1)
 
-    import torch
+        confidence, pred_idx = torch.max(probs, dim=1)
+        all_probs = {CLASS_NAMES[i]: round(probs[0][i].item(), 4) for i in range(len(CLASS_NAMES))}
+        model_type = _model_type or "pytorch"
+        model_path = str(MODEL_PATH)
 
-    model = _get_torch_model()
-    device = _get_device()
-    img_tensor = _transform(image).unsqueeze(0).to(device)
+    elapsed_ms = (time.perf_counter() - start_time) * 1000
+    label = CLASS_NAMES[pred_idx] if isinstance(pred_idx, int) else CLASS_NAMES[int(pred_idx)]
 
-    with torch.no_grad():
-        outputs = model(img_tensor)
-        probs = torch.softmax(outputs, dim=1)
-
-    confidence, pred_idx = torch.max(probs, dim=1)
-    label = CLASS_NAMES[int(pred_idx.item())]
-    conf_val = round(confidence.item(), 4)
-    all_probs = {CLASS_NAMES[i]: round(probs[0][i].item(), 4) for i in range(len(CLASS_NAMES))}
-
-    return {
+    result = {
         "label": label,
-        "confidence": conf_val,
+        "confidence": round(confidence, 4) if isinstance(confidence, float) else round(float(confidence), 4),
         "probabilities": all_probs,
-        "model": f"mobilenet_v2_{_model_type or 'unknown'}",
-        "model_path": str(MODEL_PATH),
+        "model": f"mobilenet_v2_{model_type}",
+        "model_path": model_path,
         "adapter_path": str(ADAPTER_DIR) if ADAPTER_DIR.exists() else None,
+        "inference_time_ms": round(elapsed_ms, 2),
     }
+
+    _log_prediction_for_drift(result)
+    return result
+
+
+def _log_prediction_for_drift(result: dict):
+    """Log prediction to MongoDB for drift detection (fire-and-forget, sync)."""
+    try:
+        import os
+        from pymongo import MongoClient
+
+        mongo_uri = os.getenv("MONGODB_URI", "mongodb://admin:adminpassword@localhost:27017")
+        client = MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
+        db = client["civicpulse_analytics"]
+        db["predictions"].insert_one({
+            "predicted_label": result["label"],
+            "confidence": result["confidence"],
+            "probabilities": result["probabilities"],
+            "model": result["model"],
+            "inference_time_ms": result["inference_time_ms"],
+            "created_at": datetime.now(timezone.utc),
+        })
+        client.close()
+    except Exception as e:
+        logger.debug("Drift logging failed (non-fatal): %s", e)
 
 
 def get_model_info() -> dict:

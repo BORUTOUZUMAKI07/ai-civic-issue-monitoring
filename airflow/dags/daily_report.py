@@ -106,7 +106,7 @@ with DAG(
     dag_id="daily_report",
     default_args=default_args,
     description="Generate and store daily stats report",
-    schedule_interval="0 8 * * *",
+    schedule="0 8 * * *",
     start_date=datetime(2024, 1, 1),
     catchup=False,
     tags=["civicpulse", "reporting", "stats"],

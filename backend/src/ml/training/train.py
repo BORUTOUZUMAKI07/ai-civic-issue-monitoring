@@ -22,6 +22,7 @@ import torch.optim as optim
 import yaml
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
+from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -86,13 +87,15 @@ def get_dataloaders(data_path: str, batch_size: int) -> tuple[DataLoader, DataLo
 # ---------------------------------------------------------------------------
 # Training helpers
 # ---------------------------------------------------------------------------
-def train_one_epoch(model, loader, criterion, optimizer, device) -> tuple[float, float]:
+def train_one_epoch(model, loader, criterion, optimizer, device, epoch: int = 0, n_epochs: int = 0) -> tuple[float, float]:
     model.train()
     total_loss = 0.0
     correct = 0
     total = 0
+    desc = f"Train epoch {epoch}/{n_epochs}" if n_epochs else "Train"
 
-    for images, labels in loader:
+    pbar = tqdm(loader, desc=desc, leave=False)
+    for images, labels in pbar:
         images, labels = images.to(device), labels.to(device)
         optimizer.zero_grad()
         outputs = model(images)
@@ -104,18 +107,21 @@ def train_one_epoch(model, loader, criterion, optimizer, device) -> tuple[float,
         _, predicted = torch.max(outputs, 1)
         correct += (predicted == labels).sum().item()
         total += labels.size(0)
+        pbar.set_postfix(loss=f"{total_loss / (pbar.n + 1):.4f}", acc=f"{correct / total:.4f}")
 
     return total_loss / len(loader), correct / total
 
 
-def validate(model, loader, criterion, device) -> tuple[float, float]:
+def validate(model, loader, criterion, device, epoch: int = 0, n_epochs: int = 0) -> tuple[float, float]:
     model.eval()
     total_loss = 0.0
     correct = 0
     total = 0
+    desc = f"Val epoch {epoch}/{n_epochs}" if n_epochs else "Val"
 
     with torch.no_grad():
-        for images, labels in loader:
+        pbar = tqdm(loader, desc=desc, leave=False)
+        for images, labels in pbar:
             images, labels = images.to(device), labels.to(device)
             outputs = model(images)
             loss = criterion(outputs, labels)
@@ -124,6 +130,7 @@ def validate(model, loader, criterion, device) -> tuple[float, float]:
             _, predicted = torch.max(outputs, 1)
             correct += (predicted == labels).sum().item()
             total += labels.size(0)
+            pbar.set_postfix(loss=f"{total_loss / (pbar.n + 1):.4f}", acc=f"{correct / total:.4f}")
 
     return total_loss / len(loader), correct / total
 
@@ -185,8 +192,8 @@ def objective(trial: optuna.Trial, data_path: str, n_epochs: int) -> float:
         })
 
         for epoch in range(search_epochs):
-            train_loss, _ = train_one_epoch(model, train_loader, criterion, optimizer, DEVICE)
-            val_loss, val_acc = validate(model, val_loader, criterion, DEVICE)
+            train_loss, _ = train_one_epoch(model, train_loader, criterion, optimizer, DEVICE, epoch + 1, search_epochs)
+            val_loss, val_acc = validate(model, val_loader, criterion, DEVICE, epoch + 1, search_epochs)
 
             mlflow.log_metrics({
                 "train_loss": train_loss,
@@ -277,9 +284,9 @@ def main():
 
         for epoch in range(n_epochs):
             train_loss, train_acc = train_one_epoch(
-                model, train_loader, criterion, optimizer, DEVICE
+                model, train_loader, criterion, optimizer, DEVICE, epoch + 1, n_epochs
             )
-            val_loss, val_acc = validate(model, val_loader, criterion, DEVICE)
+            val_loss, val_acc = validate(model, val_loader, criterion, DEVICE, epoch + 1, n_epochs)
 
             mlflow.log_metrics({
                 "train_loss": train_loss,
@@ -297,6 +304,13 @@ def main():
                 best_val_acc = val_acc
 
         mlflow.log_metric("best_val_acc", best_val_acc)
+
+        # Log model artifact so MLflow Model Registry can register runs:/<run_id>/model
+        try:
+            merged_log = merge_adapter(model)
+            mlflow.pytorch.log_model(merged_log, artifact_path="model")
+        except Exception as e:
+            logger.warning("MLflow model artifact logging failed (non-fatal): %s", e)
 
     # Save adapter weights only (~1-5MB)
     ADAPTER_DIR.mkdir(parents=True, exist_ok=True)

@@ -82,3 +82,8 @@ _dagshub_review/
 node_modules/
 .next/
 frontend/.next/
+
+# --- Airflow fallback (contains live cloud credentials) ---
+airflow/docker-compose.yaml
+airflow/logs/
+airflow/plugins/

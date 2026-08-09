@@ -67,7 +67,7 @@ with DAG(
     dag_id="audit_log_archival",
     default_args=default_args,
     description="Archive old drift reports and escalation logs to cold storage",
-    schedule_interval="0 3 1 * *",
+    schedule="0 3 1 * *",
     start_date=datetime(2024, 1, 1),
     catchup=False,
     tags=["civicpulse", "archive", "maintenance"],

@@ -131,7 +131,7 @@ with DAG(
     dag_id="sla_monitoring",
     default_args=default_args,
     description="Monitor SLA violations and escalate",
-    schedule_interval="0 * * * *",
+    schedule="0 * * * *",
     start_date=datetime(2024, 1, 1),
     catchup=False,
     tags=["civicpulse", "sla", "escalation"],
