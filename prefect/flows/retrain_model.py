@@ -397,13 +397,13 @@ def run_check(
         from pymongo import MongoClient
         with MongoClient(uri) as client:
             state = client[MONGO_DB][STATE_COLLECTION].find_one({"_id": "current"})
+            # drift_report may not be in state; fetch latest as fallback
+            if drift_report is None:
+                drift_report = client[MONGO_DB]["drift_reports"].find_one(sort=[("timestamp", -1)])
         if not state or not state.get("in_progress"):
             logger.info("No active retrain in progress, exiting")
             return {"status": "no_active_retrain"}
         trigger_time_ms = state["trigger_time_ms"]
-        # drift_report may not be in state; fetch latest as fallback
-        if drift_report is None:
-            drift_report = client[MONGO_DB]["drift_reports"].find_one(sort=[("timestamp", -1)])
 
     # Deadline guard: don't run past 2h from trigger
     deadline_ms = trigger_time_ms + 7_200_000  # 2h
