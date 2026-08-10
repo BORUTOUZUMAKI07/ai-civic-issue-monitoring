@@ -196,13 +196,23 @@ def poll_training_status(token: str, trigger_time_ms: int) -> dict:
     auth = (DAGSHUB_USER, token)
     base = MLFLOW_BASE
 
-    exp_resp = requests.get(f"{base}/experiments/list", auth=auth, timeout=30)
+    exp_resp = requests.get(
+        f"{base}/experiments/search",
+        params={"max_results": 100},
+        auth=auth,
+        timeout=30,
+    )
     exp_resp.raise_for_status()
     exp_id = next(
-        e["experiment_id"]
-        for e in exp_resp.json()["experiments"]
-        if e["name"] == MLFLOW_EXPERIMENT
+        (e["experiment_id"] for e in exp_resp.json().get("experiments", []) if e["name"] == MLFLOW_EXPERIMENT),
+        None,
     )
+    if exp_id is None:
+        logger.warning(
+            "MLflow experiment %r not found (server may have no runs yet)",
+            MLFLOW_EXPERIMENT,
+        )
+        return {"finished": False, "status": "experiment_not_found"}
 
     resp = requests.post(
         f"{base}/runs/search",
@@ -279,7 +289,7 @@ def evaluate_and_register(uri: str, token: str, run_info: dict, drift_report: di
             create_resp.raise_for_status()
 
         version_resp = requests.post(
-            f"{MLFLOW_BASE}/registered-models/versions/create",
+            f"{MLFLOW_BASE}/model-versions/create",
             auth=auth,
             headers=headers,
             json={
@@ -292,7 +302,7 @@ def evaluate_and_register(uri: str, token: str, run_info: dict, drift_report: di
         if version_resp.status_code == 200:
             version = version_resp.json()["model_version"]["version"]
             transition_resp = requests.post(
-                f"{MLFLOW_BASE}/registered-models/versions/transition",
+                f"{MLFLOW_BASE}/model-versions/transition-stage",
                 auth=auth,
                 headers=headers,
                 json={
@@ -400,6 +410,11 @@ def run_check(
         evaluate_and_register(uri, token, poll_result, drift_report)
         clear_retrain_state(uri)
         return {"status": "completed", **poll_result}
+
+    if poll_result.get("status") == "experiment_not_found":
+        logger.warning("MLflow experiment %r not found; stopping retrain check", MLFLOW_EXPERIMENT)
+        clear_retrain_state(uri)
+        return poll_result
 
     # Not finished yet → re-schedule a check run in 5 minutes
     from datetime import timedelta

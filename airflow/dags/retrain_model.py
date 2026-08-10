@@ -134,13 +134,20 @@ def poll_training_status(**context):
     auth = ("ram.atchutratna", token)
     deadline = time.time() + 7200  # 2h cap
 
-    exp_resp = requests.get(f"{MLFLOW_BASE}/experiments/list", auth=auth, timeout=30)
+    exp_resp = requests.get(
+        f"{MLFLOW_BASE}/experiments/search",
+        params={"max_results": 100},
+        auth=auth, timeout=30,
+    )
     exp_resp.raise_for_status()
     exp_id = next(
-        e["experiment_id"]
-        for e in exp_resp.json()["experiments"]
-        if e["name"] == MLFLOW_EXPERIMENT
+        (e["experiment_id"] for e in exp_resp.json().get("experiments", []) if e["name"] == MLFLOW_EXPERIMENT),
+        None,
     )
+    if exp_id is None:
+        raise RuntimeError(
+            f"MLflow experiment {MLFLOW_EXPERIMENT!r} not found on DagsHub MLflow server"
+        )
 
     while time.time() < deadline:
         resp = requests.post(
@@ -222,7 +229,7 @@ def evaluate_and_register(**context):
             create_resp.raise_for_status()
 
         version_resp = requests.post(
-            f"{MLFLOW_BASE}/registered-models/versions/create",
+            f"{MLFLOW_BASE}/model-versions/create",
             auth=auth, headers=headers,
             json={
                 "name": REGISTERED_MODEL,
@@ -234,7 +241,7 @@ def evaluate_and_register(**context):
         if version_resp.status_code == 200:
             version = version_resp.json()["model_version"]["version"]
             transition_resp = requests.post(
-                f"{MLFLOW_BASE}/registered-models/versions/transition",
+                f"{MLFLOW_BASE}/model-versions/transition-stage",
                 auth=auth, headers=headers,
                 json={
                     "name": REGISTERED_MODEL,
