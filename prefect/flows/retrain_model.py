@@ -244,12 +244,16 @@ def poll_training_status(token: str, trigger_time_ms: int) -> dict:
 
         status = info.get("status")
         if status == "FINISHED":
-            values = run["data"].get("metrics", {}).get("best_val_acc", [])
-            new_acc = float(values[-1]["value"]) if values else 0.0
+            metrics = run["data"].get("metrics", [])
+            new_acc = float(
+                next((m["value"] for m in metrics if m.get("key") == "best_val_acc"), 0.0)
+            )
+            params = run["data"].get("params", [])
+            best_params = {p.get("key"): p.get("value") for p in params}
             result = {
                 "run_id": info["run_id"],
                 "best_val_acc": new_acc,
-                "best_params": run["data"].get("params", {}),
+                "best_params": best_params,
                 "finished": True,
             }
             logger.info(
