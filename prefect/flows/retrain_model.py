@@ -404,6 +404,8 @@ def run_check(
             # drift_report may not be in state; fetch latest as fallback
             if drift_report is None:
                 drift_report = client[MONGO_DB]["drift_reports"].find_one(sort=[("timestamp", -1)])
+                if drift_report is not None:
+                    drift_report.pop("_id", None)  # ObjectId is not JSON-serializable
         if not state or not state.get("in_progress"):
             logger.info("No active retrain in progress, exiting")
             return {"status": "no_active_retrain"}
