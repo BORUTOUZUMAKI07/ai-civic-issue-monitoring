@@ -1,6 +1,6 @@
 """Audit log archival flow: move >90-day docs to archived_* collections.
 
-Port of airflow/dags/audit_log_archival.py. Original schedule: 1st of month 03:00 UTC.
+Schedule: 1st of month 03:00 UTC.
 """
 from __future__ import annotations
 

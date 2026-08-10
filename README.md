@@ -15,14 +15,14 @@ A professional, production-grade system for monitoring and managing civic issues
 | **Frontend** | Next.js | Clean, responsive dashboard for viewing issues. |
 | **ML Engine** | PyTorch + LangGraph | Custom trained models for issue classification + agent pipeline. |
 | **Monitoring** | Evidently | Data drift detection and model performance monitoring. |
-| **Scheduling** | Apache Airflow | Automated drift detection, SLA monitoring, and reporting. |
+| **Scheduling** | Prefect Cloud | Automated drift detection, SLA monitoring, reporting, and ML retraining. |
 | **Observability** | NewRelic | APM and distributed tracing. |
 | **Containerization** | Docker | Full stack orchestration via Docker Compose. |
 
 **Directory Structure:**
 - `backend/src/`: FastAPI backend (domains, models, repositories, agents).
 - `backend/ml/`: ML Pipeline (training, evaluation, drift detection).
-- `backend/airflow/`: Airflow DAGs and configuration.
+- `prefect/`: Prefect Cloud flows and deployment config.
 - `frontend/`: Next.js application.
 - `docker/`: Dockerfiles and Compose configurations.
 
@@ -115,7 +115,6 @@ docker-compose up -d --build
 | :--- | :--- | :--- |
 | **Frontend Dashboard** | [http://localhost:3000](http://localhost:3000) | - |
 | **Backend API Docs** | [http://localhost:8000/docs](http://localhost:8000/docs) | - |
-| **Airflow** | [http://localhost:8080](http://localhost:8080) | User: `admin` |
 | **Prometheus** | [http://localhost:9090](http://localhost:9090) | - |
 
 ---
@@ -192,17 +191,18 @@ We use **Evidently** and **LangGraph** agents to ensure the model doesn't "drift
 
 1. **Real-Time Classification**: MobileNetV2 + keyword-based fallback classifier
 2. **Agent Pipeline**: LangGraph-based routing, escalation, and matching
-3. **Drift Detection**: Automated accuracy and distribution drift monitoring via Airflow
+3. **Drift Detection**: Automated accuracy and distribution drift monitoring via Prefect
 4. **SLA Monitoring**: Hourly checks for issue resolution compliance
 
-### Airflow DAGs
+### Prefect Flows
 
-| DAG | Schedule | Purpose |
+| Flow | Schedule | Purpose |
 | :--- | :--- | :--- |
-| `drift_detection` | Daily 2AM | Check for model accuracy/distribution drift |
-| `sla_monitoring` | Hourly | Monitor issue resolution SLA compliance |
-| `daily_report` | Daily 8AM | Generate daily issue summary reports |
-| `audit_log_archival` | Monthly | Archive old audit logs to cold storage |
+| `drift-detection` | Daily 2AM UTC | Check for model accuracy/distribution drift |
+| `sla-monitoring` | Hourly | Monitor issue resolution SLA compliance |
+| `daily-report` | Daily 8AM UTC | Generate daily issue summary reports |
+| `audit-log-archival` | Monthly | Archive old audit logs to cold storage |
+| `retrain-model` | Weekly + event-driven | Drift-triggered ML retraining via MLflow (DagsHub) |
 
 ---
 
@@ -227,6 +227,6 @@ We use **Evidently** and **LangGraph** agents to ensure the model doesn't "drift
 ### DevOps
 - Pixi (Python package management)
 - Docker + Docker Compose
-- Apache Airflow (scheduling)
+- Prefect Cloud (scheduling + orchestration)
 - GitHub Actions (CI/CD)
 - NewRelic (observability)

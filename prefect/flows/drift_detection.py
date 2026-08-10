@@ -1,6 +1,6 @@
 """Drift detection flow: fetch recent predictions, write a drift report.
 
-Port of airflow/dags/drift_detection.py. Original schedule: daily 02:00 UTC.
+Schedule: daily 02:00 UTC.
 """
 from __future__ import annotations
 

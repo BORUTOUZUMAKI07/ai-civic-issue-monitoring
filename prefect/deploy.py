@@ -12,7 +12,7 @@ Usage:
     prefect cloud login                       # once: authenticate to a workspace
     python deploy.py                          # creates managed work pool + 5 deployments + automation
 
-Schedules match the original Airflow DAGs (UTC). Exactly 5 deployments (Hobby limit);
+Schedules are UTC. Exactly 5 deployments (Hobby limit);
 retrain-model dispatches trigger vs. event-driven check via the `mode` parameter.
 """
 from __future__ import annotations

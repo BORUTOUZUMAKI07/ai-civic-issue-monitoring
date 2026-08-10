@@ -1,6 +1,6 @@
 """SLA monitoring flow: detect violations, escalate exceeded, log summary.
 
-Port of airflow/dags/sla_monitoring.py. Original schedule: hourly.
+Schedule: hourly (UTC).
 """
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 """Daily report flow: aggregate Postgres issue stats, upsert into Mongo.
 
-Port of airflow/dags/daily_report.py. Original schedule: daily 08:00 UTC.
+Schedule: daily 08:00 UTC.
 """
 from __future__ import annotations
 

@@ -90,12 +90,12 @@ def trigger_retraining(token: str) -> int:
 
     work_dir = Path(tempfile.mkdtemp(prefix="civicpulse-retrain-"))
     _run_git(["clone", "--depth", "1", DAGSHUB_GIT_URL, str(work_dir)], work_dir.parent)
-    _run_git(["config", "user.email", "civicpulse-airflow@civicpulse.com"], work_dir)
-    _run_git(["config", "user.name", "CivicPulse Airflow"], work_dir)
+    _run_git(["config", "user.email", "civicpulse-prefect@civicpulse.com"], work_dir)
+    _run_git(["config", "user.name", "CivicPulse Prefect"], work_dir)
 
     trigger_time_ms = int(time.time() * 1000)
     _run_git(
-        ["commit", "--allow-empty", "-m", f"Airflow retrain trigger [{trigger_time_ms}]"],
+        ["commit", "--allow-empty", "-m", f"Prefect retrain trigger [{trigger_time_ms}]"],
         work_dir,
     )
     try:

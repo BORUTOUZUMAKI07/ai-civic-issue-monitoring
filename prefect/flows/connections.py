@@ -11,7 +11,7 @@ Token fallback: a Prefect Secret block named "dagshub-token" (created via
 `prefect block create secret` or the Cloud UI).
 
 Env var names mirror the backend .env. URI values are the same connection
-strings that were used as Airflow connections on Astronomer.
+strings used across the platform's services.
 """
 from __future__ import annotations
 
