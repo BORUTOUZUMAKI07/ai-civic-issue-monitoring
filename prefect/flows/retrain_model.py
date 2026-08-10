@@ -98,10 +98,19 @@ def trigger_retraining(token: str) -> int:
         ["commit", "--allow-empty", "-m", f"Airflow retrain trigger [{trigger_time_ms}]"],
         work_dir,
     )
-    _run_git(["push", "origin", "main"], work_dir)
+    try:
+        _run_git(["push", "origin", "main"], work_dir)
+        logger.info(
+            "Pushed empty commit; training workflow should start (ts=%s)",
+            trigger_time_ms,
+        )
+    except RuntimeError as exc:
+        logger.warning(
+            "Empty-commit push failed (non-fatal, mirror is read-only): %s. "
+            "The retrain event still fires.",
+            str(exc)[:300],
+        )
     shutil.rmtree(work_dir, ignore_errors=True)
-
-    logger.info("Pushed empty commit; training workflow should start (ts=%s)", trigger_time_ms)
     return trigger_time_ms
 
 
