@@ -115,7 +115,7 @@ def log_sla_summary(mongo_uri: str, violations: list[dict]) -> None:
     from pymongo import MongoClient
 
     with MongoClient(mongo_uri) as client:
-        client[MONGO_DB]["sla_reports"].insert_one(summary)
+        client[MONGO_DB]["sla_reports"].insert_one(dict(summary))
     logger.info("SLA summary: %s", json.dumps(summary))
 
 
