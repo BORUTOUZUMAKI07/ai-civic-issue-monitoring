@@ -137,7 +137,7 @@ def log_skip(uri: str, drift_report: dict | None) -> None:
     }
     from pymongo import MongoClient
     with MongoClient(uri) as client:
-        client[MONGO_DB]["retrain_logs"].insert_one(log_entry)
+        client[MONGO_DB]["retrain_logs"].insert_one(dict(log_entry))
     logger.info("Retrain skipped: %s", json.dumps(log_entry))
 
 
