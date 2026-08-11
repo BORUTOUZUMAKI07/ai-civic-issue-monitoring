@@ -33,7 +33,6 @@ mamba/
 
 # --- Pixi ---
 .pixi/
-pixi.lock
 
 # --- ML/Data (Tracked by DVC) ---
 data/*
@@ -62,6 +61,7 @@ Thumbs.db
 # --- DVC ---
 /data/raw
 /models/model.pth
+/models/model.onnx
 /models/adapter
 /metrics
 /optuna_data

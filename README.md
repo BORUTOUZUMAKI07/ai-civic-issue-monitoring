@@ -174,11 +174,12 @@ pixi run frontend:test
 ### DVC (Data Version Control)
 
 ```bash
-# Pull training data
+# Pull training data + model artifacts (versioned, not stored in git)
 dvc pull
 
-# Run full pipeline
-dvc repro
+# Version a model artifact after retraining
+dvc add models/model.onnx
+dvc push
 ```
 
 ---
