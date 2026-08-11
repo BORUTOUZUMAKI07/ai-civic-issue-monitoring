@@ -24,28 +24,29 @@ def build_model(num_classes: int, unfreeze_last_n: int = 0):
 
 def build_peft_model(
     num_classes: int,
+    method: str = "lora",
     lora_r: int = 8,
     lora_alpha: int = 16,
     lora_dropout: float = 0.1,
-    use_dora: bool = False,
     unfreeze_last_n: int = 0,
+    total_step: int = 300,
 ):
-    """Build MobileNetV2 with LoRA/DoRA adapter for PEFT.
+    """Build MobileNetV2 with a PEFT adapter.
 
     Returns a PeftModel ready for parameter-efficient fine-tuning.
-    Only ~1-5% of parameters are trainable.
+    Only ~0.1-4% of parameters are trainable.
     """
-    from src.ml.training.peft_wrapper import apply_lora
+    from src.ml.training.peft_wrapper import apply_peft
 
     base_model = build_model(num_classes, unfreeze_last_n=unfreeze_last_n)
-    peft_model = apply_lora(
+    return apply_peft(
         base_model,
+        method=method,
         r=lora_r,
         alpha=lora_alpha,
         dropout=lora_dropout,
-        use_dora=use_dora,
+        total_step=total_step,
     )
-    return peft_model
 
 
 def robust_load_state_dict(model: nn.Module, state_dict: dict):

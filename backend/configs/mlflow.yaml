@@ -16,15 +16,18 @@ training:
 
 # PEFT
 peft:
-  method: lora  # lora or dora
-  lora_r: [4, 8, 16, 32]
-  lora_alpha: [8, 16, 32]
-  lora_dropout: [0.05, 0.1, 0.2]
-  use_dora: [true, false]
+  # Research-informed method pool (weighted toward DoRA/LoRA families):
+  # dora, dora_plus, lora, lora_plus, rslora, lora_fa, adalora, ia3, oft, boft, loha, lokr
+  # VeRA/PiSSA/Delta-LoRA are NOT applicable (Linear-only in peft 0.20, our backbone is conv).
+  method: lora
+  lora_r: [8, 16]
+  lora_alpha: 2r  # alpha = 2 * r recipe, not searched
+  lora_dropout: [0.0, 0.05]
+  loraplus_ratio: 16.0
   target_modules:
-    - features.14.conv.0
-    - features.15.conv.0
-    - features.16.conv.0
+    - features.14.conv.2
+    - features.15.conv.2
+    - features.16.conv.2
 
 # Optuna
 optuna:

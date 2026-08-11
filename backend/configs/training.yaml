@@ -1,0 +1,65 @@
+# Training configuration for the CivicPulse issue classifier.
+# The search space ("grocery list") lives HERE, not in train.py.
+#
+# IMPORTANT: For an already-created Optuna study (e.g. optuna_v3.db /
+# civicpulse-peft-v3), these values must stay IDENTICAL to how the study was
+# created. Changing a distribution mid-study raises Optuna
+# "distribution is not compatible" errors. Create a fresh storage/study name
+# whenever you change the search space.
+
+# ---------------------------------------------------------------------------
+# PEFT method search space (research-informed, not blind random).
+# Weighted by published evidence: DoRA (ICML'24) beats LoRA on accuracy; the
+# LoRA family (incl. rsLoRA, LoRA+, LoRA-FA) is the strongest baseline; the
+# remaining methods fill out a fair comparison. Repeating entries in
+# peft_methods biases Optuna's categorical draw toward those methods.
+# ---------------------------------------------------------------------------
+search:
+  peft_methods:
+    - dora
+    - dora
+    - dora
+    - dora_plus
+    - dora_plus
+    - dora_plus
+    - lora
+    - lora
+    - lora_plus
+    - lora_plus
+    - rslora
+    - rslora
+    - lora_fa
+    - adalora
+    - oft
+    - boft
+    - loha
+    - lokr
+    - ia3
+  lora_r: [8, 16]               # rank options (searched)
+  lora_alpha: "2r"              # alpha = 2 * r recipe (not searched)
+  lora_dropout: [0.0, 0.05]     # dropout options (searched)
+  lr:
+    min: 0.0005
+    max: 0.01
+    log: true
+  batch_size: [32, 64]
+  unfreeze_last_n: [0, 3]       # 0 = freeze backbone, 3 = unfreeze last 3 blocks
+
+# Fixed optimizer/objective constants
+loraplus_ratio: 16.0            # LoRA+/DoRA+ trains lora_B at lr * ratio vs lora_A
+class_balance_beta: 0.999       # Cui et al. class-balanced loss beta
+
+# ---------------------------------------------------------------------------
+# Optuna
+# ---------------------------------------------------------------------------
+optuna:
+  n_trials: 15
+  direction: "maximize"         # we maximize val macro-F1
+  storage: "sqlite:///optuna_v3.db"
+  study_name: "civicpulse-peft-v3"
+
+# ---------------------------------------------------------------------------
+# Training
+# ---------------------------------------------------------------------------
+training:
+  epochs: 4                     # per-trial epochs during search

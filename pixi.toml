@@ -68,6 +68,7 @@ torchvision = ">=0.15.0"
 peft = ">=0.14.0"
 optuna = ">=4.0.0"
 pyyaml = ">=6.0"
+mlflow = ">=2.20.0"
 civicpulse-backend = {path = "./backend", editable = true, extras = ["ml"]}
 
 [tasks]
@@ -82,7 +83,7 @@ format = { cmd = "ruff format src/", cwd = "backend" }
 migrate = { cmd = "python -m alembic upgrade head", cwd = "backend" }
 migrate-create = { cmd = "python -m alembic revision --autogenerate", cwd = "backend" }
 seed = { cmd = "python scripts/seed_wards.py", cwd = "backend" }
-train = { cmd = "echo 'Training requires a separate venv. See backend/src/ml/training/README.md'", cwd = "backend" }
+train = { cmd = "python -u backend/src/ml/training/train.py", env = { PYTHONPATH = "backend", PYTHONIOENCODING = "utf-8" } }
 dvc-pull = { cmd = "dvc pull -r origin --jobs 4" }
 dvc-status = { cmd = "dvc status" }
 frontend = { cmd = "npm run dev", cwd = "frontend" }
