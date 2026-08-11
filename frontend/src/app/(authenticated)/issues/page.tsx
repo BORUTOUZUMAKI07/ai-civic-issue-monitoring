@@ -7,9 +7,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Plus, Camera, Wifi, WifiOff, Search, Filter, ChevronRight, MapPin } from "lucide-react";
+import { Plus, Wifi, WifiOff, Search, ChevronRight, MapPin, LocateFixed } from "lucide-react";
 import { useState, useRef, useCallback } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
+import exifr from "exifr";
+
+const LocationPicker = dynamic(() => import("@/components/maps/LocationPicker").then((m) => m.LocationPicker), {
+  ssr: false,
+  loading: () => <div className="h-[260px] bg-muted animate-pulse rounded-lg" />,
+});
 
 const TYPE_ICONS: Record<string, string> = {
   pothole: "🕳️",
@@ -49,8 +56,10 @@ export default function IssuesPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [description, setDescription] = useState("");
-  const [lat, setLat] = useState("22.3072");
-  const [lon, setLon] = useState("73.1812");
+  const [lat, setLat] = useState("");
+  const [lon, setLon] = useState("");
+  const [locationSource, setLocationSource] = useState<"photo" | "device" | "pin" | null>(null);
+  const [locating, setLocating] = useState(false);
   const modalFileRef = useRef<HTMLInputElement>(null);
 
   const wsBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -68,36 +77,98 @@ export default function IssuesPage() {
 
   const { isConnected } = useWebSocket({ url: wsUrl, onMessage: onWsMessage, reconnectAttempts: 3, reconnectInterval: 5000 });
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const extractGpsFromPhoto = async (file: File): Promise<{ latitude: number; longitude: number } | null> => {
+    try {
+      const gps = await exifr.gps(file);
+      if (gps && typeof gps.latitude === "number" && typeof gps.longitude === "number") {
+        return { latitude: gps.latitude, longitude: gps.longitude };
+      }
+    } catch {
+      /* no GPS in EXIF */
+    }
+    return null;
+  };
+
+  const getDeviceLocation = async (): Promise<{ latitude: number; longitude: number } | null> => {
+    try {
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000, maximumAge: 30000 });
+      });
+      return { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+    } catch {
+      return null;
+    }
+  };
+
+  const parseLatLon = (): { lat: number; lon: number } | null => {
+    const latNum = parseFloat(lat);
+    const lonNum = parseFloat(lon);
+    if (Number.isNaN(latNum) || Number.isNaN(lonNum)) return null;
+    if (latNum < -90 || latNum > 90 || lonNum < -180 || lonNum > 180) return null;
+    return { lat: latNum, lon: lonNum };
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setSelectedFile(file);
     setPreviewUrl(URL.createObjectURL(file));
     setShowUploadModal(true);
+    setLat("");
+    setLon("");
+    setLocationSource(null);
+
+    const gps = await extractGpsFromPhoto(file);
+    if (gps) {
+      setLat(gps.latitude.toFixed(6));
+      setLon(gps.longitude.toFixed(6));
+      setLocationSource("photo");
+    }
+  };
+
+  const handleUseDeviceLocation = async () => {
+    setLocating(true);
+    const loc = await getDeviceLocation();
+    setLocating(false);
+    if (loc) {
+      setLat(loc.latitude.toFixed(6));
+      setLon(loc.longitude.toFixed(6));
+      setLocationSource("device");
+      toast.success("Location set from your device GPS");
+    } else {
+      toast.error("Could not get your location. Place a pin on the map instead.");
+    }
   };
 
   const handleUpload = async () => {
     if (!selectedFile) return;
     setUploading(true);
     try {
-      let uploadLat = parseFloat(lat);
-      let uploadLon = parseFloat(lon);
-      try {
-        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
-        });
-        uploadLat = pos.coords.latitude;
-        uploadLon = pos.coords.longitude;
-        setLat(String(uploadLat.toFixed(6)));
-        setLon(String(uploadLon.toFixed(6)));
-      } catch { /* use manual values */ }
+      let loc = parseLatLon();
+      if (!loc) {
+        const device = await getDeviceLocation();
+        if (device) {
+          loc = { lat: device.latitude, lon: device.longitude };
+          setLat(device.latitude.toFixed(6));
+          setLon(device.longitude.toFixed(6));
+          setLocationSource("device");
+        }
+      }
+      if (!loc) {
+        toast.error("Location is required. Use 'Use my location' or place a pin on the map.");
+        setUploading(false);
+        return;
+      }
 
-      await uploadMutation.mutateAsync({ file: selectedFile, latitude: uploadLat, longitude: uploadLon, description });
+      await uploadMutation.mutateAsync({ file: selectedFile, latitude: loc.lat, longitude: loc.lon, description });
       toast.success("Issue reported! AI classification in progress...");
       setShowUploadModal(false);
       setSelectedFile(null);
       setPreviewUrl(null);
       setDescription("");
+      setLat("");
+      setLon("");
+      setLocationSource(null);
     } catch (error: unknown) {
       toast.error(error instanceof Error ? error.message : "Upload failed");
     } finally {
@@ -178,15 +249,42 @@ export default function IssuesPage() {
                 <label className="text-sm font-medium">Description</label>
                 <Input placeholder="Describe the issue (e.g., large pothole near bus stop)" value={description} onChange={(e) => setDescription(e.target.value)} className="mt-1" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium">Latitude</label>
-                  <Input value={lat} onChange={(e) => setLat(e.target.value)} className="mt-1" />
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-sm font-medium">Location</label>
+                  <Button type="button" variant="outline" size="sm" onClick={handleUseDeviceLocation} disabled={locating} className="gap-1.5">
+                    <LocateFixed className="h-3.5 w-3.5" />
+                    {locating ? "Getting location..." : "Use my location"}
+                  </Button>
                 </div>
-                <div>
-                  <label className="text-sm font-medium">Longitude</label>
-                  <Input value={lon} onChange={(e) => setLon(e.target.value)} className="mt-1" />
+                <LocationPicker
+                  lat={lat ? parseFloat(lat) : null}
+                  lng={lon ? parseFloat(lon) : null}
+                  onChange={(l, n) => {
+                    setLat(l.toFixed(6));
+                    setLon(n.toFixed(6));
+                    setLocationSource("pin");
+                  }}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm font-medium">Latitude</label>
+                    <Input value={lat} onChange={(e) => setLat(e.target.value)} className="mt-1" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Longitude</label>
+                    <Input value={lon} onChange={(e) => setLon(e.target.value)} className="mt-1" />
+                  </div>
                 </div>
+                {locationSource ? (
+                  <p className="text-xs text-muted-foreground">
+                    Location from: {locationSource === "photo" ? "GPS embedded in the photo" : locationSource === "device" ? "your device GPS" : "map pin"}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Tap the map to set the exact location. GPS from your photo or device is used automatically when available.
+                  </p>
+                )}
               </div>
               <div className="flex gap-3 justify-end">
                 <Button variant="outline" onClick={() => { setShowUploadModal(false); setSelectedFile(null); setPreviewUrl(null); }}>Cancel</Button>
