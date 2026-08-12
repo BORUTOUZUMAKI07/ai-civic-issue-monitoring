@@ -12,9 +12,8 @@ import {
   Users,
   Settings,
   LogOut,
-  Menu,
   X,
-  Zap,
+  Landmark,
 } from "lucide-react";
 
 const navItems = [
@@ -25,11 +24,19 @@ const navItems = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-export function Sidebar() {
-  const [isOpen, setIsOpen] = useState(false);
+interface SidebarProps {
+  open?: boolean;
+  onClose?: () => void;
+}
+
+export function Sidebar({ open, onClose }: SidebarProps = {}) {
+  const [internalOpen, setInternalOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const logout = useAuthStore((s) => s.logout);
+
+  const isOpen = open ?? internalOpen;
+  const close = onClose ?? (() => setInternalOpen(false));
 
   function handleLogout() {
     logout();
@@ -38,51 +45,58 @@ export function Sidebar() {
 
   return (
     <>
-      {/* Mobile hamburger */}
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="fixed top-4 left-4 z-50 md:hidden p-2 rounded-lg bg-background border border-border/50 shadow-sm"
-        aria-label="Toggle menu"
-      >
-        {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-      </button>
-
       {/* Mobile overlay */}
       {isOpen && (
-        <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setIsOpen(false)} />
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={close}
+        />
       )}
 
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-40 w-64 flex-col border-r border-border/50 bg-card transform transition-transform duration-200 ease-in-out md:relative md:translate-x-0",
+          "fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r bg-card transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 lg:shrink-0",
           isOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        {/* Logo */}
-        <div className="p-5 border-b border-border/50">
+        {/* Brand */}
+        <div className="flex h-16 items-center justify-between border-b px-5">
           <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
-              <Zap className="h-4 w-4 text-primary-foreground" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Landmark className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold">CivicPulse</h2>
-              <p className="text-[10px] text-muted-foreground -mt-0.5">AI Issue Intelligence</p>
+              <h2 className="text-base font-semibold leading-tight">CivicPulse</h2>
+              <p className="text-[11px] leading-tight text-muted-foreground">
+                Vadodara Municipal
+              </p>
             </div>
           </div>
+          <button
+            onClick={close}
+            className="rounded-lg p-2 text-muted-foreground hover:bg-muted lg:hidden"
+            aria-label="Close menu"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
+          <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Overview
+          </p>
           {navItems.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+            const isActive =
+              pathname === item.href || pathname.startsWith(item.href + "/");
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={() => setIsOpen(false)}
+                onClick={close}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
+                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                   isActive
                     ? "bg-primary text-primary-foreground shadow-sm"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -96,10 +110,10 @@ export function Sidebar() {
         </nav>
 
         {/* Footer */}
-        <div className="p-3 border-t border-border/50">
+        <div className="border-t p-3">
           <button
             onClick={handleLogout}
-            className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive w-full transition-colors"
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
           >
             <LogOut className="h-4 w-4" />
             Sign Out

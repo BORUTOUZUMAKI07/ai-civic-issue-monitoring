@@ -12,7 +12,9 @@ describe("DashboardPage", () => {
   it("renders dashboard stats", async () => {
     render(<DashboardPage />, { wrapper })
     await waitFor(() => {
-      expect(screen.getByText("Dashboard")).toBeInTheDocument()
+      expect(screen.getByText("Total Reports")).toBeInTheDocument()
     })
+    expect(screen.getByText("Report an issue")).toBeInTheDocument()
+    expect(screen.getByText("Issue Status")).toBeInTheDocument()
   })
 })

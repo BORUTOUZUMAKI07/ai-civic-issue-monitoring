@@ -1,259 +1,400 @@
-"use client";
+"use client"
 
-import { useDashboardStats, useHeatmapData, useIssues } from "@/queries/index";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, CheckCircle, Clock, MapPin, TrendingUp, Activity, Brain, Cpu } from "lucide-react";
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { useEffect, useState } from "react";
-import { apiFetch } from "@/lib/api";
+import Link from "next/link"
+import { useDashboardStats, useIssues, useMe, useWards } from "@/queries/index"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import {
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  Clock,
+  FileText,
+  Loader2,
+  Plus,
+  Users2,
+  Wrench,
+} from "lucide-react"
+import {
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts"
+import {
+  STATUS_META,
+  STATUS_ORDER,
+  formatDateShort,
+  humanize,
+  severityMeta,
+} from "@/lib/format"
 
-const STATUS_CONFIG: Record<string, { label: string; color: string; icon: typeof AlertTriangle }> = {
-  reported: { label: "Reported", color: "text-blue-500", icon: MapPin },
-  assigned: { label: "Assigned", color: "text-purple-500", icon: Clock },
-  in_progress: { label: "In Progress", color: "text-yellow-500", icon: Activity },
-  resolved: { label: "Resolved", color: "text-green-500", icon: CheckCircle },
-};
+const TYPE_COLORS = [
+  "#2563eb",
+  "#7c3aed",
+  "#0ea5e9",
+  "#f59e0b",
+  "#10b981",
+  "#f43f5e",
+  "#64748b",
+]
 
-const TYPE_COLORS = ["#ef4444", "#f59e0b", "#3b82f6", "#06b6d4", "#8b5cf6", "#f97316", "#14b8a6"];
+const STATUS_COLORS: Record<string, string> = {
+  reported: "#0ea5e9",
+  assigned: "#8b5cf6",
+  in_progress: "#f59e0b",
+  resolved: "#10b981",
+}
 
-const severityBadge = (s: number) => {
-  if (s >= 4) return <Badge className="bg-red-100 text-red-700 border-red-200">S{s}</Badge>;
-  if (s === 3) return <Badge className="bg-orange-100 text-orange-700 border-orange-200">S{s}</Badge>;
-  if (s === 2) return <Badge className="bg-yellow-100 text-yellow-700 border-yellow-200">S{s}</Badge>;
-  return <Badge className="bg-green-100 text-green-700 border-green-200">S{s}</Badge>;
-};
+function KpiCard({
+  label,
+  value,
+  icon: Icon,
+  chipClass,
+  caption,
+}: {
+  label: string
+  value: number
+  icon: typeof FileText
+  chipClass: string
+  caption?: string
+}) {
+  return (
+    <Card className="transition-shadow hover:shadow-md">
+      <CardContent className="flex items-center justify-between p-5">
+        <div>
+          <p className="text-sm font-medium text-muted-foreground">{label}</p>
+          <p className="mt-1.5 text-3xl font-semibold tracking-tight">{value}</p>
+          {caption && (
+            <p className="mt-1 text-xs text-muted-foreground">{caption}</p>
+          )}
+        </div>
+        <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${chipClass}`}>
+          <Icon className="h-5 w-5" />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
 
-const statusBadge = (s: string) => {
-  const colors: Record<string, string> = {
-    reported: "bg-blue-100 text-blue-700 border-blue-200",
-    assigned: "bg-purple-100 text-purple-700 border-purple-200",
-    in_progress: "bg-yellow-100 text-yellow-700 border-yellow-200",
-    resolved: "bg-green-100 text-green-700 border-green-200",
-  };
-  return <Badge className={colors[s] || ""}>{s.replace("_", " ")}</Badge>;
-};
+function ChartTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="rounded-lg border bg-card px-3 py-2 text-xs shadow-lg">
+      <p className="font-medium">{label}</p>
+      <p className="text-muted-foreground">
+        {payload[0].name}:{" "}
+        <span className="font-semibold text-foreground">{payload[0].value}</span>
+      </p>
+    </div>
+  )
+}
 
 export default function DashboardPage() {
-  const { data: stats, isLoading: statsLoading } = useDashboardStats();
-  const { data: heatmap } = useHeatmapData();
-  const { data: issuesData } = useIssues({ limit: 8 });
-  const [modelInfo, setModelInfo] = useState<{ model_exists: boolean; model_size_mb: number; classes: string[]; device: string } | null>(null);
+  const { data: stats, isLoading } = useDashboardStats()
+  const { data: issuesData } = useIssues({ limit: 6 })
+  const { data: wards } = useWards()
+  const { data: user } = useMe()
 
-  useEffect(() => {
-    apiFetch("/api/v1/ml/info").then((data) => setModelInfo(data as { model_exists: boolean; model_size_mb: number; classes: string[]; device: string })).catch(() => {});
-  }, []);
+  const wardName = (id: number) =>
+    wards?.find((w) => w.id === id)?.name ?? `Ward ${id}`
 
-  if (statsLoading) {
+  if (isLoading) {
     return (
-      <div className="space-y-6 p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <Card key={i}>
-              <CardContent className="p-6">
-                <div className="h-20 bg-muted rounded animate-pulse" />
-              </CardContent>
-            </Card>
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="h-[104px] animate-pulse rounded-xl bg-muted" />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-72 animate-pulse rounded-xl bg-muted" />
           ))}
         </div>
       </div>
-    );
+    )
   }
 
-  const totalIssues = stats?.total_issues || 0;
-  const resolvedCount = stats?.by_status?.resolved || 0;
-  const resolutionRate = totalIssues > 0 ? ((resolvedCount / totalIssues) * 100).toFixed(0) : "0";
-  const recentCount = stats?.recent_count || 0;
+  const total = stats?.total_issues ?? 0
+  const byStatus = stats?.by_status ?? {}
+  const resolvedCount = byStatus.resolved ?? 0
+  const resolutionRate = total > 0 ? Math.round((resolvedCount / total) * 100) : 0
 
-  const statusData = stats?.by_status
-    ? Object.entries(stats.by_status).map(([name, value]) => ({
-        name: name.replace("_", " "),
-        value,
-        fullName: name,
-      }))
-    : [];
+  const statusData = STATUS_ORDER.filter((s) => (byStatus[s] ?? 0) > 0).map(
+    (s) => ({
+      name: STATUS_META[s].label,
+      value: byStatus[s],
+    })
+  )
 
-  const typeData = stats?.by_type
-    ? Object.entries(stats.by_type).map(([name, value]) => ({
-        name: name.replace("_", " "),
-        value,
-      }))
-    : [];
+  const typeData = Object.entries(stats?.by_type ?? {})
+    .map(([name, value]) => ({ name: humanize(name), value }))
+    .sort((a, b) => b.value - a.value)
 
-  const wardData = stats?.by_ward || [];
+  const wardData = (stats?.by_ward ?? [])
+    .slice()
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6)
+
+  const maxWard = Math.max(1, ...wardData.map((w) => w.count))
+
+  const recent = (issuesData?.items ?? []).slice(0, 6)
+  const hasData = total > 0
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6">
+      {/* Greeting */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-1">Overview of civic issues across Vadodara</p>
+          <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
+            {user?.full_name?.split(" ")[0]
+              ? `Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}, ${user.full_name.split(" ")[0]}`
+              : "Welcome back"}
+          </h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Here&apos;s what&apos;s happening across the city today.
+          </p>
         </div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <TrendingUp className="h-4 w-4" />
-          {recentCount} issues this month
-        </div>
+        <Link
+          href="/issues"
+          className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+        >
+          <Plus className="h-4 w-4" />
+          Report an issue
+        </Link>
       </div>
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {Object.entries(STATUS_CONFIG).map(([key, cfg]) => {
-          const Icon = cfg.icon;
-          const count = stats?.by_status?.[key] || 0;
-          return (
-            <Card key={key} className="hover:shadow-md transition-shadow">
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">{cfg.label}</p>
-                    <p className="text-3xl font-bold mt-1">{count}</p>
-                  </div>
-                  <div className={`h-10 w-10 rounded-lg bg-muted flex items-center justify-center ${cfg.color}`}>
-                    <Icon className="h-5 w-5" />
+      {/* KPI cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard
+          label="Total Reports"
+          value={total}
+          icon={FileText}
+          chipClass="bg-blue-50 text-blue-600"
+          caption={`${stats?.recent_count ?? 0} added this month`}
+        />
+        <KpiCard
+          label="In Progress"
+          value={byStatus.in_progress ?? 0}
+          icon={Wrench}
+          chipClass="bg-amber-50 text-amber-600"
+        />
+        <KpiCard
+          label="Assigned"
+          value={byStatus.assigned ?? 0}
+          icon={Users2}
+          chipClass="bg-violet-50 text-violet-600"
+        />
+        <KpiCard
+          label="Resolved"
+          value={resolvedCount}
+          icon={CheckCircle2}
+          chipClass="bg-emerald-50 text-emerald-600"
+          caption={`${resolutionRate}% resolution rate`}
+        />
+      </div>
+
+      {!hasData ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
+              <FileText className="h-7 w-7 text-muted-foreground" />
+            </div>
+            <h3 className="mt-4 text-base font-semibold">No issues reported yet</h3>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+              Once citizens start reporting issues, the dashboard will populate
+              with live statistics and trends.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          {/* Charts */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            {/* Status donut */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Issue Status</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="relative h-52">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={statusData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={58}
+                        outerRadius={82}
+                        paddingAngle={3}
+                        strokeWidth={0}
+                      >
+                        {statusData.map((entry) => (
+                          <Cell
+                            key={entry.name}
+                            fill={STATUS_COLORS[entry.name.toLowerCase().replace(" ", "_")] ?? "#94a3b8"}
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip content={<ChartTooltip />} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-3xl font-semibold tracking-tight">
+                      {total}
+                    </span>
+                    <span className="text-xs text-muted-foreground">total</span>
                   </div>
                 </div>
-                {key === "reported" && (
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    {resolutionRate}% resolution rate
-                  </div>
-                )}
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {statusData.map((s) => (
+                    <div key={s.name} className="flex items-center gap-2 text-sm">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor:
+                            STATUS_COLORS[s.name.toLowerCase().replace(" ", "_")] ??
+                            "#94a3b8",
+                        }}
+                      />
+                      <span className="text-muted-foreground">{s.name}</span>
+                      <span className="ml-auto font-semibold">{s.value}</span>
+                    </div>
+                  ))}
+                </div>
               </CardContent>
             </Card>
-          );
-        })}
-      </div>
 
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Status Pie */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">By Status</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie data={statusData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={4} dataKey="value">
-                  {statusData.map((_, i) => (
-                    <Cell key={i} fill={["#3b82f6", "#8b5cf6", "#eab308", "#22c55e"][i % 4]} />
+            {/* Category bar */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">By Category</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={228}>
+                  <BarChart data={typeData} margin={{ left: -18 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(148,163,184,0.08)" }} />
+                    <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={28}>
+                      {typeData.map((_, i) => (
+                        <Cell key={i} fill={TYPE_COLORS[i % TYPE_COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            {/* Ward ranking */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Top Wards</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {wardData.map((w) => (
+                    <div key={w.ward}>
+                      <div className="mb-1 flex items-center justify-between text-sm">
+                        <span className="font-medium">{w.ward}</span>
+                        <span className="text-muted-foreground">{w.count}</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-blue-600"
+                          style={{ width: `${(w.count / maxWard) * 100}%` }}
+                        />
+                      </div>
+                    </div>
                   ))}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        {/* Type Bar */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">By Category</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={typeData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis allowDecimals={false} />
-                <Tooltip />
-                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                  {typeData.map((_, i) => (
-                    <Cell key={i} fill={TYPE_COLORS[i % TYPE_COLORS.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        {/* Ward Bar */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">By Ward</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={wardData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
-                <XAxis type="number" allowDecimals={false} />
-                <YAxis type="category" dataKey="ward" width={80} tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Bar dataKey="count" fill="#3b82f6" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Recent Issues */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Recent Issues</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {issuesData?.items?.slice(0, 6).map((issue) => (
-              <div key={issue.id} className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:bg-muted/50 transition-colors">
-                <div className="flex items-center gap-3">
-                  <div className={`h-2 w-2 rounded-full ${STATUS_CONFIG[issue.status]?.color || "bg-gray-400"}`} />
-                  <div>
-                    <span className="text-sm font-medium capitalize">{issue.issue_type.replace("_", " ")}</span>
-                    <span className="text-xs text-muted-foreground ml-2">
-                      Ward {issue.ward_id} &middot; {new Date(issue.created_at).toLocaleDateString()}
-                    </span>
-                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {severityBadge(issue.severity)}
-                  {statusBadge(issue.status)}
-                </div>
-              </div>
-            ))}
+              </CardContent>
+            </Card>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* ML Model Info */}
-      {modelInfo && (
-        <Card className="border-primary/20">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Brain className="h-4 w-4" /> ML Classification Model
-              {modelInfo.model_exists ? (
-                <Badge className="bg-green-100 text-green-700 border-0 text-xs">Active</Badge>
+          {/* Recent issues */}
+          <Card>
+            <CardHeader className="flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-base">Recent Issues</CardTitle>
+              <Link
+                href="/issues"
+                className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+              >
+                View all
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </CardHeader>
+            <CardContent>
+              {recent.length === 0 ? (
+                <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading recent issues…
+                </div>
               ) : (
-                <Badge className="bg-red-100 text-red-700 border-0 text-xs">Not Loaded</Badge>
+                <div className="divide-y">
+                  {recent.map((issue) => {
+                    const status = STATUS_META[issue.status] ?? {
+                      label: humanize(issue.status),
+                      pill: "bg-muted text-muted-foreground ring-muted",
+                    }
+                    const sev = severityMeta(issue.severity)
+                    return (
+                      <Link
+                        key={issue.id}
+                        href={`/issues/${issue.id}`}
+                        className="flex items-center gap-4 py-3 transition-colors hover:bg-muted/40"
+                      >
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+                          <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">
+                            {humanize(issue.issue_type)}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {wardName(issue.ward_id)} · {formatDateShort(issue.created_at)}
+                          </p>
+                        </div>
+                        <span className="hidden items-center gap-1.5 sm:flex">
+                          <span className={`h-2 w-2 rounded-full ${status.dot}`} />
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${status.pill}`}
+                          >
+                            {status.label}
+                          </span>
+                        </span>
+                        <Badge className={`border-0 ring-1 ring-inset ${sev.pill}`}>
+                          {sev.label}
+                        </Badge>
+                      </Link>
+                    )
+                  })}
+                </div>
               )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="p-3 rounded-lg bg-muted/50">
-                <p className="text-xs text-muted-foreground mb-1">Model</p>
-                <p className="font-semibold text-sm flex items-center gap-1"><Cpu className="h-3 w-3" /> MobileNetV2</p>
-              </div>
-              <div className="p-3 rounded-lg bg-muted/50">
-                <p className="text-xs text-muted-foreground mb-1">Size</p>
-                <p className="font-semibold text-sm">{modelInfo.model_size_mb} MB</p>
-              </div>
-              <div className="p-3 rounded-lg bg-muted/50">
-                <p className="text-xs text-muted-foreground mb-1">Classes</p>
-                <p className="font-semibold text-sm">{modelInfo.classes.length}-class</p>
-              </div>
-              <div className="p-3 rounded-lg bg-muted/50">
-                <p className="text-xs text-muted-foreground mb-1">Device</p>
-                <p className="font-semibold text-sm uppercase">{modelInfo.device}</p>
-              </div>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {modelInfo.classes.map((c) => (
-                <Badge key={c} variant="outline" className="text-xs">{c}</Badge>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </>
       )}
+
+      {/* System health strip */}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border bg-card px-5 py-3 text-xs text-muted-foreground">
+        <span className="inline-flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+          Systems operational
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <Clock className="h-3.5 w-3.5" />
+          Last updated just now
+        </span>
+      </div>
     </div>
-  );
+  )
 }
