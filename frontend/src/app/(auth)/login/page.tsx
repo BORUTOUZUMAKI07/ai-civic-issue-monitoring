@@ -13,7 +13,7 @@ import { auth, getErrorMessage } from "@/lib/api"
 import { useAuthStore } from "@/store/auth"
 import { setTokenCookie, setRefreshTokenCookie } from "@/lib/token-cookie"
 import { loginSchema, type LoginFormData } from "@/lib/schemas"
-import { Zap } from "lucide-react"
+import { Landmark } from "lucide-react"
 
 function LoginForm() {
   const router = useRouter()
@@ -66,15 +66,17 @@ function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 via-background to-indigo-100 px-4 dark:from-slate-900 dark:via-background dark:to-slate-900">
       <div className="w-full max-w-sm space-y-8">
-        {/* Logo */}
+        {/* Brand */}
         <div className="text-center">
-          <div className="mx-auto h-12 w-12 rounded-xl bg-primary flex items-center justify-center mb-4">
-            <Zap className="h-6 w-6 text-primary-foreground" />
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-primary shadow-sm mb-4">
+            <Landmark className="h-6 w-6 text-primary-foreground" />
           </div>
-          <h1 className="text-2xl font-bold">Welcome Back</h1>
-          <p className="text-sm text-muted-foreground mt-1">Sign in to CivicPulse</p>
+          <h1 className="text-2xl font-bold tracking-tight">CivicPulse</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Vadodara Municipal · AI Urban Issue Intelligence
+          </p>
         </div>
 
         <Card className="border-border/50 shadow-lg">

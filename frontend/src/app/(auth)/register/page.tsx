@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
 import Link from "next/link";
-import { Zap } from "lucide-react";
+import { Landmark } from "lucide-react";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -35,14 +35,16 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-background px-4">
+    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 via-background to-indigo-100 px-4 dark:from-slate-900 dark:via-background dark:to-slate-900">
       <div className="w-full max-w-sm space-y-8">
         <div className="text-center">
-          <div className="mx-auto h-12 w-12 rounded-xl bg-primary flex items-center justify-center mb-4">
-            <Zap className="h-6 w-6 text-primary-foreground" />
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-primary shadow-sm mb-4">
+            <Landmark className="h-6 w-6 text-primary-foreground" />
           </div>
-          <h1 className="text-2xl font-bold">Create Account</h1>
-          <p className="text-sm text-muted-foreground mt-1">Join CivicPulse to report civic issues</p>
+          <h1 className="text-2xl font-bold tracking-tight">Create Account</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Join CivicPulse · Vadodara Municipal
+          </p>
         </div>
 
         <Card className="border-border/50 shadow-lg">
