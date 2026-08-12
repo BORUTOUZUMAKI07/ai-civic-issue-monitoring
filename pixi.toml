@@ -70,6 +70,7 @@ optuna = ">=4.0.0"
 pyyaml = ">=6.0"
 mlflow = ">=2.20.0"
 civicpulse-backend = {path = "./backend", editable = true, extras = ["ml"]}
+dvc-s3 = ">=3.3.0, <4"
 
 [tasks]
 dev = { cmd = "uvicorn src.main:app --reload --host 0.0.0.0 --port 8000", cwd = "backend" }
