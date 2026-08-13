@@ -38,11 +38,11 @@
 ### Technology Stack
 | Layer | Technology |
 | :--- | :--- |
-| **Frontend** | React + Vite (Mobile-First PWA) |
+| **Frontend** | Next.js 16 + Tailwind v4 + shadcn/ui (PWA-ready) |
 | **Backend** | FastAPI (Python) |
 | **ML Model** | PyTorch + Transformers |
 | **Containerization** | Docker + Docker Compose |
-| **Monitoring** | Prometheus + Grafana + Alibi Detect |
+| **Monitoring** | Prometheus + Grafana + Statistical Drift Detection (Prefect) |
 | **MLOps** | DVC + DagsHub + GitHub Actions |
 
 ---
@@ -57,7 +57,7 @@
 5. **Real-Time Monitoring**: Dashboard shows all open/resolved issues citywide
 
 ### Unique Value Proposition (What Makes Us Different)
-- **Real-Time Drift Detection**: Using Alibi Detect to monitor if AI model is failing on new data
+- **Real-Time Drift Monitoring**: Scheduled statistical drift detection alerts if the AI model's confidence/labels shift from baseline (e.g., monsoon changes road images)
 - **Proactive Alerts**: Grafana dashboards alert when model confidence drops
 - **Enterprise MLOps**: Data versioning (DVC) + Experiment tracking (DagsHub)
 - **Production-Ready**: CI/CD, Docker, Prometheus monitoring included
@@ -87,4 +87,4 @@
 
 ## ABSTRACT (Separate Submission)
 
-> The AI-Based Civic Issue Monitoring System is a production-grade solution for Vadodara Municipal Corporation to proactively identify and resolve civic issues. Field employees capture images using a mobile PWA, which are automatically classified using a PyTorch-based Computer Vision model. The system uses geo-fencing to map issues to Vadodara's 19 administrative wards and auto-routes them to concerned engineers. Engineers close issues by uploading resolution photos. The system includes real-time drift detection (Alibi Detect), enterprise monitoring (Prometheus + Grafana), and a full CI/CD pipeline. Built with FastAPI, React, Docker, and MLOps best practices (DVC, DagsHub).
+> The AI-Based Civic Issue Monitoring System is a production-grade solution for Vadodara Municipal Corporation to proactively identify and resolve civic issues. Field employees capture images using a mobile PWA, which are automatically classified using a PyTorch-based Computer Vision model. The system uses geo-fencing to map issues to Vadodara's 19 administrative wards and auto-routes them to concerned engineers. Engineers close issues by uploading resolution photos. The system includes scheduled statistical drift detection, enterprise monitoring (Prometheus + Grafana), and a full CI/CD pipeline. Built with FastAPI, Next.js, Docker, and MLOps best practices (DVC, DagsHub).

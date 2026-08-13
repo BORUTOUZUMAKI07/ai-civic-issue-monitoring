@@ -14,7 +14,7 @@ A professional, production-grade system for monitoring and managing civic issues
 | **Backend** | FastAPI | High-performance API for issue uploads and inference. |
 | **Frontend** | Next.js | Clean, responsive dashboard for viewing issues. |
 | **ML Engine** | PyTorch + LangGraph | Custom trained models for issue classification + agent pipeline. |
-| **Monitoring** | Evidently | Data drift detection and model performance monitoring. |
+| **Monitoring** | Prefect + statistical drift checks | Scheduled confidence/label drift detection on logged predictions. |
 | **Scheduling** | Prefect Cloud | Automated drift detection, SLA monitoring, reporting, and ML retraining. |
 | **Observability** | NewRelic | APM and distributed tracing. |
 | **Containerization** | Docker | Full stack orchestration via Docker Compose. |
@@ -131,13 +131,13 @@ pixi run dev
 pixi run test
 
 # Run tests (CI mode, skip integration)
-pixi run test:ci
+pixi run test-ci
 
 # Lint code
 pixi run lint
 
 # Auto-fix lint issues
-pixi run lint:fix
+pixi run lint-fix
 
 # Type check
 pixi run typecheck
@@ -149,7 +149,7 @@ pixi run format
 pixi run migrate
 
 # Create new migration
-pixi run migrate:create
+pixi run migrate-create
 
 # Seed ward data
 pixi run seed
@@ -165,10 +165,10 @@ pixi run train
 pixi run frontend
 
 # Build for production
-pixi run frontend:build
+pixi run frontend-build
 
 # Run frontend tests
-pixi run frontend:test
+pixi run frontend-test
 ```
 
 ### DVC (Data Version Control)
@@ -186,7 +186,7 @@ dvc push
 
 ## Monitoring & Drift Detection
 
-We use **Evidently** and **LangGraph** agents to ensure the model doesn't "drift" (i.e., perform poorly on new, unseen data).
+We use scheduled **drift detection** (confidence/label distribution vs. baseline) and **LangGraph** agents to ensure the model doesn't "drift" (i.e., perform poorly on new, unseen data).
 
 ### Key Features
 
@@ -218,12 +218,11 @@ We use **Evidently** and **LangGraph** agents to ensure the model doesn't "drift
 - PyTorch + MobileNetV2 (image classification)
 
 ### Frontend
-- Next.js 16 + React 19
-- Tailwind CSS + shadcn/ui
-- Zustand (state management)
-- React Query (server state)
-- Leaflet (maps)
-- Recharts (charts)
+- Next.js 16 + React 19 (App Router, `output: "standalone"`)
+- Tailwind CSS v4 + shadcn/ui (Radix primitives) + Aceternity/Magic UI accents
+- Geist font + lucide-react icons
+- TanStack React Query (server state)
+- Leaflet (maps) + Recharts (charts) + Motion (animations)
 
 ### DevOps
 - Pixi (Python package management)

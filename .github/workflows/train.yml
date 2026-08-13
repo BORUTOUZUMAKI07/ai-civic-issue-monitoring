@@ -1,20 +1,24 @@
 name: Train PEFT Classifier
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       n_trials:
-        description: "Number of Optuna trials"
+        description: "Number of Optuna trials (0 = final training only)"
         required: false
-        default: "5"
+        default: "0"
+      final_epochs:
+        description: "Epochs for final model training"
+        required: false
+        default: "15"
 
 env:
   DATA_PATH: data/raw
   MLFLOW_TRACKING_URI: https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring.mlflow
   MLFLOW_TRACKING_USERNAME: ram.atchutratna
   MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
+  TRAIN_N_TRIALS: ${{ inputs.n_trials }}
+  TRAIN_FINAL_EPOCHS: ${{ inputs.final_epochs }}
 
 jobs:
   train:
