@@ -54,9 +54,7 @@ SUPPORTED_METHODS = [
 ]
 
 # Methods whose weights are a low-rank (r, alpha) pair.
-RANK_METHODS = frozenset(
-    {"lora", "dora", "rslora", "lora_fa", "lora_plus", "dora_plus", "adalora", "loha", "lokr"}
-)
+RANK_METHODS = frozenset({"lora", "dora", "rslora", "lora_fa", "lora_plus", "dora_plus", "adalora", "loha", "lokr"})
 
 # Methods that implement the LoRA+ two-learning-rate optimizer scheme.
 PLUS_METHODS = frozenset({"lora_plus", "dora_plus"})
@@ -90,9 +88,7 @@ def apply_peft(
         target_modules = LORA_TARGET_MODULES
 
     if method not in SUPPORTED_METHODS:
-        raise ValueError(
-            f"Unsupported PEFT method {method!r}; choose from {SUPPORTED_METHODS}"
-        )
+        raise ValueError(f"Unsupported PEFT method {method!r}; choose from {SUPPORTED_METHODS}")
 
     # No task_type: MobileNetV2 is a plain torchvision CNN (not a transformers
     # model), so `get_peft_model` returns a pass-through `PeftModel`. Setting a
@@ -203,9 +199,7 @@ def save_adapter(peft_model: PeftModel, path: str | Path) -> None:
 
     # Log adapter size
     total_size = sum(f.stat().st_size for f in save_path.rglob("*") if f.is_file())
-    logger.info(
-        "Saved adapter to %s (%.2f MB)", save_path, total_size / (1024 * 1024)
-    )
+    logger.info("Saved adapter to %s (%.2f MB)", save_path, total_size / (1024 * 1024))
 
 
 def load_adapter(

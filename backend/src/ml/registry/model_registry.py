@@ -4,11 +4,10 @@ MLflow Model Registry — versioned model management.
 Tracks model versions, stages (staging/production/archived),
 and provides promote/rollback capabilities.
 """
+
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -27,8 +26,10 @@ class ModelRegistry:
     def client(self):
         if self._client is None:
             import mlflow
+
             mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
             from mlflow.tracking import MlflowClient
+
             self._client = MlflowClient()
         return self._client
 
@@ -163,9 +164,13 @@ class ModelRegistry:
             prod_acc = result["production"].get("val_acc", 0) or 0
             staging_acc = result["staging"].get("val_acc", 0) or 0
             if staging_acc > prod_acc:
-                result["recommendation"] = f"Promote v{result['staging']['version']} to Production (acc: {staging_acc:.4f} > {prod_acc:.4f})"
+                result["recommendation"] = (
+                    f"Promote v{result['staging']['version']} to Production (acc: {staging_acc:.4f} > {prod_acc:.4f})"
+                )
             else:
-                result["recommendation"] = f"Keep v{result['production']['version']} in Production (acc: {prod_acc:.4f} >= {staging_acc:.4f})"
+                result["recommendation"] = (
+                    f"Keep v{result['production']['version']} in Production (acc: {prod_acc:.4f} >= {staging_acc:.4f})"
+                )
 
         return result
 

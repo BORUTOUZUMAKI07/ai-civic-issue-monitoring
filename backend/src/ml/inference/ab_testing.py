@@ -8,6 +8,7 @@ Two modes:
   1. Shadow mode: Run both models, log both predictions, only use champion's result
   2. Traffic split: Route X% of traffic to challenger, rest to champion
 """
+
 from __future__ import annotations
 
 import logging
@@ -78,6 +79,7 @@ class ABTestPredictor:
             return None
         try:
             import onnxruntime as ort
+
             opts = ort.SessionOptions()
             opts.inter_op_num_threads = 2
             opts.intra_op_num_threads = 2
@@ -123,12 +125,14 @@ class ABTestPredictor:
         import torch
         from torchvision import transforms
 
-        transform = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.Lambda(lambda img: img.convert("RGB")),
-            transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-        ])
+        transform = transforms.Compose(
+            [
+                transforms.Resize((224, 224)),
+                transforms.Lambda(lambda img: img.convert("RGB")),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+            ]
+        )
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         img_tensor = transform(image).unsqueeze(0).to(device)
@@ -227,6 +231,7 @@ class ABTestPredictor:
             return None
         try:
             import torch
+
             from src.ml.models.build_model import build_model, robust_load_state_dict
 
             model = build_model(len(CLASS_NAMES))
@@ -262,6 +267,7 @@ def get_ab_tester() -> ABTestPredictor:
     global _ab_tester
     if _ab_tester is None:
         from src.core.config import settings
+
         config = ABTestConfig(
             enabled=getattr(settings, "AB_TEST_ENABLED", False),
             mode=getattr(settings, "AB_TEST_MODE", "shadow"),

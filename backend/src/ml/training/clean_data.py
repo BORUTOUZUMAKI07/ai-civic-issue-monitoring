@@ -56,9 +56,7 @@ def move(member: dict, reason: str, report: list[dict]) -> None:
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / member["path"].name
     shutil.move(str(member["path"]), str(dest))
-    report.append(
-        {"split": member["split"], "cls": member["cls"], "name": member["path"].name, "reason": reason}
-    )
+    report.append({"split": member["split"], "cls": member["cls"], "name": member["path"].name, "reason": reason})
 
 
 def main() -> None:
@@ -76,9 +74,7 @@ def main() -> None:
                 continue
             for f in d.iterdir():
                 if f.is_file():
-                    groups[file_hash(f)].append(
-                        {"split": split, "cls": cls, "path": f}
-                    )
+                    groups[file_hash(f)].append({"split": split, "cls": cls, "path": f})
 
     report: list[dict] = []
     conflict_groups = 0
@@ -100,18 +96,14 @@ def main() -> None:
 
         remaining = list(members)
 
-        if "test" in {m["split"] for m in remaining} and len(
-            {m["split"] for m in remaining}
-        ) > 1:
+        if "test" in {m["split"] for m in remaining} and len({m["split"] for m in remaining}) > 1:
             for m in remaining:
                 if m["split"] == "test":
                     move(m, "leak_test", report)
                     leak_test += 1
             remaining = [m for m in remaining if m["split"] != "test"]
 
-        if "val" in {m["split"] for m in remaining} and "train" in {
-            m["split"] for m in remaining
-        }:
+        if "val" in {m["split"] for m in remaining} and "train" in {m["split"] for m in remaining}:
             for m in remaining:
                 if m["split"] == "val":
                     move(m, "leak_val", report)
@@ -138,12 +130,8 @@ def main() -> None:
     }
 
     QUARANTINE.mkdir(parents=True, exist_ok=True)
-    (QUARANTINE / "report.json").write_text(
-        json.dumps(summary, indent=2), encoding="utf-8"
-    )
-    (QUARANTINE / "moved_files.json").write_text(
-        json.dumps(report, indent=2), encoding="utf-8"
-    )
+    (QUARANTINE / "report.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    (QUARANTINE / "moved_files.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     print("=== Before ===")
     for split, cls_count in before.items():

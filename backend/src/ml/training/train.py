@@ -81,12 +81,25 @@ _SEARCH = _CONFIG.get("search", {})
 PEFT_METHODS = _SEARCH.get(
     "peft_methods",
     [
-        "dora", "dora", "dora",
-        "dora_plus", "dora_plus", "dora_plus",
-        "lora", "lora",
-        "lora_plus", "lora_plus",
-        "rslora", "rslora",
-        "lora_fa", "adalora", "oft", "boft", "loha", "lokr", "ia3",
+        "dora",
+        "dora",
+        "dora",
+        "dora_plus",
+        "dora_plus",
+        "dora_plus",
+        "lora",
+        "lora",
+        "lora_plus",
+        "lora_plus",
+        "rslora",
+        "rslora",
+        "lora_fa",
+        "adalora",
+        "oft",
+        "boft",
+        "loha",
+        "lokr",
+        "ia3",
     ],
 )
 LORA_R_OPTIONS = _SEARCH.get("lora_r", [8, 16])
@@ -114,22 +127,26 @@ def seed_everything(seed: int) -> None:
 # Data
 # ---------------------------------------------------------------------------
 def make_train_transform() -> transforms.Compose:
-    return transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(15),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-    ])
+    return transforms.Compose(
+        [
+            transforms.Resize((224, 224)),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(15),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ]
+    )
 
 
 def make_val_transform() -> transforms.Compose:
-    return transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-    ])
+    return transforms.Compose(
+        [
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ]
+    )
 
 
 def get_dataloaders(data_path: str, batch_size: int) -> tuple[DataLoader, DataLoader, DataLoader | None, list[str]]:
@@ -163,10 +180,12 @@ def get_combined_dataloaders(data_path: str, batch_size: int) -> tuple[DataLoade
     """train+val combined (for final training); test kept for final eval."""
     train_loader, val_loader, test_loader, classes = get_dataloaders(data_path, batch_size)
 
-    combined = ConcatDataset([
-        datasets.ImageFolder(str(Path(data_path) / "train"), transform=make_train_transform()),
-        datasets.ImageFolder(str(Path(data_path) / "val"), transform=make_train_transform()),
-    ])
+    combined = ConcatDataset(
+        [
+            datasets.ImageFolder(str(Path(data_path) / "train"), transform=make_train_transform()),
+            datasets.ImageFolder(str(Path(data_path) / "val"), transform=make_train_transform()),
+        ]
+    )
     combined_loader = DataLoader(combined, batch_size=batch_size, shuffle=True, num_workers=0)
 
     return combined_loader, test_loader, classes
@@ -203,10 +222,12 @@ def build_optimizer(model, lr: float, peft_method: str):
     if peft_method in ("lora_plus", "dora_plus"):
         a_params = [p for n, p in model.named_parameters() if p.requires_grad and "lora_A" in n]
         b_params = [p for n, p in model.named_parameters() if p.requires_grad and "lora_A" not in n]
-        return optim.Adam([
-            {"params": a_params, "lr": lr},
-            {"params": b_params, "lr": lr * LORAPLUS_RATIO},
-        ])
+        return optim.Adam(
+            [
+                {"params": a_params, "lr": lr},
+                {"params": b_params, "lr": lr * LORAPLUS_RATIO},
+            ]
+        )
     return optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
 
 
@@ -221,9 +242,7 @@ def count_trainable(model) -> tuple[int, int, float]:
 def git_commit() -> str:
     """Current HEAD hash for reproducibility."""
     try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL
-        ).strip()
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
     except Exception:
         return "unknown"
 
@@ -250,7 +269,9 @@ def safe_log_metrics(metrics: dict, step: int | None = None) -> None:
 # ---------------------------------------------------------------------------
 # Training helpers
 # ---------------------------------------------------------------------------
-def train_one_epoch(model, loader, criterion, optimizer, device, epoch: int = 0, n_epochs: int = 0) -> tuple[float, float]:
+def train_one_epoch(
+    model, loader, criterion, optimizer, device, epoch: int = 0, n_epochs: int = 0
+) -> tuple[float, float]:
     model.train()
     total_loss = 0.0
     correct = 0
@@ -365,9 +386,7 @@ def objective(trial: optuna.Trial, data_path: str, n_epochs: int) -> float:
     # Class-balanced loss from the training split
     train_counts = count_class_images(data_path, "train")
     weights = class_balanced_weights(train_counts)
-    criterion = nn.CrossEntropyLoss(
-        weight=torch.tensor(weights, dtype=torch.float32).to(DEVICE)
-    )
+    criterion = nn.CrossEntropyLoss(weight=torch.tensor(weights, dtype=torch.float32).to(DEVICE))
     optimizer = build_optimizer(model, lr, peft_method)
 
     trainable, total_params, trainable_pct = count_trainable(model)
@@ -383,23 +402,25 @@ def objective(trial: optuna.Trial, data_path: str, n_epochs: int) -> float:
         logger.warning("MLflow start_run failed (offline?); trial continues unlogged: %s", e)
 
     if run is not None:
-        safe_log_params({
-            "peft_method": peft_method,
-            "lora_r": lora_r,
-            "lora_alpha": lora_alpha,
-            "lora_dropout": lora_dropout,
-            "loraplus_ratio": LORAPLUS_RATIO,
-            "lr": lr,
-            "batch_size": batch_size,
-            "unfreeze_last_n": unfreeze_last_n,
-            "optimizer": "Adam",
-            "target_modules": TARGET_MODULES_STR,
-            "trainable_params": trainable,
-            "total_params": total_params,
-            "trainable_pct": round(trainable_pct, 4),
-            "seed": SEED + trial.number,
-            "class_balance_beta": CLASS_BALANCE_BETA,
-        })
+        safe_log_params(
+            {
+                "peft_method": peft_method,
+                "lora_r": lora_r,
+                "lora_alpha": lora_alpha,
+                "lora_dropout": lora_dropout,
+                "loraplus_ratio": LORAPLUS_RATIO,
+                "lr": lr,
+                "batch_size": batch_size,
+                "unfreeze_last_n": unfreeze_last_n,
+                "optimizer": "Adam",
+                "target_modules": TARGET_MODULES_STR,
+                "trainable_params": trainable,
+                "total_params": total_params,
+                "trainable_pct": round(trainable_pct, 4),
+                "seed": SEED + trial.number,
+                "class_balance_beta": CLASS_BALANCE_BETA,
+            }
+        )
 
     for epoch in range(search_epochs):
         train_loss, _ = train_one_epoch(model, train_loader, criterion, optimizer, DEVICE, epoch + 1, search_epochs)
@@ -407,12 +428,15 @@ def objective(trial: optuna.Trial, data_path: str, n_epochs: int) -> float:
         val_loss, val_acc, val_f1 = val["loss"], val["acc"], val["macro_f1"]
 
         if run is not None:
-            safe_log_metrics({
-                "train_loss": train_loss,
-                "val_loss": val_loss,
-                "val_acc": val_acc,
-                "val_macro_f1": val_f1,
-            }, step=epoch)
+            safe_log_metrics(
+                {
+                    "train_loss": train_loss,
+                    "val_loss": val_loss,
+                    "val_acc": val_acc,
+                    "val_macro_f1": val_f1,
+                },
+                step=epoch,
+            )
 
         # Report to Optuna (NopPruner means this never prunes; keeps the
         # comparison fair across slow/fast-converging methods).
@@ -425,11 +449,13 @@ def objective(trial: optuna.Trial, data_path: str, n_epochs: int) -> float:
         best_val_f1 = max(best_val_f1, val_f1)
 
     if run is not None:
-        safe_log_metrics({
-            "best_val_loss": best_val_loss,
-            "best_val_acc": best_val_acc,
-            "best_val_macro_f1": best_val_f1,
-        })
+        safe_log_metrics(
+            {
+                "best_val_loss": best_val_loss,
+                "best_val_acc": best_val_acc,
+                "best_val_macro_f1": best_val_f1,
+            }
+        )
         try:
             mlflow.end_run()
         except Exception:
@@ -437,7 +463,13 @@ def objective(trial: optuna.Trial, data_path: str, n_epochs: int) -> float:
 
     logger.info(
         "Trial %d (%s r=%s lr=%.5f bs=%s): best_val_f1=%.4f acc=%.4f",
-        trial.number, peft_method, lora_r, lr, batch_size, best_val_f1, best_val_acc,
+        trial.number,
+        peft_method,
+        lora_r,
+        lr,
+        batch_size,
+        best_val_f1,
+        best_val_acc,
     )
     return best_val_f1
 
@@ -508,9 +540,7 @@ def main():
         return
 
     # Train final model with best params on train+val combined.
-    combined_loader, test_loader, classes = get_combined_dataloaders(
-        DATA_PATH, best_params.get("batch_size", 32)
-    )
+    combined_loader, test_loader, classes = get_combined_dataloaders(DATA_PATH, best_params.get("batch_size", 32))
 
     from src.ml.models.build_model import build_peft_model
     from src.ml.training.peft_wrapper import merge_adapter, save_adapter
@@ -531,15 +561,14 @@ def main():
 
     # Class-balanced weights from the final training pool (train+val).
     final_counts = [
-        a + b for a, b in zip(
+        a + b
+        for a, b in zip(
             count_class_images(DATA_PATH, "train"),
             count_class_images(DATA_PATH, "val"),
         )
     ]
     weights = class_balanced_weights(final_counts)
-    criterion = nn.CrossEntropyLoss(
-        weight=torch.tensor(weights, dtype=torch.float32).to(DEVICE)
-    )
+    criterion = nn.CrossEntropyLoss(weight=torch.tensor(weights, dtype=torch.float32).to(DEVICE))
     optimizer = build_optimizer(model, best_params.get("lr", 0.001), peft_method)
 
     train_counts = count_class_images(DATA_PATH, "train")
@@ -557,41 +586,49 @@ def main():
 
     if active_run is not None:
         safe_log_params(best_params)
-        safe_log_params({
-            "loraplus_ratio": LORAPLUS_RATIO,
-            "optimizer": "Adam",
-            "target_modules": TARGET_MODULES_STR,
-            "model": "mobilenet_v2_peft",
-            "num_classes": len(classes),
-            "class_names": str(classes),
-            "git_commit": git_commit(),
-            "device": str(DEVICE),
-            "seed": SEED,
-            "objective": "val_macro_f1",
-            "total_trials": n_trials,
-            "final_epochs": final_epochs,
-            "trainable_params": trainable,
-            "total_params": total_params,
-            "trainable_pct": round(trainable_pct, 4),
-            "class_balance_beta": CLASS_BALANCE_BETA,
-            "class_weights": json.dumps({c: round(w, 4) for c, w in zip(classes, weights)}),
-            "dataset_train": sum(train_counts),
-            "dataset_val": sum(val_counts),
-            "dataset_test": sum(test_counts),
-        })
+        safe_log_params(
+            {
+                "loraplus_ratio": LORAPLUS_RATIO,
+                "optimizer": "Adam",
+                "target_modules": TARGET_MODULES_STR,
+                "model": "mobilenet_v2_peft",
+                "num_classes": len(classes),
+                "class_names": str(classes),
+                "git_commit": git_commit(),
+                "device": str(DEVICE),
+                "seed": SEED,
+                "objective": "val_macro_f1",
+                "total_trials": n_trials,
+                "final_epochs": final_epochs,
+                "trainable_params": trainable,
+                "total_params": total_params,
+                "trainable_pct": round(trainable_pct, 4),
+                "class_balance_beta": CLASS_BALANCE_BETA,
+                "class_weights": json.dumps({c: round(w, 4) for c, w in zip(classes, weights)}),
+                "dataset_train": sum(train_counts),
+                "dataset_val": sum(val_counts),
+                "dataset_test": sum(test_counts),
+            }
+        )
 
     for epoch in range(final_epochs):
         train_loss, train_acc = train_one_epoch(
             model, combined_loader, criterion, optimizer, DEVICE, epoch + 1, final_epochs
         )
         if active_run is not None:
-            safe_log_metrics({
-                "train_loss": train_loss,
-                "train_acc": train_acc,
-            }, step=epoch)
+            safe_log_metrics(
+                {
+                    "train_loss": train_loss,
+                    "train_acc": train_acc,
+                },
+                step=epoch,
+            )
         logger.info(
             "Final epoch %d/%d: train_loss=%.4f acc=%.4f",
-            epoch + 1, final_epochs, train_loss, train_acc,
+            epoch + 1,
+            final_epochs,
+            train_loss,
+            train_acc,
         )
 
     # One final reference pass on val (val is now in-training; reported for
@@ -599,11 +636,13 @@ def main():
     val_loader = get_dataloaders(DATA_PATH, best_params.get("batch_size", 32))[1]
     val = evaluate_metrics(model, val_loader, criterion, DEVICE, len(classes))
     if active_run is not None:
-        safe_log_metrics({
-            "val_loss": val["loss"],
-            "val_acc": val["acc"],
-            "val_macro_f1": val["macro_f1"],
-        })
+        safe_log_metrics(
+            {
+                "val_loss": val["loss"],
+                "val_acc": val["acc"],
+                "val_macro_f1": val["macro_f1"],
+            }
+        )
 
     # THE single test evaluation — the honest generalization score.
     test_result = None
@@ -637,7 +676,9 @@ def main():
                 logger.warning("MLflow log_artifact failed (offline?): %s", e)
             logger.info(
                 "TEST eval: loss=%.4f acc=%.4f macro_f1=%.4f",
-                tm["loss"], tm["acc"], tm["macro_f1"],
+                tm["loss"],
+                tm["acc"],
+                tm["macro_f1"],
             )
 
     if active_run is not None:
@@ -677,6 +718,7 @@ def main():
     # Export to ONNX for faster CPU inference
     try:
         from src.ml.models.export_onnx import export_to_onnx
+
         export_to_onnx(num_classes=len(CLASS_NAMES), opset=18)
     except Exception as e:
         logger.warning("ONNX export failed (non-fatal): %s", e)
@@ -693,9 +735,7 @@ def main():
     if test_result is not None:
         metrics["test_acc"] = test_result["acc"]
         metrics["test_macro_f1"] = test_result["macro_f1"]
-        metrics["test_per_class_f1"] = {
-            cls: float(test_result["per_class_f1"][i]) for i, cls in enumerate(classes)
-        }
+        metrics["test_per_class_f1"] = {cls: float(test_result["per_class_f1"][i]) for i, cls in enumerate(classes)}
     with open(METRICS_PATH, "w") as f:
         json.dump(metrics, f, indent=2)
     logger.info("Metrics saved to %s", METRICS_PATH)

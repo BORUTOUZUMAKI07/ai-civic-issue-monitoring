@@ -28,6 +28,7 @@ def _get_device():
     global _device
     if _device is None:
         import torch
+
         _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return _device
 
@@ -62,6 +63,7 @@ def _get_torch_model():
         return _model
 
     import torch
+
     from src.ml.models.build_model import build_model, robust_load_state_dict
 
     device = _get_device()
@@ -140,6 +142,7 @@ def predict_issue(image: Image.Image) -> dict:
         model_path = str(ONNX_PATH)
     else:
         import torch
+
         model = _get_torch_model()
         device = _get_device()
         img_tensor = _transform(image).unsqueeze(0).to(device)
@@ -174,19 +177,22 @@ def _log_prediction_for_drift(result: dict):
     """Log prediction to MongoDB for drift detection (fire-and-forget, sync)."""
     try:
         import os
+
         from pymongo import MongoClient
 
         mongo_uri = os.getenv("MONGODB_URI", "mongodb://admin:adminpassword@localhost:27017")
         client = MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
         db = client["civicpulse_analytics"]
-        db["predictions"].insert_one({
-            "predicted_label": result["label"],
-            "confidence": result["confidence"],
-            "probabilities": result["probabilities"],
-            "model": result["model"],
-            "inference_time_ms": result["inference_time_ms"],
-            "created_at": datetime.now(timezone.utc),
-        })
+        db["predictions"].insert_one(
+            {
+                "predicted_label": result["label"],
+                "confidence": result["confidence"],
+                "probabilities": result["probabilities"],
+                "model": result["model"],
+                "inference_time_ms": result["inference_time_ms"],
+                "created_at": datetime.now(timezone.utc),
+            }
+        )
         client.close()
     except Exception as e:
         logger.debug("Drift logging failed (non-fatal): %s", e)

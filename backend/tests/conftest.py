@@ -82,7 +82,22 @@ def mock_engineer() -> dict:
 
 @pytest_asyncio.fixture
 async def auth_headers() -> dict:
+    from src.core.database import AsyncSessionLocal
     from src.core.security import create_access_token
+    from src.models.user import User, UserRole
+
+    async with AsyncSessionLocal() as session:
+        session.add(
+            User(
+                id=1,
+                email="test@civicpulse.com",
+                password_hash="unused",
+                full_name="Test User",
+                role=UserRole.field_worker,
+                is_active=True,
+            )
+        )
+        await session.commit()
 
     token = create_access_token({"sub": "1", "role": "field_worker"})
     return {"Authorization": f"Bearer {token}"}
@@ -90,7 +105,22 @@ async def auth_headers() -> dict:
 
 @pytest_asyncio.fixture
 async def admin_headers() -> dict:
+    from src.core.database import AsyncSessionLocal
     from src.core.security import create_access_token
+    from src.models.user import User, UserRole
+
+    async with AsyncSessionLocal() as session:
+        session.add(
+            User(
+                id=2,
+                email="admin@civicpulse.com",
+                password_hash="unused",
+                full_name="Admin User",
+                role=UserRole.admin,
+                is_active=True,
+            )
+        )
+        await session.commit()
 
     token = create_access_token({"sub": "2", "role": "admin"})
     return {"Authorization": f"Bearer {token}"}
