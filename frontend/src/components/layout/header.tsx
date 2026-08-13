@@ -5,6 +5,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
   Bell,
+  Command,
   LogOut,
   Menu,
   Search,
@@ -15,6 +16,7 @@ import { useMe } from "@/queries/index"
 import { useAuthStore } from "@/store/auth"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import { ThemeToggle } from "@/components/ui/theme-toggle"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,17 +54,17 @@ export function Header({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b bg-background/85 px-4 backdrop-blur sm:px-6">
+    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-border/70 bg-background/80 px-4 backdrop-blur-xl sm:px-6">
       <button
         onClick={onOpenSidebar}
-        className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground lg:hidden"
+        className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden"
         aria-label="Open menu"
       >
         <Menu className="h-5 w-5" />
       </button>
 
       <div className="min-w-0">
-        <h1 className="truncate text-base font-semibold tracking-tight sm:text-lg">
+        <h1 className="truncate text-[15px] font-semibold tracking-tight sm:text-base">
           {page.title}
         </h1>
         {page.subtitle && (
@@ -73,17 +75,27 @@ export function Header({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
       </div>
 
       <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
-        <form onSubmit={handleSearch} className="hidden items-center md:flex" role="search">
+        <form
+          onSubmit={handleSearch}
+          className="hidden items-center md:flex"
+          role="search"
+        >
           <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
             <input
               name="q"
               type="search"
               placeholder="Search issues…"
-              className="h-9 w-52 rounded-lg border border-input bg-card pl-9 pr-3 text-sm outline-none transition-colors focus:border-ring lg:w-64"
+              className="h-9 w-52 rounded-full border border-border/80 bg-card/70 pl-9 pr-8 text-sm shadow-sm outline-none transition-all placeholder:text-muted-foreground/70 focus:w-64 focus:border-ring focus:ring-2 focus:ring-ring/30 lg:w-60"
             />
+            <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 items-center gap-0.5 rounded border border-border/80 bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground lg:flex">
+              <Command className="h-2.5 w-2.5" />
+              K
+            </kbd>
           </div>
         </form>
+
+        <ThemeToggle />
 
         <Popover>
           <PopoverTrigger asChild>
@@ -93,8 +105,8 @@ export function Header({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
               className="relative text-muted-foreground"
               aria-label="Notifications"
             >
-              <Bell className="h-5 w-5" />
-              <span className="absolute right-2 top-2 h-2 w-2 rounded-full border-2 border-background bg-primary" />
+              <Bell className="h-[18px] w-[18px]" />
+              <span className="absolute right-2 top-2 h-2 w-2 rounded-full border-2 border-background bg-gradient-to-r from-indigo-500 to-violet-500" />
             </Button>
           </PopoverTrigger>
           <PopoverContent align="end" className="w-80 p-0">
@@ -105,7 +117,7 @@ export function Header({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
               </Badge>
             </div>
             <div className="flex items-start gap-3 px-4 py-4">
-              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-50 to-violet-100 text-indigo-600 dark:from-indigo-500/20 dark:to-violet-500/20 dark:text-indigo-300">
                 <ShieldCheck className="h-4 w-4" />
               </div>
               <div className="space-y-0.5">
@@ -128,8 +140,8 @@ export function Header({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
               className="flex items-center gap-2 rounded-lg px-2"
               aria-label="Account menu"
             >
-              <Avatar size="sm">
-                <AvatarFallback className="bg-primary text-primary-foreground">
+              <Avatar size="sm" className="ring-1 ring-border">
+                <AvatarFallback className="bg-gradient-to-br from-indigo-500 to-violet-500 text-white">
                   {initials(user?.full_name ?? "User")}
                 </AvatarFallback>
               </Avatar>
@@ -146,7 +158,7 @@ export function Header({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
           <DropdownMenuContent align="end" className="w-60">
             <DropdownMenuLabel className="flex items-center gap-3 font-normal">
               <Avatar size="sm">
-                <AvatarFallback className="bg-primary text-primary-foreground">
+                <AvatarFallback className="bg-gradient-to-br from-indigo-500 to-violet-500 text-white">
                   {initials(user?.full_name ?? "User")}
                 </AvatarFallback>
               </Avatar>

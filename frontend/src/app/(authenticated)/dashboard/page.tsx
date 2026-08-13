@@ -50,10 +50,10 @@ import {
 } from "@/lib/format"
 
 const STATUS_COLORS: Record<string, string> = {
-  reported: "#0ea5e9",
-  assigned: "#8b5cf6",
-  in_progress: "#f59e0b",
-  resolved: "#10b981",
+  reported: "#38bdf8",
+  assigned: "#a78bfa",
+  in_progress: "#fbbf24",
+  resolved: "#34d399",
 }
 
 function KpiCard({
@@ -88,7 +88,7 @@ function KpiCard({
           )}
         </div>
         <div
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${chipClass}`}
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-sm ${chipClass}`}
         >
           <Icon className="h-5 w-5" />
         </div>
@@ -108,9 +108,9 @@ function ChartTooltip({
 }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="rounded-lg border bg-card px-3 py-2 text-xs shadow-lg">
-      <p className="font-medium">{label}</p>
-      <p className="text-muted-foreground">
+    <div className="rounded-xl border border-border/80 bg-card/95 px-3.5 py-2.5 text-xs shadow-lift backdrop-blur">
+      <p className="font-semibold">{label}</p>
+      <p className="mt-0.5 text-muted-foreground">
         {payload[0].name}:{" "}
         <span className="font-semibold text-foreground">{payload[0].value}</span>
       </p>
@@ -164,9 +164,9 @@ export default function DashboardPage() {
 
   const maxWard = Math.max(1, ...wardData.map((w) => w.count))
   const rankStyles = [
-    "bg-blue-600 text-white",
-    "bg-blue-100 text-blue-700",
-    "bg-blue-50 text-blue-600",
+    "bg-gradient-to-br from-indigo-500 to-violet-500 text-white",
+    "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300",
+    "bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300",
   ]
 
   const recent = (issuesData?.items ?? []).slice(0, 6)
@@ -180,42 +180,48 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* Hero band */}
-      <SpotlightCard className="rounded-2xl bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-600 px-6 py-8 text-white shadow-lg sm:px-8">
+      <SpotlightCard className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-950 via-blue-950 to-violet-950 px-6 py-8 text-white shadow-lift ring-1 ring-inset ring-white/10 sm:px-8">
+        <div aria-hidden className="absolute inset-0 bg-grid-white opacity-50" />
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0"
-          style={{
-            backgroundImage:
-              "radial-gradient(rgba(255,255,255,0.35) 1px, transparent 1px)",
-            backgroundSize: "22px 22px",
-          }}
+          className="absolute -left-20 -top-24 h-72 w-72 animate-aurora rounded-full bg-indigo-500/40 blur-3xl"
         />
-        <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/10" />
-        <div className="pointer-events-none absolute -bottom-24 right-24 h-64 w-64 rounded-full bg-white/5" />
-        <div className="pointer-events-none absolute left-1/3 top-0 h-full w-px bg-white/10" />
+        <div
+          aria-hidden
+          className="absolute -bottom-24 right-0 h-72 w-72 animate-aurora-slow rounded-full bg-violet-500/40 blur-3xl"
+        />
+        <div
+          aria-hidden
+          className="absolute left-1/2 top-1/2 h-64 w-64 rounded-full bg-sky-500/20 blur-3xl"
+        />
+        <div aria-hidden className="absolute inset-0 bg-noise opacity-[0.12]" />
 
         <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-medium ring-1 ring-inset ring-white/20">
+            <p className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-medium ring-1 ring-inset ring-white/20 backdrop-blur-sm">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+              </span>
               <MapPin className="h-3 w-3" />
               Vadodara Municipal Corporation
             </p>
             <h2 className="mt-4 text-2xl font-semibold tracking-tight sm:text-3xl">
               {firstName ? `${greeting}, ${firstName}` : greeting}
             </h2>
-            <p className="mt-1.5 max-w-md text-sm text-blue-100">
+            <p className="mt-1.5 max-w-md text-sm text-indigo-100/90">
               Here&apos;s what&apos;s happening across the city today.
             </p>
           </div>
 
           <div className="flex flex-col gap-3 sm:items-end">
-            <Button asChild size="lg" className="bg-white text-blue-700 shadow-md hover:bg-blue-50">
+            <Button asChild size="lg" className="gap-2 bg-white text-indigo-700 shadow-lg hover:bg-indigo-50">
               <Link href="/issues">
                 <Plus className="h-4 w-4" />
                 Report an issue
               </Link>
             </Button>
-            <p className="text-xs text-blue-100">
+            <p className="text-xs text-indigo-100/80">
               {stats?.recent_count ?? 0} reports added this month
             </p>
           </div>
@@ -228,28 +234,28 @@ export default function DashboardPage() {
           label="Total Reports"
           value={total}
           icon={FileText}
-          chipClass="bg-blue-50 text-blue-600"
+          chipClass="bg-gradient-to-br from-sky-500 to-blue-600"
           caption="all time"
         />
         <KpiCard
           label="In Progress"
           value={byStatus.in_progress ?? 0}
           icon={Wrench}
-          chipClass="bg-amber-50 text-amber-600"
+          chipClass="bg-gradient-to-br from-amber-400 to-orange-500"
           caption="being worked on"
         />
         <KpiCard
           label="Assigned"
           value={byStatus.assigned ?? 0}
           icon={Users2}
-          chipClass="bg-violet-50 text-violet-600"
+          chipClass="bg-gradient-to-br from-violet-500 to-purple-600"
           caption="to field teams"
         />
         <KpiCard
           label="Resolved"
           value={resolvedCount}
           icon={CheckCircle2}
-          chipClass="bg-emerald-50 text-emerald-600"
+          chipClass="bg-gradient-to-br from-emerald-400 to-teal-600"
           caption={`${resolutionRate}% resolution rate`}
         />
       </div>
@@ -335,6 +341,12 @@ export default function DashboardPage() {
             <CardContent>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={typeData} margin={{ left: -18, right: 8 }}>
+                  <defs>
+                    <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#818cf8" />
+                      <stop offset="100%" stopColor="#4f46e5" />
+                    </linearGradient>
+                  </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
                   <XAxis
                     dataKey="name"
@@ -355,7 +367,7 @@ export default function DashboardPage() {
                   />
                   <Bar dataKey="value" radius={[6, 6, 0, 0]} maxBarSize={36}>
                     {typeData.map((entry) => (
-                      <Cell key={entry.key} fill={typeMeta(entry.key).color} />
+                      <Cell key={entry.key} fill="url(#barGradient)" />
                     ))}
                   </Bar>
                 </BarChart>
@@ -387,7 +399,7 @@ export default function DashboardPage() {
                     </div>
                     <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                       <div
-                        className="h-full rounded-full bg-blue-600"
+                        className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500"
                         style={{ width: `${(w.count / maxWard) * 100}%` }}
                       />
                     </div>
@@ -463,7 +475,7 @@ export default function DashboardPage() {
       )}
 
       {/* System health strip */}
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border bg-card px-5 py-3 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-border/80 bg-card px-5 py-3 text-xs text-muted-foreground shadow-sm">
         <span className="inline-flex items-center gap-2">
           <span className="relative flex h-2 w-2">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
@@ -473,7 +485,7 @@ export default function DashboardPage() {
         </span>
         <Separator orientation="vertical" className="hidden h-4 sm:block" />
         <span className="inline-flex items-center gap-1.5">
-          <CircleDot className="h-3.5 w-3.5" />
+          <CircleDot className="h-3.5 w-3.5 text-indigo-500" />
           AI classification active
         </span>
         <Separator orientation="vertical" className="hidden h-4 sm:block" />

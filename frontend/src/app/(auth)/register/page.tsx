@@ -6,9 +6,9 @@ import { useRegisterMutation } from "@/queries/index";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
 import Link from "next/link";
+import { AuthShell } from "@/components/auth/auth-shell";
 import { Landmark } from "lucide-react";
 
 export default function RegisterPage() {
@@ -35,68 +35,66 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 via-background to-indigo-100 px-4 dark:from-slate-900 dark:via-background dark:to-slate-900">
-      <div className="w-full max-w-sm space-y-8">
-        <div className="text-center">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-primary shadow-sm mb-4">
-            <Landmark className="h-6 w-6 text-primary-foreground" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">Create Account</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Join CivicPulse · Vadodara Municipal
-          </p>
+    <AuthShell>
+      <div className="mb-8 flex flex-col items-center text-center lg:items-start lg:text-left">
+        <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 shadow-glow-primary lg:hidden">
+          <Landmark className="h-5 w-5 text-white" />
         </div>
-
-        <Card className="border-border/50 shadow-lg">
-          <CardContent className="p-6">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="fullName">Full Name</Label>
-                <Input
-                  id="fullName"
-                  placeholder="John Doe"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  required
-                  className="h-10"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="h-10"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Min 8 characters"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="h-10"
-                />
-              </div>
-              <Button type="submit" className="w-full h-10" disabled={registerMutation.isPending}>
-                {registerMutation.isPending ? "Creating account..." : "Create Account"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <p className="text-center text-sm text-muted-foreground">
-          Already have an account?{" "}
-          <Link href="/login" className="font-medium text-primary hover:underline">Sign in</Link>
+        <h1 className="text-2xl font-semibold tracking-tight">Create your account</h1>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          Join the CivicPulse platform for Vadodara Municipal
         </p>
       </div>
-    </div>
+
+      <div className="rounded-2xl border border-border/80 bg-card p-6 shadow-lift sm:p-7">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="fullName">Full Name</Label>
+            <Input
+              id="fullName"
+              placeholder="John Doe"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              required
+              className="h-10"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="h-10"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              placeholder="Min 8 characters"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="h-10"
+            />
+          </div>
+          <Button type="submit" className="h-10 w-full" disabled={registerMutation.isPending}>
+            {registerMutation.isPending ? "Creating account…" : "Create Account"}
+          </Button>
+        </form>
+      </div>
+
+      <p className="mt-6 text-center text-sm text-muted-foreground">
+        Already have an account?{" "}
+        <Link href="/login" className="font-medium text-primary hover:underline">
+          Sign in
+        </Link>
+      </p>
+    </AuthShell>
   );
 }

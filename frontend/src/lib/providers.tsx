@@ -1,6 +1,7 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ThemeProvider as NextThemesProvider } from "next-themes";
 import { useState, type ReactNode } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -20,8 +21,15 @@ export function Providers({ children }: { children: ReactNode }) {
   );
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
-    </QueryClientProvider>
+    <NextThemesProvider
+      attribute="class"
+      defaultTheme="system"
+      enableSystem
+      disableTransitionOnChange
+    >
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
+      </QueryClientProvider>
+    </NextThemesProvider>
   );
 }
