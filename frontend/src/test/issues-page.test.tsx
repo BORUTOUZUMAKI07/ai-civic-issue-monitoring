@@ -12,8 +12,9 @@ describe("IssuesPage", () => {
   it("renders issues list", async () => {
     render(<IssuesPage />, { wrapper })
     await waitFor(() => {
-      expect(screen.getByText("Issues")).toBeInTheDocument()
+      expect(screen.getByText("Pothole")).toBeInTheDocument()
     })
+    expect(screen.getByText("1 total issues")).toBeInTheDocument()
   })
 
   it("shows report button", async () => {
