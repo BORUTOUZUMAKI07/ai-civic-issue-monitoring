@@ -1,16 +1,26 @@
 "use client"
 
 import Link from "next/link"
-import { useDashboardStats, useIssues, useMe, useWards } from "@/queries/index"
+import {
+  useDashboardStats,
+  useIssues,
+  useMe,
+  useWards,
+} from "@/queries/index"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Separator } from "@/components/ui/separator"
+import { IssueTypeIcon } from "@/components/shared/issue-icon"
 import {
   AlertTriangle,
   ArrowRight,
+  ArrowUpRight,
   CheckCircle2,
+  CircleDot,
   Clock,
   FileText,
-  Loader2,
+  LocateFixed,
+  MapPin,
   Plus,
   Users2,
   Wrench,
@@ -33,17 +43,8 @@ import {
   formatDateShort,
   humanize,
   severityMeta,
+  typeMeta,
 } from "@/lib/format"
-
-const TYPE_COLORS = [
-  "#2563eb",
-  "#7c3aed",
-  "#0ea5e9",
-  "#f59e0b",
-  "#10b981",
-  "#f43f5e",
-  "#64748b",
-]
 
 const STATUS_COLORS: Record<string, string> = {
   reported: "#0ea5e9",
@@ -66,16 +67,23 @@ function KpiCard({
   caption?: string
 }) {
   return (
-    <Card className="transition-shadow hover:shadow-md">
+    <Card className="transition-all hover:-translate-y-0.5 hover:shadow-md">
       <CardContent className="flex items-center justify-between p-5">
-        <div>
-          <p className="text-sm font-medium text-muted-foreground">{label}</p>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-muted-foreground">
+            {label}
+          </p>
           <p className="mt-1.5 text-3xl font-semibold tracking-tight">{value}</p>
           {caption && (
-            <p className="mt-1 text-xs text-muted-foreground">{caption}</p>
+            <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+              <ArrowUpRight className="h-3 w-3 text-emerald-500" />
+              {caption}
+            </p>
           )}
         </div>
-        <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${chipClass}`}>
+        <div
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${chipClass}`}
+        >
           <Icon className="h-5 w-5" />
         </div>
       </CardContent>
@@ -83,7 +91,15 @@ function KpiCard({
   )
 }
 
-function ChartTooltip({ active, payload, label }: any) {
+function ChartTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean
+  payload?: Array<{ name?: string; value?: number | string }>
+  label?: string | number
+}) {
   if (!active || !payload?.length) return null
   return (
     <div className="rounded-lg border bg-card px-3 py-2 text-xs shadow-lg">
@@ -108,15 +124,15 @@ export default function DashboardPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
+        <div className="h-44 animate-pulse rounded-2xl bg-muted" />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="h-[104px] animate-pulse rounded-xl bg-muted" />
           ))}
         </div>
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="h-72 animate-pulse rounded-xl bg-muted" />
-          ))}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+          <div className="h-80 animate-pulse rounded-xl bg-muted lg:col-span-5" />
+          <div className="h-80 animate-pulse rounded-xl bg-muted lg:col-span-7" />
         </div>
       </div>
     )
@@ -128,14 +144,11 @@ export default function DashboardPage() {
   const resolutionRate = total > 0 ? Math.round((resolvedCount / total) * 100) : 0
 
   const statusData = STATUS_ORDER.filter((s) => (byStatus[s] ?? 0) > 0).map(
-    (s) => ({
-      name: STATUS_META[s].label,
-      value: byStatus[s],
-    })
+    (s) => ({ name: STATUS_META[s].label, value: byStatus[s] })
   )
 
   const typeData = Object.entries(stats?.by_type ?? {})
-    .map(([name, value]) => ({ name: humanize(name), value }))
+    .map(([name, value]) => ({ name: typeMeta(name).label, key: name, value }))
     .sort((a, b) => b.value - a.value)
 
   const wardData = (stats?.by_ward ?? [])
@@ -144,31 +157,54 @@ export default function DashboardPage() {
     .slice(0, 6)
 
   const maxWard = Math.max(1, ...wardData.map((w) => w.count))
+  const rankStyles = [
+    "bg-blue-600 text-white",
+    "bg-blue-100 text-blue-700",
+    "bg-blue-50 text-blue-600",
+  ]
 
   const recent = (issuesData?.items ?? []).slice(0, 6)
   const hasData = total > 0
 
+  const hour = new Date().getHours()
+  const greeting =
+    hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"
+  const firstName = user?.full_name?.split(" ")[0]
+
   return (
     <div className="space-y-6">
-      {/* Greeting */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
-            {user?.full_name?.split(" ")[0]
-              ? `Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}, ${user.full_name.split(" ")[0]}`
-              : "Welcome back"}
-          </h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Here&apos;s what&apos;s happening across the city today.
-          </p>
+      {/* Hero band */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-600 px-6 py-8 text-white shadow-lg sm:px-8">
+        <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/10" />
+        <div className="pointer-events-none absolute -bottom-24 right-24 h-64 w-64 rounded-full bg-white/5" />
+        <div className="pointer-events-none absolute left-1/3 top-0 h-full w-px bg-white/10" />
+
+        <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-medium ring-1 ring-inset ring-white/20">
+              <MapPin className="h-3 w-3" />
+              Vadodara Municipal Corporation
+            </p>
+            <h2 className="mt-4 text-2xl font-semibold tracking-tight sm:text-3xl">
+              {firstName ? `${greeting}, ${firstName}` : greeting}
+            </h2>
+            <p className="mt-1.5 max-w-md text-sm text-blue-100">
+              Here&apos;s what&apos;s happening across the city today.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:items-end">
+            <Button asChild size="lg" className="bg-white text-blue-700 shadow-md hover:bg-blue-50">
+              <Link href="/issues">
+                <Plus className="h-4 w-4" />
+                Report an issue
+              </Link>
+            </Button>
+            <p className="text-xs text-blue-100">
+              {stats?.recent_count ?? 0} reports added this month
+            </p>
+          </div>
         </div>
-        <Link
-          href="/issues"
-          className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-        >
-          <Plus className="h-4 w-4" />
-          Report an issue
-        </Link>
       </div>
 
       {/* KPI cards */}
@@ -178,19 +214,21 @@ export default function DashboardPage() {
           value={total}
           icon={FileText}
           chipClass="bg-blue-50 text-blue-600"
-          caption={`${stats?.recent_count ?? 0} added this month`}
+          caption="all time"
         />
         <KpiCard
           label="In Progress"
           value={byStatus.in_progress ?? 0}
           icon={Wrench}
           chipClass="bg-amber-50 text-amber-600"
+          caption="being worked on"
         />
         <KpiCard
           label="Assigned"
           value={byStatus.assigned ?? 0}
           icon={Users2}
           chipClass="bg-violet-50 text-violet-600"
+          caption="to field teams"
         />
         <KpiCard
           label="Resolved"
@@ -215,127 +253,150 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       ) : (
-        <>
-          {/* Charts */}
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            {/* Status donut */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Issue Status</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="relative h-52">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={statusData}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius={58}
-                        outerRadius={82}
-                        paddingAngle={3}
-                        strokeWidth={0}
-                      >
-                        {statusData.map((entry) => (
-                          <Cell
-                            key={entry.name}
-                            fill={STATUS_COLORS[entry.name.toLowerCase().replace(" ", "_")] ?? "#94a3b8"}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip content={<ChartTooltip />} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-3xl font-semibold tracking-tight">
-                      {total}
-                    </span>
-                    <span className="text-xs text-muted-foreground">total</span>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+          {/* Status donut */}
+          <Card className="lg:col-span-5">
+            <CardHeader>
+              <CardTitle className="text-base">Issue Status</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="relative mx-auto h-52 max-w-xs">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={statusData}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={58}
+                      outerRadius={84}
+                      paddingAngle={3}
+                      strokeWidth={0}
+                    >
+                      {statusData.map((entry) => (
+                        <Cell
+                          key={entry.name}
+                          fill={
+                            STATUS_COLORS[
+                              entry.name.toLowerCase().replace(" ", "_")
+                            ] ?? "#94a3b8"
+                          }
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<ChartTooltip />} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-3xl font-semibold tracking-tight">
+                    {total}
+                  </span>
+                  <span className="text-xs text-muted-foreground">total</span>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2.5">
+                {statusData.map((s) => (
+                  <div key={s.name} className="flex items-center gap-2 text-sm">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{
+                        backgroundColor:
+                          STATUS_COLORS[s.name.toLowerCase().replace(" ", "_")] ??
+                          "#94a3b8",
+                      }}
+                    />
+                    <span className="truncate text-muted-foreground">{s.name}</span>
+                    <span className="ml-auto font-semibold">{s.value}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Category bar */}
+          <Card className="lg:col-span-7">
+            <CardHeader>
+              <CardTitle className="text-base">Issues by Category</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={typeData} margin={{ left: -18, right: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval={0}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    content={<ChartTooltip />}
+                    cursor={{ fill: "rgba(148,163,184,0.08)" }}
+                  />
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]} maxBarSize={36}>
+                    {typeData.map((entry) => (
+                      <Cell key={entry.key} fill={typeMeta(entry.key).color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
+          {/* Top wards */}
+          <Card className="lg:col-span-5">
+            <CardHeader>
+              <CardTitle className="text-base">Top Wards</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {wardData.map((w, idx) => (
+                <div key={w.ward} className="flex items-center gap-3">
+                  <span
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-semibold ${
+                      rankStyles[Math.min(idx, 2)]
+                    }`}
+                  >
+                    {idx + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex items-center justify-between gap-2 text-sm">
+                      <span className="truncate font-medium">{w.ward}</span>
+                      <span className="text-muted-foreground">
+                        {w.count} issue{w.count === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-blue-600"
+                        style={{ width: `${(w.count / maxWard) * 100}%` }}
+                      />
+                    </div>
                   </div>
                 </div>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  {statusData.map((s) => (
-                    <div key={s.name} className="flex items-center gap-2 text-sm">
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{
-                          backgroundColor:
-                            STATUS_COLORS[s.name.toLowerCase().replace(" ", "_")] ??
-                            "#94a3b8",
-                        }}
-                      />
-                      <span className="text-muted-foreground">{s.name}</span>
-                      <span className="ml-auto font-semibold">{s.value}</span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Category bar */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">By Category</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={228}>
-                  <BarChart data={typeData} margin={{ left: -18 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(148,163,184,0.08)" }} />
-                    <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={28}>
-                      {typeData.map((_, i) => (
-                        <Cell key={i} fill={TYPE_COLORS[i % TYPE_COLORS.length]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-
-            {/* Ward ranking */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Top Wards</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {wardData.map((w) => (
-                    <div key={w.ward}>
-                      <div className="mb-1 flex items-center justify-between text-sm">
-                        <span className="font-medium">{w.ward}</span>
-                        <span className="text-muted-foreground">{w.count}</span>
-                      </div>
-                      <div className="h-2 overflow-hidden rounded-full bg-muted">
-                        <div
-                          className="h-full rounded-full bg-blue-600"
-                          style={{ width: `${(w.count / maxWard) * 100}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+              ))}
+            </CardContent>
+          </Card>
 
           {/* Recent issues */}
-          <Card>
+          <Card className="lg:col-span-7">
             <CardHeader className="flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Recent Issues</CardTitle>
-              <Link
-                href="/issues"
-                className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-              >
-                View all
-                <ArrowRight className="h-4 w-4" />
-              </Link>
+              <Button asChild variant="ghost" size="sm" className="text-primary hover:text-primary">
+                <Link href="/issues">
+                  View all
+                  <ArrowRight className="ml-1 h-4 w-4" />
+                </Link>
+              </Button>
             </CardHeader>
             <CardContent>
               {recent.length === 0 ? (
                 <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Clock className="h-4 w-4 animate-spin" />
                   Loading recent issues…
                 </div>
               ) : (
@@ -344,22 +405,22 @@ export default function DashboardPage() {
                     const status = STATUS_META[issue.status] ?? {
                       label: humanize(issue.status),
                       pill: "bg-muted text-muted-foreground ring-muted",
+                      dot: "bg-muted",
                     }
                     const sev = severityMeta(issue.severity)
                     return (
                       <Link
                         key={issue.id}
                         href={`/issues/${issue.id}`}
-                        className="flex items-center gap-4 py-3 transition-colors hover:bg-muted/40"
+                        className="group flex items-center gap-4 py-3 transition-colors hover:bg-muted/40"
                       >
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
-                          <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-                        </div>
+                        <IssueTypeIcon type={issue.issue_type} />
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">
+                          <p className="truncate text-sm font-medium group-hover:text-primary">
                             {humanize(issue.issue_type)}
                           </p>
-                          <p className="truncate text-xs text-muted-foreground">
+                          <p className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                            <MapPin className="h-3 w-3 shrink-0" />
                             {wardName(issue.ward_id)} · {formatDateShort(issue.created_at)}
                           </p>
                         </div>
@@ -371,9 +432,11 @@ export default function DashboardPage() {
                             {status.label}
                           </span>
                         </span>
-                        <Badge className={`border-0 ring-1 ring-inset ${sev.pill}`}>
+                        <span
+                          className={`hidden rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset md:inline ${sev.pill}`}
+                        >
                           {sev.label}
-                        </Badge>
+                        </span>
                       </Link>
                     )
                   })}
@@ -381,18 +444,31 @@ export default function DashboardPage() {
               )}
             </CardContent>
           </Card>
-        </>
+        </div>
       )}
 
       {/* System health strip */}
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border bg-card px-5 py-3 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+          </span>
           Systems operational
         </span>
+        <Separator orientation="vertical" className="hidden h-4 sm:block" />
         <span className="inline-flex items-center gap-1.5">
-          <Clock className="h-3.5 w-3.5" />
+          <CircleDot className="h-3.5 w-3.5" />
+          AI classification active
+        </span>
+        <Separator orientation="vertical" className="hidden h-4 sm:block" />
+        <span className="inline-flex items-center gap-1.5">
+          <LocateFixed className="h-3.5 w-3.5" />
           Last updated just now
+        </span>
+        <span className="ml-auto hidden items-center gap-1.5 sm:flex">
+          <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground/60" />
+          {byStatus.reported ?? 0} awaiting review
         </span>
       </div>
     </div>

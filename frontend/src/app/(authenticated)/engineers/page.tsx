@@ -1,90 +1,194 @@
 "use client";
 
-import { useEngineers } from "@/queries/index";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useEngineers, useWards } from "@/queries/index";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Users, Wrench, Clock } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Clock,
+  Construction,
+  Droplets,
+  HardHat,
+  Lightbulb,
+  MapPin,
+  Trash2,
+  Waves,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
+import { humanize } from "@/lib/format";
+
+const SPEC_ICONS: Record<string, LucideIcon> = {
+  road_maintenance: Construction,
+  garbage_collection: Trash2,
+  streetlight: Lightbulb,
+  waterlogging: Waves,
+  sewage: Droplets,
+  general: Wrench,
+};
+
+function workloadColor(pct: number) {
+  if (pct > 80) return "bg-red-500";
+  if (pct > 50) return "bg-amber-500";
+  return "bg-emerald-500";
+}
 
 export default function EngineersPage() {
   const { data: engineers, isLoading } = useEngineers();
+  const { data: wards } = useWards();
+
+  const wardName = (id: number) =>
+    wards?.find((w) => w.id === id)?.name ?? `Ward ${id}`;
+
+  const list = engineers ?? [];
+  const available = list.filter((e) => e.is_available).length;
+  const busy = list.length - available;
+  const avgResolution =
+    list.length > 0
+      ? list.reduce((sum, e) => sum + e.avg_resolution_hours, 0) / list.length
+      : 0;
+
+  const summary = [
+    { label: "Engineers", value: list.length, icon: HardHat, chip: "bg-blue-50 text-blue-600" },
+    { label: "Available", value: available, icon: Wrench, chip: "bg-emerald-50 text-emerald-600" },
+    { label: "On assignment", value: busy, icon: Clock, chip: "bg-amber-50 text-amber-600" },
+    {
+      label: "Avg resolution",
+      value: avgResolution ? `${avgResolution.toFixed(1)}h` : "—",
+      icon: Clock,
+      chip: "bg-violet-50 text-violet-600",
+    },
+  ];
 
   return (
-    <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-2xl font-bold">Engineers</h1>
-        <p className="text-sm text-muted-foreground mt-1">Field engineers and their current workload</p>
+    <div className="space-y-6">
+      {/* Summary */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {summary.map(({ label, value, icon: Icon, chip }) => (
+          <Card key={label}>
+            <CardContent className="flex items-center justify-between p-5">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">{label}</p>
+                <p className="mt-1.5 text-3xl font-semibold tracking-tight">{value}</p>
+              </div>
+              <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${chip}`}>
+                <Icon className="h-5 w-5" />
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
+      {/* Cards */}
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3].map((i) => (
-            <Card key={i}>
-              <CardContent className="p-6">
-                <div className="h-24 bg-muted rounded animate-pulse" />
-              </CardContent>
-            </Card>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-56 rounded-xl" />
           ))}
         </div>
+      ) : list.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
+              <HardHat className="h-7 w-7 text-muted-foreground" />
+            </div>
+            <h3 className="mt-4 text-base font-semibold">No engineers registered yet</h3>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+              Field engineers will appear here once they are added to teams.
+            </p>
+          </CardContent>
+        </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {engineers?.map((eng) => {
-            const workloadPct = eng.max_workload > 0 ? (eng.current_workload / eng.max_workload) * 100 : 0;
-            const workloadColor = workloadPct > 80 ? "bg-red-500" : workloadPct > 50 ? "bg-yellow-500" : "bg-green-500";
-            
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {list.map((eng) => {
+            const workloadPct =
+              eng.max_workload > 0
+                ? Math.min((eng.current_workload / eng.max_workload) * 100, 100)
+                : 0;
+            const SpecIcon = SPEC_ICONS[eng.specialization] ?? Wrench;
+            const initials = humanize(eng.specialization ?? "General")
+              .split(" ")
+              .map((w) => w[0])
+              .slice(0, 2)
+              .join("")
+              .toUpperCase();
+
             return (
-              <Card key={eng.id} className="hover:shadow-md transition-shadow">
-                <CardHeader className="pb-3">
+              <Card key={eng.id} className="transition-all hover:-translate-y-0.5 hover:shadow-md">
+                <CardContent className="space-y-4 p-5">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Users className="h-4 w-4 text-primary" />
+                    <div className="flex items-center gap-3">
+                      <Avatar size="lg">
+                        <AvatarFallback className="bg-primary/10 text-primary">
+                          {initials || "EN"}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <p className="text-sm font-semibold">
+                          {humanize(eng.specialization ?? "General")}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Team member #{eng.id}</p>
                       </div>
-                      Engineer #{eng.id}
-                    </CardTitle>
-                    <Badge variant={eng.is_available ? "default" : "secondary"}>
-                      {eng.is_available ? "Available" : "Busy"}
+                    </div>
+                    <Badge
+                      variant="secondary"
+                      className={
+                        eng.is_available
+                          ? "border-transparent bg-emerald-50 text-emerald-700"
+                          : "border-transparent bg-muted text-muted-foreground"
+                      }
+                    >
+                      <span
+                        className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full ${
+                          eng.is_available ? "bg-emerald-500" : "bg-slate-400"
+                        }`}
+                      />
+                      {eng.is_available ? "Available" : "On assignment"}
                     </Badge>
                   </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground flex items-center gap-1">
-                        <Wrench className="h-3 w-3" /> Specialization
-                      </span>
-                      <span className="capitalize font-medium">{eng.specialization?.replace("_", " ") || "General"}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Ward</span>
-                      <span className="font-medium">#{eng.ward_id}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground flex items-center gap-1">
-                        <Clock className="h-3 w-3" /> Avg Resolution
-                      </span>
-                      <span className="font-medium">{eng.avg_resolution_hours.toFixed(1)}h</span>
-                    </div>
+
+                  <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm">
+                    <SpecIcon className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">Specialization</span>
+                    <span className="ml-auto font-medium">
+                      {humanize(eng.specialization ?? "General")}
+                    </span>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs">
+                  <div className="flex items-center gap-2 text-sm">
+                    <MapPin className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">Zone</span>
+                    <span className="ml-auto font-medium">{wardName(eng.ward_id)}</span>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Workload</span>
-                      <span className="font-medium">{eng.current_workload}/{eng.max_workload} issues</span>
+                      <span className="font-medium">
+                        {eng.current_workload}/{eng.max_workload} issues
+                      </span>
                     </div>
-                    <div className="h-2 rounded-full bg-muted overflow-hidden">
-                      <div className={`h-full rounded-full transition-all ${workloadColor}`} style={{ width: `${Math.min(workloadPct, 100)}%` }} />
-                    </div>
+                    <Progress
+                      value={workloadPct}
+                      indicatorClassName={workloadColor(workloadPct)}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between border-t pt-3 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5" />
+                      Avg resolution
+                    </span>
+                    <span className="font-medium text-foreground">
+                      {eng.avg_resolution_hours.toFixed(1)} hours
+                    </span>
                   </div>
                 </CardContent>
               </Card>
             );
           })}
-          {engineers?.length === 0 && (
-            <div className="col-span-full text-center py-16">
-              <div className="text-4xl mb-4">👷</div>
-              <p className="text-muted-foreground">No engineers registered yet.</p>
-            </div>
-          )}
         </div>
       )}
     </div>
