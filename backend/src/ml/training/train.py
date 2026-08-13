@@ -16,12 +16,15 @@ import os
 import random
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 import mlflow
 import mlflow.pytorch
 import numpy as np
+from mlflow.models.signature import ModelSignature
+from mlflow.types.schema import Schema, TensorSpec
 import optuna
 import torch
 import torch.nn as nn
@@ -698,12 +701,22 @@ def main():
     try:
         merged_log = merge_adapter(model)
         mlflow.start_run(run_id=run_id)
-        mlflow.pytorch.log_model(
-            merged_log,
-            name="model",
-            input_example=torch.randn(1, 3, 224, 224),
-            serialization_format="pickle",
+        model_signature = ModelSignature(
+            inputs=Schema([TensorSpec(np.dtype("float32"), (-1, 3, 224, 224), "input")]),
+            outputs=Schema([TensorSpec(np.dtype("float32"), (-1, len(CLASS_NAMES)), "output")]),
         )
+        # DagsHub's MLflow server does not support the 3.x "logged model" store, so
+        # mlflow.pytorch.log_model uploads nothing there. Use the classic
+        # save_model + log_artifacts path so the model artifact is downloadable.
+        with tempfile.TemporaryDirectory(prefix="mlflow_model_") as model_dir:
+            mlflow.pytorch.save_model(
+                merged_log,
+                path=model_dir,
+                input_example=torch.randn(1, 3, 224, 224),
+                signature=model_signature,
+                serialization_format=mlflow.pytorch.SERIALIZATION_FORMAT_PT2,
+            )
+            mlflow.log_artifacts(model_dir, artifact_path="model")
         mlflow.end_run()
     except Exception as e:
         logger.warning("MLflow model artifact logging failed (non-fatal): %s", e)
