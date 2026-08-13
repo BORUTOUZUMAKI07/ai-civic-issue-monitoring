@@ -10,6 +10,9 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { BentoCard } from "@/components/ui/bento-card"
+import { NumberTicker } from "@/components/ui/number-ticker"
+import { SpotlightCard } from "@/components/ui/spotlight-card"
 import { IssueTypeIcon } from "@/components/shared/issue-icon"
 import {
   AlertTriangle,
@@ -67,13 +70,16 @@ function KpiCard({
   caption?: string
 }) {
   return (
-    <Card className="transition-all hover:-translate-y-0.5 hover:shadow-md">
-      <CardContent className="flex items-center justify-between p-5">
+    <BentoCard className="p-5">
+      <div className="flex items-center justify-between">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-muted-foreground">
             {label}
           </p>
-          <p className="mt-1.5 text-3xl font-semibold tracking-tight">{value}</p>
+          <NumberTicker
+            value={value}
+            className="mt-1.5 block text-3xl font-semibold tracking-tight"
+          />
           {caption && (
             <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
               <ArrowUpRight className="h-3 w-3 text-emerald-500" />
@@ -86,8 +92,8 @@ function KpiCard({
         >
           <Icon className="h-5 w-5" />
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </BentoCard>
   )
 }
 
@@ -174,7 +180,16 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* Hero band */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-600 px-6 py-8 text-white shadow-lg sm:px-8">
+      <SpotlightCard className="rounded-2xl bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-600 px-6 py-8 text-white shadow-lg sm:px-8">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{
+            backgroundImage:
+              "radial-gradient(rgba(255,255,255,0.35) 1px, transparent 1px)",
+            backgroundSize: "22px 22px",
+          }}
+        />
         <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/10" />
         <div className="pointer-events-none absolute -bottom-24 right-24 h-64 w-64 rounded-full bg-white/5" />
         <div className="pointer-events-none absolute left-1/3 top-0 h-full w-px bg-white/10" />
@@ -205,7 +220,7 @@ export default function DashboardPage() {
             </p>
           </div>
         </div>
-      </div>
+      </SpotlightCard>
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
