@@ -82,6 +82,41 @@ export function severityMeta(severity: number): {
 
 export const STATUS_ORDER = ["reported", "assigned", "in_progress", "resolved"]
 
+export const TYPE_META: Record<
+  string,
+  { label: string; chip: string; color: string }
+> = {
+  pothole: { label: "Pothole", chip: "bg-red-50 text-red-600", color: "#dc2626" },
+  garbage: { label: "Garbage", chip: "bg-amber-50 text-amber-600", color: "#d97706" },
+  broken_streetlight: {
+    label: "Street Light",
+    chip: "bg-blue-50 text-blue-600",
+    color: "#2563eb",
+  },
+  waterlogging: {
+    label: "Waterlogging",
+    chip: "bg-cyan-50 text-cyan-600",
+    color: "#0891b2",
+  },
+  debris: { label: "Debris", chip: "bg-violet-50 text-violet-600", color: "#7c3aed" },
+  sewage: { label: "Sewage", chip: "bg-teal-50 text-teal-600", color: "#0d9488" },
+  road_damage: {
+    label: "Road Damage",
+    chip: "bg-orange-50 text-orange-600",
+    color: "#ea580c",
+  },
+}
+
+export function typeMeta(type: string): { label: string; chip: string; color: string } {
+  return (
+    TYPE_META[type] ?? {
+      label: humanize(type),
+      chip: "bg-slate-100 text-slate-600",
+      color: "#64748b",
+    }
+  )
+}
+
 export const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
   "/dashboard": { title: "Dashboard", subtitle: "Live overview of civic issues across Vadodara" },
   "/issues": { title: "Issue Reports", subtitle: "Track, review, and manage reported issues" },
