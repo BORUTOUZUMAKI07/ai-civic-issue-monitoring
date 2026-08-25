@@ -20,12 +20,16 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v5
-      - uses: prefix-dev/setup-pixi@v0.8.8
+      - uses: astral-sh/setup-uv@v5
         with:
-          pixi-version: v0.45.0
-          environments: default
-          cache: true
-      - run: pixi run -e default lint
+          version: "latest"
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "backend/pyproject.toml"
+      - run: uv sync --extra dev --frozen
+        working-directory: backend
+      - run: uv run ruff check src/
+      - run: uv run ruff format --check src/
 
   backend-test:
     name: Backend Tests
@@ -62,12 +66,15 @@ jobs:
       SECRET_KEY: test-secret-key-for-ci-only
     steps:
       - uses: actions/checkout@v5
-      - uses: prefix-dev/setup-pixi@v0.8.8
+      - uses: astral-sh/setup-uv@v5
         with:
-          pixi-version: v0.45.0
-          environments: default
-          cache: true
-      - run: pixi run -e default test-ci
+          version: "latest"
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "backend/pyproject.toml"
+      - run: uv sync --extra dev --frozen
+        working-directory: backend
+      - run: uv run pytest tests/ -v --timeout=60 -m 'not integration'
 
   frontend-lint:
     name: Frontend Lint
