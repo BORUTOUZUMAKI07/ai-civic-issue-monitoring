@@ -29,7 +29,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "backend/pyproject.toml"
       - name: Install dependencies
-        run: uv sync --extra dev --frozen
+        run: uv sync --extra dev
       - name: Run Linting
         run: |
           uv run ruff check src/

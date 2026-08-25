@@ -15,9 +15,6 @@ jobs:
   backend-lint:
     name: Backend Lint
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v5
@@ -26,17 +23,16 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
           cache-dependency-glob: "backend/pyproject.toml"
-      - run: uv sync --extra dev --frozen
+      - run: uv sync --extra dev
         working-directory: backend
       - run: uv run ruff check src/
+        working-directory: backend
       - run: uv run ruff format --check src/
+        working-directory: backend
 
   backend-test:
     name: Backend Tests
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     services:
       postgres:
         image: postgres:16
@@ -72,9 +68,10 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
           cache-dependency-glob: "backend/pyproject.toml"
-      - run: uv sync --extra dev --frozen
+      - run: uv sync --extra dev
         working-directory: backend
       - run: uv run pytest tests/ -v --timeout=60 -m 'not integration'
+        working-directory: backend
 
   frontend-lint:
     name: Frontend Lint
