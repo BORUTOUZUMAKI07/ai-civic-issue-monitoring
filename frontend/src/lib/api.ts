@@ -152,6 +152,34 @@ export interface Issue {
   created_at: string;
   assigned_to: string | null;
   engineer_name: string | null;
+  model_used: string | null;
+  probabilities: Record<string, number> | null;
+}
+
+export interface MlInfo {
+  model_path: string;
+  model_exists: boolean;
+  model_size_bytes: number;
+  model_size_mb: number;
+  adapter_path: string;
+  adapter_exists: boolean;
+  onnx_path: string;
+  onnx_exists: boolean;
+  class_names: string[];
+  num_classes: number;
+  default_threshold: number;
+  review_threshold: number;
+  reject_threshold: number;
+}
+
+export interface RejectedUpload {
+  id: string;
+  image_url: string;
+  vision_label: string;
+  vision_confidence: number;
+  description: string;
+  action_taken: string;
+  created_at: string;
 }
 
 export interface Ward {
@@ -217,12 +245,19 @@ export const issues = {
     return apiFetch<{ items: Issue[]; total: number }>(`/api/v1/issues?${q}`);
   },
   get: (id: number) => apiFetch<Issue>(`/api/v1/issues/${id}`),
-  upload: (file: File, latitude: number, longitude: number, description: string = "") => {
+  upload: (
+    file: File,
+    latitude: number,
+    longitude: number,
+    description: string = "",
+    force_submit: boolean = false
+  ) => {
     const form = new FormData();
     form.append("file", file);
     form.append("latitude", String(latitude));
     form.append("longitude", String(longitude));
     form.append("description", description);
+    form.append("force_submit", String(force_submit));
     return apiFetch<Issue>("/api/v1/issues/upload", {
       method: "POST",
       body: form,
@@ -234,6 +269,28 @@ export const issues = {
       method: "PATCH",
       body: JSON.stringify({ status }),
     }),
+};
+
+export const admin = {
+  reviewQueue: (params?: { skip?: number; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.skip) q.set("skip", String(params.skip));
+    if (params?.limit) q.set("limit", String(params.limit));
+    return apiFetch<{ items: Issue[]; total: number }>(`/api/v1/admin/review-queue?${q}`);
+  },
+  reviewIssue: (id: number, action: string, newType?: string) =>
+    apiFetch<{ detail: string; issue_id: number; issue_type: string }>(
+      `/api/v1/admin/review/${id}`,
+      { method: "POST", body: JSON.stringify({ action, new_type: newType }) }
+    ),
+  rejectedUploads: (params?: { skip?: number; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.skip) q.set("skip", String(params.skip));
+    if (params?.limit) q.set("limit", String(params.limit));
+    return apiFetch<{ items: RejectedUpload[]; total: number }>(
+      `/api/v1/admin/rejected-uploads?${q}`
+    );
+  },
 };
 
 export const wards = {

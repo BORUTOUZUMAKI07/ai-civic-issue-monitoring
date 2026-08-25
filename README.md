@@ -115,7 +115,6 @@ docker-compose up -d --build
 | :--- | :--- | :--- |
 | **Frontend Dashboard** | [http://localhost:3000](http://localhost:3000) | - |
 | **Backend API Docs** | [http://localhost:8000/docs](http://localhost:8000/docs) | - |
-| **Prometheus** | [http://localhost:9090](http://localhost:9090) | - |
 
 ---
 

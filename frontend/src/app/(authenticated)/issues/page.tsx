@@ -163,6 +163,10 @@ export default function IssuesPage() {
   const [locationSource, setLocationSource] = useState<"photo" | "device" | "pin" | null>(null);
   const [locating, setLocating] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  const [showRejectionDialog, setShowRejectionDialog] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [forceSubmitting, setForceSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const wsBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -261,17 +265,7 @@ export default function IssuesPage() {
     }
   };
 
-  const resetModal = () => {
-    setShowUploadModal(false);
-    setSelectedFile(null);
-    setPreviewUrl(null);
-    setDescription("");
-    setLat("");
-    setLon("");
-    setLocationSource(null);
-  };
-
-  const handleUpload = async () => {
+  const handleUpload = async (force = false) => {
     if (!selectedFile) return;
     setUploading(true);
     try {
@@ -296,14 +290,36 @@ export default function IssuesPage() {
         latitude: loc.lat,
         longitude: loc.lon,
         description,
+        force_submit: force,
       });
-      toast.success("Issue reported! AI classification in progress...");
+      toast.success(force ? "Issue submitted for review!" : "Issue reported! AI classification in progress...");
       resetModal();
     } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : "Upload failed");
+      const msg = error instanceof Error ? error.message : "Upload failed";
+      if (msg.includes("does not appear to be a civic issue")) {
+        setRejectionReason(msg);
+        setShowRejectionDialog(true);
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setUploading(false);
     }
+  };
+
+  const resetModal = () => {
+    setShowUploadModal(false);
+    setSelectedFile(null);
+    setPreviewUrl(null);
+    setDescription("");
+    setLat("");
+    setLon("");
+    setLocationSource(null);
+  };
+
+  const resetRejection = () => {
+    setShowRejectionDialog(false);
+    setRejectionReason("");
   };
 
   const items = useMemo(() => data?.items ?? [], [data]);
@@ -656,8 +672,57 @@ export default function IssuesPage() {
             <Button variant="outline" onClick={resetModal}>
               Cancel
             </Button>
-            <Button onClick={handleUpload} disabled={uploading || !selectedFile}>
+            <Button onClick={() => handleUpload()} disabled={uploading || !selectedFile}>
               {uploading ? "Classifying…" : "Submit Report"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rejection dialog — shown when AI rejects a photo */}
+      <Dialog open={showRejectionDialog} onOpenChange={(o) => !o && resetRejection()}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-orange-600">Image Not Recognised</DialogTitle>
+            <DialogDescription>
+              Our AI system could not identify a civic issue in this image. This
+              can happen with blurry, dark, or unrelated photos.
+            </DialogDescription>
+          </DialogHeader>
+
+          {previewUrl && (
+            <div className="relative overflow-hidden rounded-xl border">
+              <img
+                src={previewUrl}
+                alt="Your upload"
+                className="h-40 w-full object-cover opacity-80"
+              />
+            </div>
+          )}
+
+          <p className="text-sm text-muted-foreground">{rejectionReason}</p>
+
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              onClick={() => {
+                resetRejection();
+                resetModal();
+              }}
+            >
+              Discard
+            </Button>
+            <Button
+              variant="default"
+              disabled={forceSubmitting}
+              onClick={async () => {
+                setForceSubmitting(true);
+                await handleUpload(true);
+                setForceSubmitting(false);
+                resetRejection();
+              }}
+            >
+              {forceSubmitting ? "Submitting…" : "Submit anyway (reviewed by admin)"}
             </Button>
           </DialogFooter>
         </DialogContent>

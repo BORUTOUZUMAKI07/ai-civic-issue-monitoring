@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.domains.wards.geofencing import get_ward_from_coords
 from src.errors import CorruptedImageError, ImageTooLargeError, InvalidImageError, IssueNotFound
 from src.models.engineer import Engineer
-from src.models.issue import Issue, IssueStatus, IssueType
+from src.models.issue import Issue, IssueStatus, IssueType, ISSUE_TYPE_MAP
 from src.models.resolution import Resolution
 from src.repositories.engineer_repository import EngineerRepository
 from src.repositories.issue_repository import IssueRepository
@@ -15,16 +15,6 @@ from src.repositories.ward_repository import WardRepository
 
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic"}
 MAX_FILE_SIZE_MB = 5
-
-ISSUE_TYPE_MAP = {
-    "pothole": IssueType.pothole,
-    "garbage": IssueType.garbage,
-    "debris": IssueType.debris,
-    "waterlogging": IssueType.waterlogging,
-    "broken_streetlight": IssueType.broken_streetlight,
-    "sewage": IssueType.sewage,
-    "road_damage": IssueType.road_damage,
-}
 
 
 class IssueService:
@@ -61,6 +51,8 @@ class IssueService:
     ) -> Issue:
         label = classification["label"]
         confidence = classification["confidence"]
+        model_used = classification.get("model")
+        probabilities = classification.get("probabilities")
 
         issue_type = ISSUE_TYPE_MAP.get(label, IssueType.pothole)
 
@@ -96,6 +88,8 @@ class IssueService:
             description=description,
             image_url=image_url,
             review_required=review_required,
+            model_used=model_used,
+            probabilities=probabilities,
             ward_id=ward.id if ward else 1,
             reporter_id=reporter_id,
         )

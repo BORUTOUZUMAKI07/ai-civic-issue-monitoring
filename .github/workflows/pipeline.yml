@@ -67,7 +67,8 @@ jobs:
         run: |
           USER_VAL="${{ secrets.DOCKERHUB_USERNAME }}"
           if [ -z "$USER_VAL" ]; then
-            USER_VAL="sriram365"
+            echo "Error: DOCKERHUB_USERNAME secret is not set" >&2
+            exit 1
           fi
           echo "user=$(echo $USER_VAL | xargs)" >> $GITHUB_OUTPUT
 

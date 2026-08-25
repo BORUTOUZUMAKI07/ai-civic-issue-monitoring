@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { auth, issues, wards, engineers, dashboard } from "@/lib/api";
+import { auth, issues, wards, engineers, dashboard, admin } from "@/lib/api";
 
 export function useMe() {
   return useQuery({
@@ -61,13 +61,34 @@ export function useUploadIssueMutation() {
       latitude,
       longitude,
       description,
+      force_submit,
     }: {
       file: File;
       latitude: number;
       longitude: number;
       description: string;
-    }) => issues.upload(file, latitude, longitude, description),
+      force_submit?: boolean;
+    }) => issues.upload(file, latitude, longitude, description, force_submit ?? false),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["issues"] }),
+  });
+}
+
+export function useReviewQueue(params?: { skip?: number; limit?: number }) {
+  return useQuery({
+    queryKey: ["review-queue", params],
+    queryFn: () => admin.reviewQueue(params),
+  });
+}
+
+export function useReviewIssueMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, action, newType }: { id: number; action: string; newType?: string }) =>
+      admin.reviewIssue(id, action, newType),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["review-queue"] });
+      qc.invalidateQueries({ queryKey: ["issues"] });
+    },
   });
 }
 

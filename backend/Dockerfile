@@ -4,13 +4,13 @@ WORKDIR /app
 
 COPY --from=ghcr.io/prefix-dev/pixi:latest /pixi /bin/pixi
 
-COPY pixi.toml ./
 COPY pyproject.toml ./
 
 RUN pixi install
 
 COPY src src
 COPY tests tests
+COPY configs configs
 COPY alembic alembic
 COPY alembic.ini ./
 
@@ -24,6 +24,7 @@ RUN addgroup --system --gid 1001 app \
 
 COPY --from=builder --chown=app:app /app/.pixi /app/.pixi
 COPY --from=builder --chown=app:app /app/src /app/src
+COPY --from=builder --chown=app:app /app/configs /app/configs
 COPY --from=builder --chown=app:app /app/alembic /app/alembic
 COPY --from=builder --chown=app:app /app/alembic.ini /app/alembic.ini
 

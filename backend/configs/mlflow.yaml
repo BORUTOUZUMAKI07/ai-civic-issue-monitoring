@@ -1,7 +1,7 @@
 # MLflow configuration for DagsHub
-# Docs: https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring
+# Docs: https://dagshub.com/<username>/<repo>
 
-tracking_uri: "https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring.mlflow"
+tracking_uri: ""  # set via MLFLOW_TRACKING_URI env var
 experiment_name: "civicpulse-peft-lora"
 model_name: "civic-issue-classifier"
 
@@ -21,7 +21,7 @@ peft:
   # VeRA/PiSSA/Delta-LoRA are NOT applicable (Linear-only in peft 0.20, our backbone is conv).
   method: lora
   lora_r: [8, 16]
-  lora_alpha: 2r  # alpha = 2 * r recipe, not searched
+  lora_alpha: "2r"  # alpha = 2 * r recipe, not searched
   lora_dropout: [0.0, 0.05]
   loraplus_ratio: 16.0
   target_modules:
@@ -32,8 +32,8 @@ peft:
 # Optuna
 optuna:
   n_trials: 20
-  direction: "minimize"
-  storage: "sqlite:///optuna.db"
+  direction: "maximize"
+  storage: "sqlite:///optuna_v3.db"
 
 # DVC
 dvc:

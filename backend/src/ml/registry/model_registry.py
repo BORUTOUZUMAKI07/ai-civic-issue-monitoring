@@ -12,7 +12,6 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-MLFLOW_TRACKING_URI = "https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring.mlflow"
 MODEL_NAME = "civicpulse-mobilenetv2"
 
 
@@ -27,7 +26,9 @@ class ModelRegistry:
         if self._client is None:
             import mlflow
 
-            mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+            from src.core.config import settings
+
+            mlflow.set_tracking_uri(settings.MLFLOW_TRACKING_URI)
             from mlflow.tracking import MlflowClient
 
             self._client = MlflowClient()

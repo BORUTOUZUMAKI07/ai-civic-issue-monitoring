@@ -18,6 +18,9 @@ class IssueType(str, enum.Enum):
     road_damage = "road_damage"
 
 
+ISSUE_TYPE_MAP = {t.value: t for t in IssueType}
+
+
 class IssueStatus(str, enum.Enum):
     reported = "reported"
     assigned = "assigned"
@@ -40,6 +43,8 @@ class Issue(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     image_url: Mapped[str] = mapped_column(String, nullable=False)
     review_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    model_used: Mapped[str | None] = mapped_column(String, nullable=True)
+    probabilities: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
     embedding: Mapped[str | None] = mapped_column(Text, nullable=True)
 

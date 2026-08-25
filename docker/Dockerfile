@@ -20,6 +20,9 @@ WORKDIR /app
 
 COPY --from=builder --chown=appuser:appuser /app/.pixi /app/.pixi
 COPY --from=builder --chown=appuser:appuser /app/backend/src ./backend/src
+COPY --from=builder --chown=appuser:appuser /app/backend/configs ./backend/configs
+COPY --from=builder --chown=appuser:appuser /app/backend/alembic ./backend/alembic
+COPY --from=builder --chown=appuser:appuser /app/backend/alembic.ini ./backend/alembic.ini
 
 ENV PATH="/app/.pixi/envs/default/bin:$PATH" \
     PYTHONPATH=/app \

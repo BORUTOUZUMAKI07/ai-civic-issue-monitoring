@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import time
 from datetime import datetime, timezone
@@ -12,11 +13,34 @@ from torchvision import transforms
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
-MODEL_PATH = PROJECT_ROOT / "models" / "model.pth"
 ADAPTER_DIR = PROJECT_ROOT / "models" / "adapter"
 ONNX_PATH = PROJECT_ROOT / "models" / "model.onnx"
+CLASS_NAMES_PATH = PROJECT_ROOT / "configs" / "class_names.json"
 
-CLASS_NAMES = ["debris", "garbage", "non_civic", "pothole"]
+
+def _get_model_path() -> Path:
+    from src.core.config import settings
+
+    p = Path(settings.MODEL_PATH)
+    if not p.is_absolute():
+        p = PROJECT_ROOT / p
+    return p
+
+
+MODEL_PATH = _get_model_path()
+
+
+def _load_class_names() -> list[str]:
+    """Load class names from config file, falling back to hardcoded default."""
+    if CLASS_NAMES_PATH.exists():
+        with open(CLASS_NAMES_PATH) as f:
+            names = json.load(f)
+        if isinstance(names, list) and names:
+            return names
+    return ["debris", "garbage", "non_civic", "pothole"]
+
+
+CLASS_NAMES = _load_class_names()
 
 _model = None
 _device = None
@@ -176,13 +200,12 @@ def predict_issue(image: Image.Image) -> dict:
 def _log_prediction_for_drift(result: dict):
     """Log prediction to MongoDB for drift detection (fire-and-forget, sync)."""
     try:
-        import os
-
         from pymongo import MongoClient
 
-        mongo_uri = os.getenv("MONGODB_URI", "mongodb://admin:adminpassword@localhost:27017")
-        client = MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
-        db = client["civicpulse_analytics"]
+        from src.core.config import settings
+
+        client = MongoClient(settings.MONGODB_URI, serverSelectionTimeoutMS=2000)
+        db = client[settings.MONGODB_DB]
         db["predictions"].insert_one(
             {
                 "predicted_label": result["label"],

@@ -5,7 +5,6 @@ import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { NumberTicker } from "@/components/ui/number-ticker";
 import {
-  Activity,
   ArrowRight,
   BarChart3,
   Camera,
@@ -267,7 +266,7 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* Floating badges */}
+            {/* Floating badge */}
             <div className="absolute -right-3 -top-4 animate-float rounded-xl border border-border/70 bg-card px-3.5 py-2.5 shadow-lift sm:-right-6">
               <div className="flex items-center gap-2.5">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-white">
@@ -275,18 +274,7 @@ export default function LandingPage() {
                 </div>
                 <div>
                   <p className="text-xs font-semibold">AI classified</p>
-                  <p className="text-[11px] text-muted-foreground">99% confidence</p>
-                </div>
-              </div>
-            </div>
-            <div className="absolute -bottom-4 -left-3 animate-float-delayed rounded-xl border border-border/70 bg-card px-3.5 py-2.5 shadow-lift sm:-left-6">
-              <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
-                  <Activity className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold">Resolution tracked</p>
-                  <p className="text-[11px] text-muted-foreground">Engineer assigned · Ward 4</p>
+                  <p className="text-[11px] text-muted-foreground">Confidence scored</p>
                 </div>
               </div>
             </div>
@@ -426,19 +414,9 @@ export default function LandingPage() {
           <div className="relative">
             <Quote className="h-8 w-8 text-indigo-300" />
             <p className="mt-5 text-xl font-medium leading-relaxed md:text-2xl">
-              &ldquo;CivicPulse turned our reporting workflow upside down. What used
-              to take days of manual triage now routes itself — and residents can
-              finally see their issue move forward in real time.&rdquo;
+              &ldquo;Designed to reduce average complaint-to-resolution time from
+              days to hours through AI-powered triage and automated routing.&rdquo;
             </p>
-            <div className="mt-7 flex items-center gap-4">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-500 font-semibold">
-                AR
-              </div>
-              <div>
-                <p className="text-sm font-semibold">A. Rathore</p>
-                <p className="text-xs text-indigo-200/80">Director of Operations, Vadodara Municipal</p>
-              </div>
-            </div>
           </div>
         </motion.div>
       </section>

@@ -20,24 +20,6 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-const navSections = [
-  {
-    label: "Overview",
-    items: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/issues", label: "Issues", icon: AlertTriangle },
-      { href: "/map", label: "Map", icon: Map },
-    ],
-  },
-  {
-    label: "Workspace",
-    items: [
-      { href: "/engineers", label: "Engineers", icon: Users },
-      { href: "/settings", label: "Settings", icon: Settings },
-    ],
-  },
-];
-
 interface SidebarProps {
   open?: boolean;
   onClose?: () => void;
@@ -52,6 +34,27 @@ export function Sidebar({ open, onClose }: SidebarProps = {}) {
 
   const isOpen = open ?? internalOpen;
   const close = onClose ?? (() => setInternalOpen(false));
+
+  const navSections = [
+    {
+      label: "Overview",
+      items: [
+        { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+        { href: "/issues", label: "Issues", icon: AlertTriangle },
+        { href: "/map", label: "Map", icon: Map },
+      ],
+    },
+    {
+      label: "Workspace",
+      items: [
+        { href: "/engineers", label: "Engineers", icon: Users },
+        ...(user?.role === "admin"
+          ? [{ href: "/admin/review", label: "Review Queue", icon: ShieldCheck }]
+          : []),
+        { href: "/settings", label: "Settings", icon: Settings },
+      ],
+    },
+  ];
 
   function handleLogout() {
     logout();

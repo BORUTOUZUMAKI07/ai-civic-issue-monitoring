@@ -1,7 +1,6 @@
 from src.errors.auth import (
     EmailAlreadyExists,
     InvalidCredentials,
-    InvalidResetToken,
     InvalidToken,
     TokenExpired,
     TokenRevoked,
@@ -22,7 +21,6 @@ from src.errors.issue import (
     ImageTooLargeError,
     InvalidImageError,
     IssueNotFound,
-    LowConfidenceError,
 )
 
 __all__ = [
@@ -40,10 +38,8 @@ __all__ = [
     "TokenRevoked",
     "InvalidToken",
     "UserNotFound",
-    "InvalidResetToken",
     "IssueNotFound",
     "InvalidImageError",
     "ImageTooLargeError",
     "CorruptedImageError",
-    "LowConfidenceError",
 ]

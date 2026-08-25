@@ -19,9 +19,9 @@ import os
 
 from prefect.blocks.system import Secret
 
-DAGSHUB_REPO = "ram.atchutratna/ai-civic-issue-monitoring"
-DAGSHUB_USER = "ram.atchutratna"
-MLFLOW_BASE = f"https://dagshub.com/{DAGSHUB_REPO}.mlflow/api/2.0/mlflow"
+DAGSHUB_REPO = os.getenv("DAGSHUB_REPO", "ai-civic-issue-monitoring")
+DAGSHUB_USER = os.getenv("DAGSHUB_USERNAME", "")
+MLFLOW_BASE = f"https://dagshub.com/{DAGSHUB_USER}/{DAGSHUB_REPO}.mlflow/api/2.0/mlflow"
 
 
 def _require(name: str) -> str:

@@ -49,18 +49,21 @@ def setup_logging(correlation_id: Optional[str] = None):
     formatter = JSONFormatter(fmt="%(timestamp)s %(level)s %(name)s %(message)s", timestamp=True)
     correlation_filter: logging.Filter = CorrelationIdFilter(correlation_id)
 
+    prod_filter = None
     if is_prod:
 
         class ProdFilter(logging.Filter):
             def filter(self, record):
                 return record.levelno >= logging.INFO
 
-        correlation_filter = ProdFilter()
+        prod_filter = ProdFilter()
 
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(log_level)
     console_handler.setFormatter(formatter)
     console_handler.addFilter(correlation_filter)
+    if prod_filter:
+        console_handler.addFilter(prod_filter)
     logger.addHandler(console_handler)
 
     log_dir = Path(os.getenv("LOG_DIR", "logs"))
@@ -70,6 +73,8 @@ def setup_logging(correlation_id: Optional[str] = None):
     file_handler.setLevel(log_level)
     file_handler.setFormatter(formatter)
     file_handler.addFilter(correlation_filter)
+    if prod_filter:
+        file_handler.addFilter(prod_filter)
     logger.addHandler(file_handler)
 
     logger.addFilter(correlation_filter)

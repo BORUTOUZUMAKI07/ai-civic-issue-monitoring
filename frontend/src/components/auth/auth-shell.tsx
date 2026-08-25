@@ -23,9 +23,9 @@ const highlights = [
 ];
 
 const stats = [
-  { value: "38+", label: "Issues tracked" },
-  { value: "10", label: "Wards covered" },
-  { value: "<2s", label: "AI analysis" },
+  { value: "AI", label: "Image classification" },
+  { value: "GIS", label: "Ward-level routing" },
+  { value: "Live", label: "Real-time updates" },
 ];
 
 export function AuthShell({

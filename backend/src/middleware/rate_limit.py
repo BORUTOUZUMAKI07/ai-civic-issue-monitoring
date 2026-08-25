@@ -7,7 +7,7 @@ from src.core.redis import check_rate_limit
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if request.url.path in ("/health", "/metrics", "/favicon.ico"):
+        if request.url.path in ("/health", "/favicon.ico"):
             return await call_next(request)
 
         client_ip = request.client.host if request.client else "unknown"
@@ -51,7 +51,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Rate limit exceeded. Try again later."
                 )
 
-        request.state.user_id = int(user_id) if user_id else None
+        try:
+            request.state.user_id = int(user_id) if user_id else None
+        except (ValueError, TypeError):
+            request.state.user_id = None
 
         response = await call_next(request)
         return response

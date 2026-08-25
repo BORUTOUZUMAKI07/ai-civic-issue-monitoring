@@ -29,8 +29,3 @@ class InvalidToken(UnauthorizedError):
 class UserNotFound(NotFoundError):
     def __init__(self):
         super().__init__(detail="User not found.")
-
-
-class InvalidResetToken(BadRequestError):
-    def __init__(self):
-        super().__init__(detail="Invalid or expired reset token.")

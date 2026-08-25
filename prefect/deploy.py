@@ -32,8 +32,9 @@ from prefect.runner.storage import GitRepository  # noqa: E402
 
 WORK_POOL = os.getenv("PREFECT_WORK_POOL", "civicpulse-managed")
 
-DAGSHUB_REPO = "ram.atchutratna/ai-civic-issue-monitoring"
-DAGSHUB_GIT_URL = f"https://dagshub.com/{DAGSHUB_REPO}.git"
+DAGSHUB_USER = os.getenv("DAGSHUB_USERNAME", "")
+DAGSHUB_REPO = os.getenv("DAGSHUB_REPO", "ai-civic-issue-monitoring")
+DAGSHUB_GIT_URL = f"https://dagshub.com/{DAGSHUB_USER}/{DAGSHUB_REPO}.git"
 SOURCE = GitRepository(
     url=DAGSHUB_GIT_URL,
     credentials={"access_token": Secret.load("dagshub-token")},

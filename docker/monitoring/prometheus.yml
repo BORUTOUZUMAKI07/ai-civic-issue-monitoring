@@ -1,9 +1,0 @@
-global:
-  scrape_interval: 5s # Faster scraping for demo purposes
-  evaluation_interval: 5s
-
-scrape_configs:
-  - job_name: "civic-backend"
-    metrics_path: "/metrics"
-    static_configs:
-      - targets: ["backend:8000"]

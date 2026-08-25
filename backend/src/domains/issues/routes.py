@@ -10,8 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.core.deps import get_current_active_user
+from src.core.gate import classify_description, gate_decision
 from src.domains.issues.schemas import IssueListResponse, IssueResponse, IssueStatusUpdate
 from src.domains.issues.service import IssueService
+from src.errors import BadRequestError
 from src.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -20,66 +22,65 @@ router = APIRouter(prefix="/issues", tags=["Issues"])
 
 UPLOAD_DIR = Path("uploads/issues")
 
-_MODEL_TO_ISSUE_MAP = {
-    "pothole": "pothole",
-    "garbage": "garbage",
-    "debris": "debris",
-    "non_civic": "road_damage",
-}
 
-
-def _classify_description(description: str) -> dict:
-    if not description:
-        return {"label": "pothole", "confidence": 0.5}
-
-    desc_lower = description.lower()
-    best_label = "pothole"
-    best_score = 0
-
-    keyword_map = {
-        "pothole": ["pothole", "road damage", "road crack", "broken road"],
-        "garbage": ["garbage", "waste", "trash", "rubbish", "dump", "litter"],
-        "broken_streetlight": ["streetlight", "street light", "lamp", "no light"],
-        "waterlogging": ["waterlogging", "flood", "water", "drainage", "stagnant"],
-        "debris": ["debris", "rubble", "construction waste"],
-        "sewage": ["sewage", "sewer", "clogged drain", "blocked drain"],
-        "road_damage": ["road damage", "road broken", "asphalt", "road repair"],
-    }
-
-    for label, keywords in keyword_map.items():
-        score = sum(1 for kw in keywords if kw in desc_lower)
-        if score > best_score:
-            best_score = score
-            best_label = label
-
-    confidence = min(0.95, 0.6 + best_score * 0.1)
-    return {"label": best_label, "confidence": confidence}
-
-
-def _classify_image(image_bytes: bytes) -> dict:
+def _classify_image(image_bytes: bytes) -> dict | None:
     """Run real MobileNetV2 inference on image bytes."""
     try:
         from io import BytesIO
 
         from PIL import Image
 
+        from src.core.gate import CIVIC_LABELS
         from src.ml.inference.predict import predict_issue
 
         image = Image.open(BytesIO(image_bytes))
         result = predict_issue(image)
 
-        model_label = result["label"]
-        issue_label = _MODEL_TO_ISSUE_MAP.get(model_label, model_label)
+        raw_label = result["label"]
+        is_civic = raw_label in CIVIC_LABELS
+        is_non_civic = raw_label == "non_civic"
+        civic_prob = result.get("probabilities", {}).get(raw_label, result["confidence"])
 
         return {
-            "label": issue_label,
+            "label": raw_label,
+            "is_civic": is_civic,
+            "is_non_civic": is_non_civic,
             "confidence": result["confidence"],
+            "civic_prob": civic_prob,
             "model": result.get("model", "mobilenet_v2"),
             "probabilities": result.get("probabilities", {}),
         }
     except Exception as e:
         logger.warning("Image classification failed, falling back to keyword: %s", e)
         return None
+
+
+async def _log_rejected_upload(
+    image_url: str,
+    reporter_id: int,
+    vision: dict | None,
+    description: str,
+    reason: str,
+) -> None:
+    """Persist rejected photo to MongoDB for future retraining."""
+    try:
+        from src.core.mongodb import mongodb_initialized
+
+        if not mongodb_initialized:
+            return
+        from src.documents.rejected_upload import RejectedUploadDocument
+
+        doc = RejectedUploadDocument(
+            image_url=image_url,
+            reporter_id=reporter_id,
+            vision_label=vision["label"] if vision else "unknown",
+            vision_confidence=vision["confidence"] if vision else 0.0,
+            description=description,
+            action_taken="rejected",
+        )
+        await doc.insert()
+    except Exception as e:
+        logger.warning("Failed to log rejected upload: %s", e)
 
 
 async def _generate_embedding_async(text: str) -> Optional[str]:
@@ -120,11 +121,13 @@ async def upload_issue(
     latitude: str = Form(...),
     longitude: str = Form(...),
     description: str = Form(""),
+    force_submit: str = Form("false"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
     lat_val = float(latitude)
     lon_val = float(longitude)
+    force = force_submit.lower() == "true"
 
     content = await file.read()
     svc = IssueService(db)
@@ -137,13 +140,23 @@ async def upload_issue(
     await asyncio.to_thread(filepath.write_bytes, content)
     image_url = f"/uploads/issues/{filename}"
 
-    classification = _classify_image(content)
-    if classification is None:
-        classification = _classify_description(description)
-        classification["model"] = "keyword_fallback"
-    else:
-        if not description:
-            description = f"Image uploaded - auto-classified as {classification['label']}"
+    vision = _classify_image(content)
+    gate = gate_decision(vision, description, force)
+
+    if gate["action"] == "reject":
+        await _log_rejected_upload(image_url, user.id, vision, description, gate["reason"])
+        raise BadRequestError(gate["reason"])
+
+    classification = {
+        "label": gate["issue_type"],
+        "confidence": gate["confidence"],
+        "model": (vision["model"] if vision else "keyword_fallback"),
+        "probabilities": (vision.get("probabilities", {}) if vision else {}),
+    }
+
+    if gate["reason"]:
+        sep = ". " if description else ""
+        description = f"{description}{sep}{gate['reason']}" if description else gate["reason"]
 
     issue = await svc.create_issue(
         image_url=image_url,
@@ -153,6 +166,13 @@ async def upload_issue(
         classification=classification,
         description=description,
     )
+
+    if gate["review_required"] and gate["action"] == "accept":
+        issue.review_required = True
+        await svc.issue_repo.commit()
+
+    if gate["reason"] and gate["action"] == "accept":
+        await _log_rejected_upload(image_url, user.id, vision, description, "overridden_approved")
 
     embedding_task = asyncio.create_task(_generate_embedding_async(description or classification["label"]))
     agent_task = asyncio.create_task(
@@ -170,7 +190,9 @@ async def upload_issue(
         )
         await db.commit()
 
-    engineer = await svc.assign_engineer(issue)
+    engineer = None
+    if not gate["review_required"]:
+        engineer = await svc.assign_engineer(issue)
     assigned_to = engineer.user_id if engineer else None
 
     try:
@@ -186,6 +208,7 @@ async def upload_issue(
                     "longitude": issue.longitude,
                     "severity": issue.severity,
                     "status": issue.status.value,
+                    "review_required": gate["review_required"],
                     "agent_result": agent_result,
                 },
             }
@@ -209,6 +232,8 @@ async def upload_issue(
         created_at=issue.created_at.isoformat(),
         assigned_to=str(assigned_to) if assigned_to else None,
         engineer_name=None,
+        model_used=issue.model_used,
+        probabilities=issue.probabilities,
     )
 
 
@@ -295,6 +320,8 @@ async def list_issues(
             ward_id=i.ward_id,
             reporter_id=i.reporter_id,
             created_at=i.created_at.isoformat(),
+            model_used=i.model_used,
+            probabilities=i.probabilities,
         )
         for i in issues
     ]
@@ -323,6 +350,8 @@ async def get_issue(
         ward_id=issue.ward_id,
         reporter_id=issue.reporter_id,
         created_at=issue.created_at.isoformat(),
+        model_used=issue.model_used,
+        probabilities=issue.probabilities,
     )
 
 
@@ -349,4 +378,6 @@ async def update_issue_status(
         ward_id=issue.ward_id,
         reporter_id=issue.reporter_id,
         created_at=issue.created_at.isoformat(),
+        model_used=issue.model_used,
+        probabilities=issue.probabilities,
     )

@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { IssueTypeIcon } from "@/components/shared/issue-icon";
 import {
   ArrowLeft,
+  Brain,
   Crosshair,
   MapPin,
   Radio,
@@ -221,6 +222,43 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
                   <p className="text-sm font-medium">{formatDate(issue.created_at)}</p>
                 </div>
               </div>
+
+              {(issue.model_used || issue.probabilities) && (
+                <>
+                  <Separator />
+                  <div>
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                      <Brain className="h-3 w-3" />
+                      Classification details
+                    </p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {issue.model_used && (
+                        <DetailRow label="Model" value={issue.model_used} mono />
+                      )}
+                      {issue.probabilities && Object.keys(issue.probabilities).length > 0 && (
+                        <div className="space-y-1.5">
+                          {Object.entries(issue.probabilities)
+                            .sort(([, a], [, b]) => b - a)
+                            .map(([label, prob]) => (
+                              <div key={label} className="flex items-center gap-2 text-sm">
+                                <span className="min-w-[72px] text-muted-foreground capitalize">
+                                  {label.replace(/_/g, " ")}
+                                </span>
+                                <Progress
+                                  value={Math.round(prob * 100)}
+                                  className="flex-1 h-1.5"
+                                />
+                                <span className="w-10 text-right text-xs font-mono text-muted-foreground">
+                                  {(prob * 100).toFixed(0)}%
+                                </span>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 

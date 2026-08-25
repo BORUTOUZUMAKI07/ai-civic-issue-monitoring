@@ -122,5 +122,6 @@ export const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = 
   "/issues": { title: "Issue Reports", subtitle: "Track, review, and manage reported issues" },
   "/map": { title: "City Map", subtitle: "Geospatial view of active issues" },
   "/engineers": { title: "Field Teams", subtitle: "Workload and availability of field engineers" },
+  "/admin/review": { title: "Review Queue", subtitle: "Approve, reject, or reclassify AI-flagged issues" },
   "/settings": { title: "Settings", subtitle: "Manage your account and preferences" },
 }

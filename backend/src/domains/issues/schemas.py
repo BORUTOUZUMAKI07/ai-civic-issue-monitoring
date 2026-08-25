@@ -25,6 +25,8 @@ class IssueResponse(BaseModel):
     created_at: str
     assigned_to: str | None = None
     engineer_name: str | None = None
+    model_used: str | None = None
+    probabilities: dict | None = None
 
 
 class IssueListResponse(BaseModel):

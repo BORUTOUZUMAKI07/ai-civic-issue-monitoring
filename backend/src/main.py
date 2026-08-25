@@ -26,6 +26,7 @@ from src.domains.issues.routes import router as issues_router
 from src.domains.notifications.routes import router as notifications_router
 from src.domains.resolution.routes import router as resolution_router
 from src.domains.wards.routes import router as wards_router
+from src.domains.admin.routes import router as admin_router
 from src.errors.base import AppError
 from src.log_utils import setup_logging
 from src.middleware import LoggingMiddleware, RateLimitMiddleware, RBACMiddleware
@@ -140,6 +141,7 @@ def create_app(lifespan_override=None):
     app.include_router(resolution_router, prefix="/api/v1")
     app.include_router(dashboard_router, prefix="/api/v1")
     app.include_router(notifications_router, prefix="/api/v1")
+    app.include_router(admin_router, prefix="/api/v1")
 
     uploads_dir = Path("uploads")
     uploads_dir.mkdir(parents=True, exist_ok=True)

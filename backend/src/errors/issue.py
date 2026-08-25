@@ -19,8 +19,3 @@ class ImageTooLargeError(BadRequestError):
 class CorruptedImageError(BadRequestError):
     def __init__(self):
         super().__init__(detail="Corrupted or unreadable image file.")
-
-
-class LowConfidenceError(BadRequestError):
-    def __init__(self, confidence: float):
-        super().__init__(detail=f"Classification confidence too low ({confidence:.2f}). Manual review required.")

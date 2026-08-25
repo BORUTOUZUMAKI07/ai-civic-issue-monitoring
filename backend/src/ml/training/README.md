@@ -20,9 +20,9 @@ dvc pull -r origin --jobs 4
 ## Configure DagsHub MLflow
 Set environment variables before training:
 ```bash
-set MLFLOW_TRACKING_URI=https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring.mlflow
-set MLFLOW_TRACKING_USERNAME=ram.atchutratna
-set MLFLOW_TRACKING_PASSWORD=Ram@1126
+set MLFLOW_TRACKING_URI=<your-dagshub-mlflow-uri>
+set MLFLOW_TRACKING_USERNAME=<your-username>
+set MLFLOW_TRACKING_PASSWORD=<your-password>
 set DATA_PATH=data/raw
 ```
 

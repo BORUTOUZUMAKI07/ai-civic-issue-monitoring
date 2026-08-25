@@ -20,9 +20,6 @@ class RBACMiddleware(BaseHTTPMiddleware):
         if request.method not in WRITE_METHODS or not request.url.path.startswith("/api/v1/"):
             return await call_next(request)
 
-        if not hasattr(request.state, "user_id") or not request.state.user_id:
-            return await call_next(request)
-
         if request.url.path.startswith("/api/v1/auth/"):
             return await call_next(request)
 

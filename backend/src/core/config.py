@@ -10,8 +10,8 @@ class Settings(BaseSettings):
 
     # --- PostgreSQL (Aiven / local Docker) ---
     DATABASE_URL: Optional[str] = None
-    POSTGRES_USER: str = "civicpulse_user"
-    POSTGRES_PASSWORD: str = "civicpulse_password"
+    POSTGRES_USER: str = ""
+    POSTGRES_PASSWORD: str = ""
     POSTGRES_DB: str = "civicpulse_db"
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
@@ -24,8 +24,8 @@ class Settings(BaseSettings):
         if v:
             return v
         base_url = info.data.get("DATABASE_URL")
-        user = info.data.get("POSTGRES_USER", "civicpulse_user")
-        password = info.data.get("POSTGRES_PASSWORD", "civicpulse_password")
+        user = info.data.get("POSTGRES_USER", "")
+        password = info.data.get("POSTGRES_PASSWORD", "")
         host = info.data.get("POSTGRES_HOST", "localhost")
         port = info.data.get("POSTGRES_PORT", 5432)
         db = info.data.get("POSTGRES_DB", "civicpulse_db")
@@ -47,7 +47,7 @@ class Settings(BaseSettings):
         return f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{db}"
 
     # --- MongoDB (Atlas / local Docker) ---
-    MONGODB_URI: str = "mongodb://admin:adminpassword@localhost:27017"
+    MONGODB_URI: str = "mongodb://localhost:27017"
     MONGODB_DB: str = "civicpulse_analytics"
 
     # --- Redis (Upstash / local Docker) ---
@@ -96,9 +96,9 @@ class Settings(BaseSettings):
     AB_TEST_TRAFFIC_PCT: float = 0.1  # 10% to challenger
 
     # --- DagsHub / MLflow ---
-    DAGSHUB_USERNAME: str = "ram.atchutratna"
+    DAGSHUB_USERNAME: str = ""
     DAGSHUB_REPO: str = "ai-civic-issue-monitoring"
-    MLFLOW_TRACKING_URI: str = "https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring.mlflow"
+    MLFLOW_TRACKING_URI: str = ""
     MLFLOW_TRACKING_USERNAME: Optional[str] = None
     MLFLOW_TRACKING_PASSWORD: Optional[str] = None
 
@@ -115,6 +115,10 @@ class Settings(BaseSettings):
     # --- RAG ---
     RAG_SIMILARITY_THRESHOLD: float = 0.75
     RAG_TOP_K: int = 5
+
+    # --- Intake Gate ---
+    REJECT_THRESHOLD: float = 0.85   # vision non_civic prob above this → hard reject
+    REVIEW_THRESHOLD: float = 0.60   # vision confidence below this → accept with review
 
     ENVIRONMENT: str = "development"
 

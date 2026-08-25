@@ -23,13 +23,13 @@ from pathlib import Path
 import mlflow
 import mlflow.pytorch
 import numpy as np
-from mlflow.models.signature import ModelSignature
-from mlflow.types.schema import Schema, TensorSpec
 import optuna
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import yaml
+from mlflow.models.signature import ModelSignature
+from mlflow.types.schema import Schema, TensorSpec
 from sklearn.metrics import (
     accuracy_score,
     confusion_matrix,
@@ -56,10 +56,7 @@ CLASS_NAMES = ["debris", "garbage", "non_civic", "pothole"]
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 SEED = int(os.getenv("TRAIN_SEED", "42"))
 
-MLFLOW_TRACKING_URI = os.getenv(
-    "MLFLOW_TRACKING_URI",
-    "https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring.mlflow",
-)
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "")
 MLFLOW_EXPERIMENT = os.getenv("TRAIN_EXPERIMENT", "civicpulse-peft-v3")
 DATA_PATH = os.getenv("DATA_PATH", "data/raw")
 CONFIG_PATH = Path(__file__).resolve().parent.parent.parent.parent / "configs" / "training.yaml"
@@ -685,8 +682,6 @@ def main():
             )
 
     if active_run is not None:
-        duration_minutes = (time.time() - t0) / 60.0
-        safe_log_metrics({"duration_minutes": duration_minutes})
         try:
             mlflow.end_run()
         except Exception:
@@ -738,6 +733,7 @@ def main():
 
     # Save metrics
     METRICS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    duration_minutes = (time.time() - t0) / 60.0
     metrics = {
         "best_val_macro_f1": study.best_value,
         "best_params": best_params,

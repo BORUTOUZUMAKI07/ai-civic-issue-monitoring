@@ -4,6 +4,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from src.core.config import settings
 from src.documents.audit_log import AuditLogDocument
 from src.documents.drift_report import DriftReportDocument
+from src.documents.rejected_upload import RejectedUploadDocument
 
 _mongo_client: AsyncIOMotorClient | None = None
 mongodb_initialized: bool = False
@@ -17,7 +18,7 @@ async def init_mongodb():
     )
     await init_beanie(
         database=_mongo_client[settings.MONGODB_DB],
-        document_models=[AuditLogDocument, DriftReportDocument],
+        document_models=[AuditLogDocument, DriftReportDocument, RejectedUploadDocument],
     )
     mongodb_initialized = True
 
