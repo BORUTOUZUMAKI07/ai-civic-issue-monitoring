@@ -17,15 +17,15 @@ RUN npm run build -- --webpack
 # ---------- RUNTIME STAGE (standalone) ----------
 FROM node:22-bookworm-slim AS runner
 
-RUN adduser --disabled-password --gecos "" -u 1000 nodeuser
+RUN mkdir -p /app && chown node:node /app
 WORKDIR /app
 ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000
 
-COPY --from=builder --chown=nodeuser:nodeuser /app/.next/standalone ./
-COPY --from=builder --chown=nodeuser:nodeuser /app/.next/static ./.next/static
-COPY --from=builder --chown=nodeuser:nodeuser /app/public ./public
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/public ./public
 
-USER nodeuser
+USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD node -e "require('http').get({hostname:'0.0.0.0',port:3000,path:'/',timeout:3000},r=>process.exit(r.statusCode!==200?1:0)).on('error',()=>process.exit(1))"
