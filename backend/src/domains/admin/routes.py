@@ -1,15 +1,14 @@
 import logging
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.core.deps import get_current_active_user
 from src.errors import ForbiddenError, NotFoundError
-from src.models.issue import Issue, IssueStatus, IssueType, ISSUE_TYPE_MAP
+from src.models.issue import ISSUE_TYPE_MAP, Issue
 from src.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)

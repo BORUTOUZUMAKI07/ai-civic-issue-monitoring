@@ -117,8 +117,8 @@ class Settings(BaseSettings):
     RAG_TOP_K: int = 5
 
     # --- Intake Gate ---
-    REJECT_THRESHOLD: float = 0.85   # vision non_civic prob above this → hard reject
-    REVIEW_THRESHOLD: float = 0.60   # vision confidence below this → accept with review
+    REJECT_THRESHOLD: float = 0.85  # vision non_civic prob above this → hard reject
+    REVIEW_THRESHOLD: float = 0.60  # vision confidence below this → accept with review
 
     ENVIRONMENT: str = "development"
 

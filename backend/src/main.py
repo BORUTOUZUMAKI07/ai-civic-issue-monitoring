@@ -19,6 +19,7 @@ from src.core.config import settings
 from src.core.database import check_db_health, engine, init_db
 from src.core.mongodb import init_mongodb
 from src.core.redis import check_redis_health, init_redis
+from src.domains.admin.routes import router as admin_router
 from src.domains.auth.routes import router as auth_router
 from src.domains.dashboard.routes import router as dashboard_router
 from src.domains.engineers.routes import router as engineers_router
@@ -26,7 +27,6 @@ from src.domains.issues.routes import router as issues_router
 from src.domains.notifications.routes import router as notifications_router
 from src.domains.resolution.routes import router as resolution_router
 from src.domains.wards.routes import router as wards_router
-from src.domains.admin.routes import router as admin_router
 from src.errors.base import AppError
 from src.log_utils import setup_logging
 from src.middleware import LoggingMiddleware, RateLimitMiddleware, RBACMiddleware

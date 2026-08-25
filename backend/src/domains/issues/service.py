@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.domains.wards.geofencing import get_ward_from_coords
 from src.errors import CorruptedImageError, ImageTooLargeError, InvalidImageError, IssueNotFound
 from src.models.engineer import Engineer
-from src.models.issue import Issue, IssueStatus, IssueType, ISSUE_TYPE_MAP
+from src.models.issue import ISSUE_TYPE_MAP, Issue, IssueStatus, IssueType
 from src.models.resolution import Resolution
 from src.repositories.engineer_repository import EngineerRepository
 from src.repositories.issue_repository import IssueRepository

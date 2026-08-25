@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.core.deps import get_current_active_user
-from src.core.gate import classify_description, gate_decision
+from src.core.gate import gate_decision
 from src.domains.issues.schemas import IssueListResponse, IssueResponse, IssueStatusUpdate
 from src.domains.issues.service import IssueService
 from src.errors import BadRequestError
