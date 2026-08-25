@@ -15,24 +15,24 @@ jobs:
   backend-lint:
     name: Backend Lint
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v5
+      - uses: prefix-dev/setup-pixi@v0.8.8
         with:
-          version: "latest"
-          python-version: ${{ env.PYTHON_VERSION }}
-          enable-cache: true
-          cache-dependency-glob: "backend/pyproject.toml"
-      - run: uv sync --extra dev
-        working-directory: backend
-      - run: uv run ruff check src/
-        working-directory: backend
-      - run: uv run ruff format --check src/
-        working-directory: backend
+          pixi-version: v0.45.0
+          environments: default
+          cache: true
+      - run: pixi run -e default lint
 
   backend-test:
     name: Backend Tests
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     services:
       postgres:
         image: postgres:16
@@ -62,16 +62,12 @@ jobs:
       SECRET_KEY: test-secret-key-for-ci-only
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v5
+      - uses: prefix-dev/setup-pixi@v0.8.8
         with:
-          version: "latest"
-          python-version: ${{ env.PYTHON_VERSION }}
-          enable-cache: true
-          cache-dependency-glob: "backend/pyproject.toml"
-      - run: uv sync --extra dev
-        working-directory: backend
-      - run: uv run pytest tests/ -v --timeout=60 -m 'not integration'
-        working-directory: backend
+          pixi-version: v0.45.0
+          environments: default
+          cache: true
+      - run: pixi run -e default test-ci
 
   frontend-lint:
     name: Frontend Lint

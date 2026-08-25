@@ -15,27 +15,21 @@ jobs:
   backend-qa:
     name: Backend CI (Python)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     env:
       PYTHONPATH: src
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: prefix-dev/setup-pixi@v0.8.8
         with:
-          version: "latest"
-          python-version: "3.12"
-          enable-cache: true
-          cache-dependency-glob: "backend/pyproject.toml"
-      - name: Install dependencies
-        run: uv sync --extra dev
+          pixi-version: v0.45.0
+          environments: default
+          cache: true
       - name: Run Linting
         run: |
-          uv run ruff check src/
-          uv run ruff format --check src/
+          pixi run -e default lint
+          pixi run -e default typecheck
       - name: Run Tests
-        run: uv run pytest tests/ -v --timeout=60 -m 'not integration'
+        run: pixi run -e default test-ci
 
   frontend-qa:
     name: Frontend CI (React)
