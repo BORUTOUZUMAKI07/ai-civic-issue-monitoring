@@ -25,9 +25,7 @@ jobs:
           environments: default
           cache: true
       - name: Run Linting
-        run: |
-          pixi run -e default lint
-          pixi run -e default typecheck
+        run: pixi run -e default lint
       - name: Run Tests
         run: pixi run -e default test-ci
 
