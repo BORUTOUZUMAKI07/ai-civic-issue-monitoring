@@ -1,16 +1,12 @@
 FROM python:3.12-slim AS builder
 
-COPY --from=ghcr.io/prefix-dev/pixi:latest /pixi /bin/pixi
-
 WORKDIR /app
 
-COPY pixi.toml ./
-COPY pyproject.toml ./
 COPY backend/pyproject.toml backend/pyproject.toml
+COPY backend backend
 
-ENV PIXI_HOME=/app/.pixi
-
-RUN pixi install
+RUN cd backend && pip install --no-cache-dir . && \
+    pip install --no-cache-dir "aiosqlite>=0.20.0"
 
 # ---------- RUNTIME STAGE ----------
 FROM python:3.12-slim
@@ -18,14 +14,14 @@ FROM python:3.12-slim
 RUN useradd -m -u 1000 appuser
 WORKDIR /app
 
-COPY --from=builder --chown=appuser:appuser /app/.pixi /app/.pixi
+COPY --from=builder --chown=appuser:appuser /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder --chown=appuser:appuser /usr/local/bin /usr/local/bin
 COPY --from=builder --chown=appuser:appuser /app/backend/src ./backend/src
 COPY --from=builder --chown=appuser:appuser /app/backend/configs ./backend/configs
 COPY --from=builder --chown=appuser:appuser /app/backend/alembic ./backend/alembic
 COPY --from=builder --chown=appuser:appuser /app/backend/alembic.ini ./backend/alembic.ini
 
-ENV PATH="/app/.pixi/envs/default/bin:$PATH" \
-    PYTHONPATH=/app \
+ENV PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \
     APP_ENV=production
 

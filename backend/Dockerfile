@@ -2,11 +2,10 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
-COPY --from=ghcr.io/prefix-dev/pixi:latest /pixi /bin/pixi
-
 COPY pyproject.toml ./
 
-RUN pixi install
+RUN pip install --no-cache-dir . && \
+    pip install --no-cache-dir "aiosqlite>=0.20.0"
 
 COPY src src
 COPY tests tests
@@ -22,14 +21,14 @@ WORKDIR /app
 RUN addgroup --system --gid 1001 app \
     && adduser --system --uid 1001 --gid 1001 app
 
-COPY --from=builder --chown=app:app /app/.pixi /app/.pixi
+COPY --from=builder --chown=app:app /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder --chown=app:app /usr/local/bin /usr/local/bin
 COPY --from=builder --chown=app:app /app/src /app/src
 COPY --from=builder --chown=app:app /app/configs /app/configs
 COPY --from=builder --chown=app:app /app/alembic /app/alembic
 COPY --from=builder --chown=app:app /app/alembic.ini /app/alembic.ini
 
-ENV PATH="/app/.pixi/envs/default/bin:$PATH" \
-    PYTHONPATH=/app \
+ENV PYTHONPATH=/app \
     PYTHONUNBUFFERED=1
 
 USER app
