@@ -52,7 +52,7 @@ export default function RegisterPage() {
             <Label htmlFor="fullName">Full Name</Label>
             <Input
               id="fullName"
-              placeholder="John Doe"
+              placeholder="Your full name"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               required
@@ -76,7 +76,7 @@ export default function RegisterPage() {
             <Input
               id="password"
               type="password"
-              placeholder="Min 8 characters"
+              placeholder="Min 6 characters"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required

@@ -8,6 +8,7 @@ export function useMe() {
     queryKey: ["me"],
     queryFn: () => auth.me(),
     retry: false,
+    staleTime: 5 * 60 * 1000,
   });
 }
 
@@ -73,6 +74,22 @@ export function useUploadIssueMutation() {
   });
 }
 
+export function useAdminUsers(params?: { skip?: number; limit?: number; search?: string; role?: string }) {
+  return useQuery({
+    queryKey: ["admin-users", params],
+    queryFn: () => admin.listUsers(params),
+  });
+}
+
+export function useUpdateUserRoleMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, role }: { userId: number; role: string }) =>
+      admin.updateUserRole(userId, role),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-users"] }),
+  });
+}
+
 export function useReviewQueue(params?: { skip?: number; limit?: number }) {
   return useQuery({
     queryKey: ["review-queue", params],
@@ -96,6 +113,7 @@ export function useWards() {
   return useQuery({
     queryKey: ["wards"],
     queryFn: () => wards.list(),
+    staleTime: 5 * 60 * 1000,
   });
 }
 
@@ -103,6 +121,45 @@ export function useEngineers() {
   return useQuery({
     queryKey: ["engineers"],
     queryFn: () => engineers.list(),
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+export function useCreateEngineerMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { user_id: number; ward_id: number; specialization?: string; max_workload?: number }) =>
+      engineers.create(data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["engineers"] }),
+  });
+}
+
+export function useAssignIssueMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ issueId, engineerId }: { issueId: number; engineerId: number }) =>
+      issues.assign(issueId, engineerId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["issues"] });
+    },
+  });
+}
+
+export function useReassignIssueMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ issueId, engineerId }: { issueId: number; engineerId: number }) =>
+      issues.reassign(issueId, engineerId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["issues"] });
+    },
+  });
+}
+
+export function useMyAssignments() {
+  return useQuery({
+    queryKey: ["my-assignments"],
+    queryFn: () => engineers.myAssignments(),
   });
 }
 
@@ -110,6 +167,7 @@ export function useDashboardStats() {
   return useQuery({
     queryKey: ["dashboard-stats"],
     queryFn: () => dashboard.stats(),
+    staleTime: 30_000,
   });
 }
 
@@ -117,5 +175,6 @@ export function useHeatmapData() {
   return useQuery({
     queryKey: ["heatmap"],
     queryFn: () => dashboard.heatmap(),
+    staleTime: 30_000,
   });
 }

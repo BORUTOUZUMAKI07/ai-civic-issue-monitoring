@@ -324,7 +324,7 @@ function MlModelHealth() {
           <InfoRow
             icon={Brain}
             label="Classes"
-            value={`${info.num_classes} categories`}
+            value={`${info.num_classes ?? (info.classes ?? []).length} categories`}
           />
         </div>
 
@@ -335,7 +335,7 @@ function MlModelHealth() {
             Class labels
           </p>
           <div className="flex flex-wrap gap-2">
-            {info.class_names.map((name) => (
+            {(info.classes ?? []).map((name) => (
               <Badge key={name} variant="secondary" className="capitalize">
                 {name.replace(/_/g, " ")}
               </Badge>
@@ -349,29 +349,33 @@ function MlModelHealth() {
           <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Intake gate thresholds
           </p>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Accept</p>
-              <Progress value={info.default_threshold * 100} className="h-1.5" />
-              <p className="text-xs font-mono text-right">
-                {(info.default_threshold * 100).toFixed(0)}%
-              </p>
+          {info.default_threshold != null ? (
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Accept</p>
+                <Progress value={(info.default_threshold ?? 0.7) * 100} className="h-1.5" />
+                <p className="text-xs font-mono text-right">
+                  {((info.default_threshold ?? 0.7) * 100).toFixed(0)}%
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Review</p>
+                <Progress value={(info.review_threshold ?? 0.4) * 100} className="h-1.5" />
+                <p className="text-xs font-mono text-right">
+                  {((info.review_threshold ?? 0.4) * 100).toFixed(0)}%
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Reject</p>
+                <Progress value={(info.reject_threshold ?? 0.15) * 100} className="h-1.5" />
+                <p className="text-xs font-mono text-right">
+                  {((info.reject_threshold ?? 0.15) * 100).toFixed(0)}%
+                </p>
+              </div>
             </div>
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Review</p>
-              <Progress value={info.review_threshold * 100} className="h-1.5" />
-              <p className="text-xs font-mono text-right">
-                {(info.review_threshold * 100).toFixed(0)}%
-              </p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Reject</p>
-              <Progress value={info.reject_threshold * 100} className="h-1.5" />
-              <p className="text-xs font-mono text-right">
-                {(info.reject_threshold * 100).toFixed(0)}%
-              </p>
-            </div>
-          </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Thresholds are configured server-side in backend settings.</p>
+          )}
         </div>
       </CardContent>
     </Card>

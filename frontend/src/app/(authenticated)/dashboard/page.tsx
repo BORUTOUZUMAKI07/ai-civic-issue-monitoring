@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import {
   useDashboardStats,
@@ -123,6 +124,18 @@ export default function DashboardPage() {
   const { data: issuesData } = useIssues({ limit: 6 })
   const { data: wards } = useWards()
   const { data: user } = useMe()
+  const [lastUpdated, setLastUpdated] = useState<string>("")
+
+  useEffect(() => {
+    if (!isLoading && stats) {
+      setLastUpdated(
+        new Date().toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      )
+    }
+  }, [isLoading, stats])
 
   const wardName = (id: number) =>
     wards?.find((w) => w.id === id)?.name ?? `Ward ${id}`
@@ -481,7 +494,7 @@ export default function DashboardPage() {
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
             <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
           </span>
-          Systems operational
+          {hasData ? "Data loaded" : "Awaiting first report"}
         </span>
         <Separator orientation="vertical" className="hidden h-4 sm:block" />
         <span className="inline-flex items-center gap-1.5">
@@ -491,7 +504,7 @@ export default function DashboardPage() {
         <Separator orientation="vertical" className="hidden h-4 sm:block" />
         <span className="inline-flex items-center gap-1.5">
           <LocateFixed className="h-3.5 w-3.5" />
-          Last updated just now
+          {lastUpdated ? `Last updated at ${lastUpdated}` : "Loading..."}
         </span>
         <span className="ml-auto hidden items-center gap-1.5 sm:flex">
           <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground/60" />

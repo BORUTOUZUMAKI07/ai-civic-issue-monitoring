@@ -24,6 +24,7 @@ from src.domains.auth.routes import router as auth_router
 from src.domains.dashboard.routes import router as dashboard_router
 from src.domains.engineers.routes import router as engineers_router
 from src.domains.issues.routes import router as issues_router
+from src.domains.ml.routes import router as ml_router
 from src.domains.notifications.routes import router as notifications_router
 from src.domains.resolution.routes import router as resolution_router
 from src.domains.wards.routes import router as wards_router
@@ -98,42 +99,6 @@ def create_app(lifespan_override=None):
             },
         )
 
-    @app.get("/api/v1/ml/info")
-    async def ml_info():
-        from src.ml.inference.predict import get_model_info
-
-        return get_model_info()
-
-    @app.get("/api/v1/ml/ab-test/stats")
-    async def ab_test_stats():
-        from src.ml.inference.ab_testing import get_ab_tester
-
-        return get_ab_tester().get_stats()
-
-    @app.get("/api/v1/ml/registry/versions")
-    async def model_registry_versions():
-        from src.ml.registry import get_model_registry
-
-        return get_model_registry().list_versions()
-
-    @app.get("/api/v1/ml/registry/production")
-    async def model_registry_production():
-        from src.ml.registry import get_model_registry
-
-        model = get_model_registry().get_production_model()
-        if not model:
-            return {"detail": "No production model found"}
-        return model
-
-    @app.get("/api/v1/ml/registry/compare")
-    async def model_registry_compare():
-        from src.ml.registry import get_model_registry
-
-        result = get_model_registry().compare_versions()
-        if not result:
-            return {"detail": "No models to compare"}
-        return result
-
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(issues_router, prefix="/api/v1")
     app.include_router(wards_router, prefix="/api/v1")
@@ -142,6 +107,7 @@ def create_app(lifespan_override=None):
     app.include_router(dashboard_router, prefix="/api/v1")
     app.include_router(notifications_router, prefix="/api/v1")
     app.include_router(admin_router, prefix="/api/v1")
+    app.include_router(ml_router, prefix="/api/v1")
 
     uploads_dir = Path("uploads")
     uploads_dir.mkdir(parents=True, exist_ok=True)

@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from uuid import uuid4
 
 from jose import ExpiredSignatureError, JWTError, jwt
 from passlib.context import CryptContext
@@ -18,17 +19,40 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(
+    data: dict,
+    expires_delta: Optional[timedelta] = None,
+    jti: Optional[str] = None,
+) -> str:
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire, "type": "access"})
+    expire = datetime.now(timezone.utc) + (
+        expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    to_encode.update(
+        {
+            "exp": expire,
+            "type": "access",
+            "jti": jti or uuid4().hex,
+        }
+    )
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
-def create_refresh_token(data: dict) -> str:
+def create_refresh_token(
+    data: dict,
+    family: Optional[str] = None,
+    jti: Optional[str] = None,
+) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire, "type": "refresh"})
+    to_encode.update(
+        {
+            "exp": expire,
+            "type": "refresh",
+            "jti": jti or uuid4().hex,
+            "family": family or uuid4().hex,
+        }
+    )
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
@@ -40,3 +64,19 @@ def decode_token(token: str) -> dict:
         raise TokenExpired()
     except JWTError:
         raise InvalidToken()
+
+
+async def blacklist_token(jti: str, ttl_seconds: int) -> None:
+    from src.core.redis import redis_client
+
+    await redis_client.setex(f"jwt:blacklist:{jti}", ttl_seconds, "1")
+
+
+async def is_token_blacklisted(jti: str) -> bool:
+    from src.core.redis import redis_client
+
+    try:
+        result = await redis_client.get(f"jwt:blacklist:{jti}")
+        return result is not None
+    except Exception:
+        return False

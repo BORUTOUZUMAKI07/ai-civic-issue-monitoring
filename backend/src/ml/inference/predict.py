@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -197,28 +198,59 @@ def predict_issue(image: Image.Image) -> dict:
     return result
 
 
+_MONGO_CLIENT: "object | None" = None
+_MONGO_LOCK = threading.Lock()
+
+
+def _get_mongo_client():
+    """Return a lazily-created, process-wide MongoClient (reused across predictions).
+
+    A single client is shared instead of creating one per prediction, and the server
+    selection timeout is kept short so an unreachable MongoDB never blocks inference.
+    """
+    global _MONGO_CLIENT
+    if _MONGO_CLIENT is not None:
+        return _MONGO_CLIENT
+    with _MONGO_LOCK:
+        if _MONGO_CLIENT is None:
+            from pymongo import MongoClient
+
+            from src.core.config import settings
+
+            _MONGO_CLIENT = MongoClient(
+                settings.MONGODB_URI,
+                serverSelectionTimeoutMS=1500,
+                connectTimeoutMS=1500,
+            )
+        return _MONGO_CLIENT
+
+
 def _log_prediction_for_drift(result: dict):
-    """Log prediction to MongoDB for drift detection (fire-and-forget, sync)."""
-    try:
-        from pymongo import MongoClient
+    """Log prediction to MongoDB for drift detection (non-blocking, fire-and-forget)."""
+    record = {
+        "predicted_label": result["label"],
+        "confidence": result["confidence"],
+        "probabilities": result["probabilities"],
+        "model": result["model"],
+        "inference_time_ms": result["inference_time_ms"],
+        "created_at": datetime.now(timezone.utc),
+    }
 
-        from src.core.config import settings
+    def _write():
+        try:
+            client = _get_mongo_client()
+            db = client[_get_mongo_db()]
+            db["predictions"].insert_one(record)
+        except Exception as e:
+            logger.debug("Drift logging failed (non-fatal): %s", e)
 
-        client = MongoClient(settings.MONGODB_URI, serverSelectionTimeoutMS=2000)
-        db = client[settings.MONGODB_DB]
-        db["predictions"].insert_one(
-            {
-                "predicted_label": result["label"],
-                "confidence": result["confidence"],
-                "probabilities": result["probabilities"],
-                "model": result["model"],
-                "inference_time_ms": result["inference_time_ms"],
-                "created_at": datetime.now(timezone.utc),
-            }
-        )
-        client.close()
-    except Exception as e:
-        logger.debug("Drift logging failed (non-fatal): %s", e)
+    threading.Thread(target=_write, daemon=True).start()
+
+
+def _get_mongo_db():
+    from src.core.config import settings
+
+    return settings.MONGODB_DB
 
 
 def get_model_info() -> dict:

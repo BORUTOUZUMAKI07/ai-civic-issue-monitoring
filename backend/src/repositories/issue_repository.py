@@ -81,3 +81,6 @@ class IssueRepository:
             {"lat": row[0], "lng": row[1], "type": str(row[2].value), "severity": row[3], "status": str(row[4].value)}
             for row in result.all()
         ]
+
+    async def commit(self) -> None:
+        await self.db.commit()

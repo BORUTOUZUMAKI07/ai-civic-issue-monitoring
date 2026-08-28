@@ -1,11 +1,7 @@
 import {
   CircleDot,
   Trash2,
-  Lightbulb,
-  Waves,
   BrickWall,
-  Droplets,
-  Construction,
   MapPin,
   type LucideIcon,
 } from "lucide-react"
@@ -14,11 +10,7 @@ import { typeMeta } from "@/lib/format"
 const TYPE_ICONS: Record<string, LucideIcon> = {
   pothole: CircleDot,
   garbage: Trash2,
-  broken_streetlight: Lightbulb,
-  waterlogging: Waves,
   debris: BrickWall,
-  sewage: Droplets,
-  road_damage: Construction,
 }
 
 export function IssueTypeIcon({

@@ -22,11 +22,7 @@ interface IssueMapProps {
 const TYPE_COLORS: Record<string, string> = {
   pothole: "#ef4444",
   garbage: "#f59e0b",
-  broken_streetlight: "#3b82f6",
-  waterlogging: "#06b6d4",
   debris: "#8b5cf6",
-  road_damage: "#f97316",
-  sewage: "#14b8a6",
 };
 
 const SEVERITY_SIZES: Record<number, number> = {

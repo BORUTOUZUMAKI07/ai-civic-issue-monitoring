@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import { clearTokenCookies } from "@/lib/token-cookie"
+import { auth } from "@/lib/api"
 import type { User } from "@/lib/api"
 
 interface AuthState {
@@ -16,9 +16,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   setUser: (user) => set({ user, isLoading: false }),
   setLoading: (isLoading) => set({ isLoading }),
   logout: () => {
-    localStorage.removeItem("access_token")
-    localStorage.removeItem("refresh_token")
-    clearTokenCookies()
+    auth.logout().catch(() => {})
     set({ user: null })
   },
 }))

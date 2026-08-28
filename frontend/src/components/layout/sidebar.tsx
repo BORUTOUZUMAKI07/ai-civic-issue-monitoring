@@ -18,6 +18,7 @@ import {
   X,
   Landmark,
   ShieldCheck,
+  Crown,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -48,8 +49,11 @@ export function Sidebar({ open, onClose }: SidebarProps = {}) {
       label: "Workspace",
       items: [
         { href: "/engineers", label: "Engineers", icon: Users },
-        ...(user?.role === "admin"
-          ? [{ href: "/admin/review", label: "Review Queue", icon: ShieldCheck }]
+        ...(user?.role === "admin" || user?.role === "super_admin"
+          ? [
+              { href: "/admin/review", label: "Review Queue", icon: ShieldCheck },
+              { href: "/admin/users", label: "Users", icon: Users },
+            ]
           : []),
         { href: "/settings", label: "Settings", icon: Settings },
       ],
@@ -160,7 +164,11 @@ export function Sidebar({ open, onClose }: SidebarProps = {}) {
                 {user?.full_name ?? "Account"}
               </p>
               <p className="flex items-center gap-1 truncate text-xs capitalize text-muted-foreground">
-                <ShieldCheck className="h-3 w-3 shrink-0" />
+                {user?.role === "super_admin" ? (
+                  <Crown className="h-3 w-3 shrink-0 text-amber-500" />
+                ) : (
+                  <ShieldCheck className="h-3 w-3 shrink-0" />
+                )}
                 {user?.role.replace("_", " ") ?? ""}
               </p>
             </div>

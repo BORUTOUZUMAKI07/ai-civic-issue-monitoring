@@ -116,19 +116,14 @@ export function Header({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
                 Live
               </Badge>
             </div>
-            <div className="flex items-start gap-3 px-4 py-4">
-              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-50 to-violet-100 text-indigo-600 dark:from-indigo-500/20 dark:to-violet-500/20 dark:text-indigo-300">
-                <ShieldCheck className="h-4 w-4" />
+            <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
+              <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                <Bell className="h-5 w-5" />
               </div>
-              <div className="space-y-0.5">
-                <p className="text-sm font-medium">AI classification running</p>
-                <p className="text-xs text-muted-foreground">
-                  New reports are classified automatically by the model.
-                </p>
-              </div>
-            </div>
-            <div className="border-t bg-muted/40 px-4 py-2.5 text-center text-xs text-muted-foreground">
-              You&apos;re all caught up
+              <p className="mt-3 text-sm font-medium">No new notifications</p>
+              <p className="text-xs text-muted-foreground">
+                Updates will appear here when issues are reported or reassigned.
+              </p>
             </div>
           </PopoverContent>
         </Popover>

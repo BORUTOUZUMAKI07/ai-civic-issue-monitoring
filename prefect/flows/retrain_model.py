@@ -152,7 +152,7 @@ def log_skip(uri: str, drift_report: dict | None) -> None:
 
 @flow(
     name="retrain-model",
-    description="Weekly ML retraining trigger + event-driven MLflow poller (self-rescheduling)",
+    description="Weekly ML retrain trigger + drift-triggered retrain + event-driven MLflow poller",
     log_prints=True,
 )
 def retrain_model_flow(

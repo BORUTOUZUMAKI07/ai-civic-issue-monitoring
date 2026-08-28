@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
-import { NumberTicker } from "@/components/ui/number-ticker";
 import {
   ArrowRight,
   BarChart3,
@@ -11,9 +10,7 @@ import {
   CheckCircle2,
   Landmark,
   Map,
-  MapPin,
   Plus,
-  Quote,
   ShieldCheck,
   Sparkles,
   Wrench,
@@ -70,11 +67,13 @@ const marqueeItems = [
   "Community Feedback",
 ];
 
-const metrics = [
-  { value: 38, suffix: "+", label: "Issues resolved monthly" },
-  { value: 10, suffix: "", label: "Wards connected" },
-  { value: 7, suffix: "", label: "Issue categories" },
-  { value: 2, prefix: "<", suffix: "s", label: "Average AI analysis" },
+const capabilities = [
+  { label: "Photo-driven reports with GPS", icon: Camera },
+  { label: "AI classification with confidence scoring", icon: Sparkles },
+  { label: "Automatic routing to ward engineers", icon: Wrench },
+  { label: "City-wide heatmap with severity markers", icon: Map },
+  { label: "Real-time analytics and trend tracking", icon: BarChart3 },
+  { label: "Role-based access for admins and field teams", icon: ShieldCheck },
 ];
 
 const steps = [
@@ -195,7 +194,7 @@ export default function LandingPage() {
             </motion.div>
           </div>
 
-          {/* Product preview */}
+          {/* Platform visual */}
           <motion.div
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
@@ -212,55 +211,13 @@ export default function LandingPage() {
                 </span>
               </div>
 
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold">Operations Overview</p>
-                  <p className="text-xs text-muted-foreground">This week across 10 wards</p>
-                </div>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-400">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  Live
-                </span>
-              </div>
-
-              <div className="mb-5 grid grid-cols-3 gap-3">
-                {[
-                  { label: "Reports", value: "38", tone: "text-foreground" },
-                  { label: "In progress", value: "12", tone: "text-amber-600 dark:text-amber-400" },
-                  { label: "Resolved", value: "9", tone: "text-emerald-600 dark:text-emerald-400" },
-                ].map((k) => (
-                  <div key={k.label} className="rounded-xl border border-border/70 bg-background/60 p-3">
-                    <p className={`text-xl font-semibold tracking-tight ${k.tone}`}>{k.value}</p>
-                    <p className="text-[11px] text-muted-foreground">{k.label}</p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mb-5 flex h-24 items-end gap-2">
-                {[42, 68, 38, 82, 55, 90, 64, 48, 76, 60].map((h, i) => (
-                  <div key={i} className="flex-1 rounded-t-md bg-gradient-to-t from-indigo-600 to-violet-400 opacity-70"
-                    style={{ height: `${h}%` }} />
-                ))}
-              </div>
-
-              <div className="space-y-2">
-                {[
-                  { t: "Pothole", w: "Ward 4", s: "Resolved", c: "bg-emerald-500" },
-                  { t: "Broken streetlight", w: "Ward 7", s: "In progress", c: "bg-amber-500" },
-                  { t: "Waterlogging", w: "Ward 2", s: "Reported", c: "bg-sky-500" },
-                ].map((r) => (
-                  <div key={r.t} className="flex items-center justify-between rounded-lg border border-border/60 bg-background/50 px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <span className="flex h-6 w-6 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                        <MapPin className="h-3 w-3" />
-                      </span>
-                      <span className="text-xs font-medium">{r.t}</span>
-                      <span className="text-[11px] text-muted-foreground">{r.w}</span>
+              <div className="space-y-3">
+                {capabilities.map((c) => (
+                  <div key={c.label} className="flex items-center gap-3 rounded-lg border border-border/60 bg-background/50 px-4 py-3">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-white">
+                      <c.icon className="h-4 w-4" />
                     </div>
-                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
-                      <span className={`h-1.5 w-1.5 rounded-full ${r.c}`} />
-                      {r.s}
-                    </span>
+                    <span className="text-sm font-medium">{c.label}</span>
                   </div>
                 ))}
               </div>
@@ -344,19 +301,20 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Metrics */}
+      {/* Capabilities */}
       <section className="border-y border-border/60 bg-card/50">
-        <div className="mx-auto grid max-w-6xl grid-cols-2 gap-8 px-6 py-14 md:grid-cols-4">
-          {metrics.map((m) => (
-            <div key={m.label} className="text-center">
-              <p className="text-3xl font-semibold tracking-tight md:text-4xl">
-                {m.prefix && <span className="text-muted-foreground">{m.prefix}</span>}
-                <NumberTicker value={m.value} />
-                {m.suffix}
-              </p>
-              <p className="mt-1.5 text-sm text-muted-foreground">{m.label}</p>
-            </div>
-          ))}
+        <div className="mx-auto max-w-6xl px-6 py-14">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary text-center mb-8">
+            Built for Vadodara Municipal Corporation
+          </p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {capabilities.map((c) => (
+              <div key={c.label} className="flex items-center gap-3 rounded-xl border border-border/70 bg-background/60 px-4 py-3">
+                <c.icon className="h-4 w-4 text-primary" />
+                <span className="text-sm font-medium">{c.label}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -398,27 +356,6 @@ export default function LandingPage() {
             </motion.div>
           ))}
         </div>
-      </section>
-
-      {/* Testimonial */}
-      <section className="mx-auto max-w-4xl px-6 pb-20">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-80px" }}
-          transition={{ duration: 0.5 }}
-          className="relative overflow-hidden rounded-2xl border border-border/80 bg-gradient-to-br from-indigo-950 via-blue-950 to-violet-950 p-8 text-white md:p-12"
-        >
-          <div aria-hidden className="absolute inset-0 bg-grid-white opacity-50" />
-          <div aria-hidden className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-indigo-500/30 blur-3xl" />
-          <div className="relative">
-            <Quote className="h-8 w-8 text-indigo-300" />
-            <p className="mt-5 text-xl font-medium leading-relaxed md:text-2xl">
-              &ldquo;Designed to reduce average complaint-to-resolution time from
-              days to hours through AI-powered triage and automated routing.&rdquo;
-            </p>
-          </div>
-        </motion.div>
       </section>
 
       {/* CTA */}

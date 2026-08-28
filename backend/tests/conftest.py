@@ -14,8 +14,8 @@ os.environ["ASYNC_DATABASE_URI"] = "sqlite+aiosqlite:///test.db"
 os.environ["REDIS_URL"] = "redis://localhost:6379"
 os.environ["ENVIRONMENT"] = "testing"
 
-from sqlalchemy.dialects.sqlite.base import SQLiteTypeCompiler
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.sqlite.base import SQLiteTypeCompiler
 
 SQLiteTypeCompiler.visit_JSONB = lambda self, type_, **kw: "JSON"
 
@@ -29,11 +29,10 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop]:
 
 @pytest_asyncio.fixture
 async def client() -> AsyncGenerator[AsyncClient, None]:
+    import src.models  # noqa: F401 — register all models
     from src.core.database import engine
     from src.main import create_app
     from src.models.base import Base
-
-    import src.models  # noqa: F401 — register all models
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

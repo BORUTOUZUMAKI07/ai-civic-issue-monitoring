@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useEffect, useRef } from "react"
+import { Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { useForm } from "react-hook-form"
@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { auth, getErrorMessage } from "@/lib/api"
 import { useAuthStore } from "@/store/auth"
-import { setTokenCookie, setRefreshTokenCookie } from "@/lib/token-cookie"
 import { loginSchema, type LoginFormData } from "@/lib/schemas"
 import { AuthShell } from "@/components/auth/auth-shell"
 import { Landmark } from "lucide-react"
@@ -29,34 +28,9 @@ function LoginForm() {
     router.push(redirect)
   }
 
-  const processedRef = useRef(false)
-
-  useEffect(() => {
-    if (processedRef.current) return
-    const accessToken = searchParams.get("access_token")
-    const refreshToken = searchParams.get("refresh_token")
-    if (accessToken) {
-      processedRef.current = true
-      localStorage.setItem("access_token", accessToken)
-      setTokenCookie(accessToken)
-      if (refreshToken) {
-        localStorage.setItem("refresh_token", refreshToken)
-        setRefreshTokenCookie(refreshToken)
-      }
-      auth.me().then(setUser).then(redirectAfterLogin)
-      return
-    }
-  }, [searchParams])
-
   async function onSubmit(data: LoginFormData) {
     try {
-      const tokens = await auth.login(data.email, data.password)
-      localStorage.setItem("access_token", tokens.access_token)
-      setTokenCookie(tokens.access_token)
-      if (tokens.refresh_token) {
-        localStorage.setItem("refresh_token", tokens.refresh_token)
-        setRefreshTokenCookie(tokens.refresh_token)
-      }
+      await auth.login(data.email, data.password)
       const user = await auth.me()
       setUser(user)
       redirectAfterLogin()

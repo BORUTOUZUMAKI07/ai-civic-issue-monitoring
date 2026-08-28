@@ -22,7 +22,7 @@ class ReviewAction(BaseModel):
 
 
 def _require_admin(user: User) -> None:
-    if user.role != UserRole.admin:
+    if user.role not in (UserRole.admin, UserRole.super_admin):
         raise ForbiddenError("Admin access required.")
 
 
@@ -70,6 +70,118 @@ async def review_queue(
             for issue in issues
         ],
         "total": total,
+    }
+
+
+@router.get("/users")
+async def list_users(
+    skip: int = 0,
+    limit: int = 50,
+    search: str = "",
+    role: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    _require_admin(user)
+
+    stmt = select(User)
+    count_stmt = select(func.count(User.id))
+    if search:
+        pattern = f"%{search}%"
+        stmt = stmt.where(User.email.ilike(pattern) | User.full_name.ilike(pattern))
+        count_stmt = count_stmt.where(User.email.ilike(pattern) | User.full_name.ilike(pattern))
+    if role:
+        stmt = stmt.where(User.role == role)
+        count_stmt = count_stmt.where(User.role == role)
+    stmt = stmt.order_by(User.created_at.desc()).offset(skip).limit(limit)
+    result = await db.execute(stmt)
+    users = list(result.scalars().all())
+    total = (await db.execute(count_stmt)).scalar_one()
+
+    return {
+        "items": [
+            {
+                "id": u.id,
+                "email": u.email,
+                "full_name": u.full_name,
+                "role": u.role.value,
+                "is_active": u.is_active,
+                "created_at": u.created_at.isoformat(),
+            }
+            for u in users
+        ],
+        "total": total,
+    }
+
+
+@router.post("/users/{user_id}/role")
+async def update_user_role(
+    user_id: int,
+    body: ReviewAction,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    _require_admin(user)
+
+    valid_roles = [r.value for r in UserRole]
+    if body.new_type not in valid_roles:
+        raise ForbiddenError(f"Invalid role. Must be one of: {', '.join(valid_roles)}")
+    if user_id == user.id:
+        raise ForbiddenError("Cannot change your own role.")
+
+    target = await db.get(User, user_id)
+    if not target:
+        raise NotFoundError("User not found.")
+
+    if target.role == UserRole.super_admin:
+        raise ForbiddenError("Cannot change the super admin's role.")
+
+    if body.new_type == "super_admin":
+        raise ForbiddenError("Super admin can only be assigned directly in the database.")
+
+    if body.new_type == "admin" and user.role != UserRole.super_admin:
+        raise ForbiddenError("Only the super admin can promote to admin.")
+
+    from src.models.engineer import Engineer
+    from src.repositories.assignment_repository import AssignmentRepository
+    from src.repositories.engineer_repository import EngineerRepository
+
+    engineer_repo = EngineerRepository(db)
+    new_role = UserRole(body.new_type)
+
+    # A user holds ONE functional role at a time, so changing roles is a swap.
+    # Keep the engineer profile (operational field-deployment record) in sync:
+    #   - promote to engineer  -> auto-create a profile
+    #   - leave engineer       -> auto-remove the profile
+    profile = await engineer_repo.get_by_user_id(target.id)
+
+    if new_role == UserRole.engineer:
+        if profile is None:
+            profile = Engineer(
+                user_id=target.id,
+                ward_id=1,
+                specialization="general",
+                max_workload=10,
+            )
+            db.add(profile)
+    elif profile is not None:
+        # An engineer with open work can't be pulled off mid-job.
+        active = await AssignmentRepository(db).count_active_for_engineer(profile.id)
+        if active:
+            raise ForbiddenError(
+                "This engineer still has active assignments. Resolve them before changing the role."
+            )
+        await db.delete(profile)
+
+    target.role = new_role
+    await db.commit()
+    await db.refresh(target)
+
+    return {
+        "detail": f"Role updated to {target.role.value}.",
+        "user_id": target.id,
+        "email": target.email,
+        "role": target.role.value,
     }
 
 

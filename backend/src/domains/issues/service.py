@@ -1,17 +1,24 @@
 import io
+from datetime import datetime, timedelta, timezone
 
+import pillow_heif
 from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domains.wards.geofencing import get_ward_from_coords
 from src.errors import CorruptedImageError, ImageTooLargeError, InvalidImageError, IssueNotFound
+from src.models.assignment import Assignment, AssignmentStatus
 from src.models.engineer import Engineer
 from src.models.issue import ISSUE_TYPE_MAP, Issue, IssueStatus, IssueType
 from src.models.resolution import Resolution
+from src.repositories.assignment_repository import AssignmentRepository
 from src.repositories.engineer_repository import EngineerRepository
 from src.repositories.issue_repository import IssueRepository
 from src.repositories.resolution_repository import ResolutionRepository
+from src.repositories.user_repository import UserRepository
 from src.repositories.ward_repository import WardRepository
+
+pillow_heif.register_heif_opener()
 
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic"}
 MAX_FILE_SIZE_MB = 5
@@ -24,6 +31,8 @@ class IssueService:
         self.ward_repo = WardRepository(db)
         self.engineer_repo = EngineerRepository(db)
         self.resolution_repo = ResolutionRepository(db)
+        self.assignment_repo = AssignmentRepository(db)
+        self.user_repo = UserRepository(db)
 
     def validate_image(self, filename: str, content: bytes) -> None:
         ext = filename.split(".")[-1].lower()
@@ -39,6 +48,13 @@ class IssueService:
             image.verify()
         except Exception:
             raise CorruptedImageError()
+
+    def read_image(self, content: bytes) -> Image.Image:
+        """Open and fully decode an image into a PIL Image for ML inference."""
+        try:
+            return Image.open(io.BytesIO(content)).convert("RGB")
+        except Exception as e:
+            raise CorruptedImageError() from e
 
     async def create_issue(
         self,
@@ -103,8 +119,55 @@ class IssueService:
         engineer = min(engineers, key=lambda e: e.current_workload)
         if engineer.current_workload < engineer.max_workload:
             await self.engineer_repo.increment_workload(engineer.id)
+
+            assignment = Assignment(
+                issue_id=issue.id,
+                engineer_id=engineer.id,
+                status=AssignmentStatus.pending,
+                sla_deadline=datetime.now(timezone.utc) + timedelta(hours=48),
+            )
+            await self.assignment_repo.create(assignment)
+
+            issue.status = IssueStatus.assigned
+            await self.issue_repo.commit()
+
             return engineer
         return None
+
+    async def assign_issue_to_engineer(self, issue: Issue, engineer_id: int) -> Engineer:
+        engineer = await self.engineer_repo.get(engineer_id)
+        if not engineer:
+            from src.errors import BadRequestError
+            raise BadRequestError("Engineer not found.")
+        if not engineer.is_available:
+            from src.errors import BadRequestError
+            raise BadRequestError("Engineer is not available.")
+        if engineer.current_workload >= engineer.max_workload:
+            from src.errors import BadRequestError
+            raise BadRequestError("Engineer is at maximum workload.")
+
+        existing = await self.assignment_repo.get_by_issue(issue.id)
+        if existing:
+            await self.engineer_repo.decrement_workload(existing.engineer_id)
+
+        await self.engineer_repo.increment_workload(engineer.id)
+
+        assignment = Assignment(
+            issue_id=issue.id,
+            engineer_id=engineer.id,
+            status=AssignmentStatus.pending,
+            sla_deadline=datetime.now(timezone.utc) + timedelta(hours=48),
+        )
+        await self.assignment_repo.create(assignment)
+
+        issue.status = IssueStatus.assigned
+        await self.issue_repo.commit()
+
+        return engineer
+
+    async def get_engineer_name(self, user_id: int) -> str | None:
+        user = await self.user_repo.get(user_id)
+        return user.full_name if user else None
 
     async def get_issue(self, issue_id: int) -> Issue:
         issue = await self.issue_repo.get(issue_id)

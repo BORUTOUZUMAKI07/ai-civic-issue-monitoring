@@ -1,75 +1,54 @@
-import { clearTokenCookies, setTokenCookie } from "@/lib/token-cookie";
+const API_BASE = "/api/proxy";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("access_token");
-}
+let refreshPromise: Promise<boolean> | null = null;
 
 async function tryRefresh(): Promise<boolean> {
-  const refreshToken = localStorage.getItem("refresh_token");
-  if (!refreshToken) return false;
   try {
-    const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: refreshToken }),
     });
-    if (!res.ok) return false;
-    const data = await res.json();
-    localStorage.setItem("access_token", data.access_token);
-    if (data.refresh_token) localStorage.setItem("refresh_token", data.refresh_token);
-    return true;
+    return res.ok;
   } catch {
     return false;
   }
 }
 
-function clearTokens() {
-  localStorage.removeItem("access_token");
-  localStorage.removeItem("refresh_token");
-  clearTokenCookies();
-}
-
-let refreshPromise: Promise<boolean> | null = null;
-
-async function handleUnauthorized() {
-  if (!refreshPromise) {
-    refreshPromise = tryRefresh().finally(() => {
-      refreshPromise = null;
-    });
-  }
-  const refreshed = await refreshPromise;
-  if (refreshed) return true;
-  clearTokens();
-  if (typeof window !== "undefined") window.location.href = "/login";
-  return false;
-}
-
 async function rawFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getToken();
   const isFormData = options.body instanceof FormData;
   const headers: Record<string, string> = {
     ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...(options.headers as Record<string, string>),
   };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers,
+  });
 
   if (
     res.status === 401 &&
-    !path.startsWith("/api/v1/auth/login") &&
-    !path.startsWith("/api/v1/auth/register") &&
-    !path.startsWith("/api/v1/auth/refresh")
+    !path.startsWith("/auth/login") &&
+    !path.startsWith("/auth/register") &&
+    !path.startsWith("/auth/refresh")
   ) {
-    const recovered = await handleUnauthorized();
-    if (recovered) {
-      const newToken = getToken();
-      headers["Authorization"] = `Bearer ${newToken}`;
-      const retry = await fetch(`${API_BASE}${path}`, { ...options, headers });
-      if (retry.ok) return retry.json();
+    if (!refreshPromise) {
+      refreshPromise = tryRefresh().finally(() => {
+        refreshPromise = null;
+      });
+    }
+    const refreshed = await refreshPromise;
+    if (refreshed) {
+      const retry = await fetch(`${API_BASE}${path}`, {
+        ...options,
+        headers,
+      });
+      if (retry.ok) {
+        if (retry.status === 204) return undefined as T;
+        return retry.json();
+      }
+    }
+    if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+      window.location.href = "/login";
     }
     throw new Error("Session expired. Please login again.");
   }
@@ -93,21 +72,18 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 }
 
 export async function apiFetchBlob(path: string, options: RequestInit = {}): Promise<Blob> {
-  const token = getToken();
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
   };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers,
+  });
 
   if (res.status === 401) {
-    const recovered = await handleUnauthorized();
-    if (recovered) {
-      const newToken = getToken();
-      headers["Authorization"] = `Bearer ${newToken}`;
-      const retry = await fetch(`${API_BASE}${path}`, { ...options, headers });
-      if (retry.ok) return retry.blob();
+    if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+      window.location.href = "/login";
     }
     throw new Error("Session expired. Please login again.");
   }
@@ -128,12 +104,6 @@ export interface User {
   role: string;
   is_active: boolean;
   created_at: string;
-}
-
-export interface Token {
-  access_token: string;
-  refresh_token: string;
-  token_type: string;
 }
 
 export interface Issue {
@@ -159,17 +129,19 @@ export interface Issue {
 export interface MlInfo {
   model_path: string;
   model_exists: boolean;
-  model_size_bytes: number;
   model_size_mb: number;
-  adapter_path: string;
-  adapter_exists: boolean;
   onnx_path: string;
   onnx_exists: boolean;
-  class_names: string[];
+  onnx_size_mb?: number;
+  model_type?: string;
+  adapter_exists: boolean;
+  adapter_size_mb?: number;
+  classes: string[];
   num_classes: number;
-  default_threshold: number;
-  review_threshold: number;
-  reject_threshold: number;
+  device?: string;
+  default_threshold?: number;
+  review_threshold?: number;
+  reject_threshold?: number;
 }
 
 export interface RejectedUpload {
@@ -220,21 +192,18 @@ export interface HeatmapPoint {
 
 export const auth = {
   login: (email: string, password: string) =>
-    apiFetch<Token>("/api/v1/auth/login", {
+    apiFetch<{ detail: string }>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
   register: (email: string, password: string, full_name: string, role: string = "field_worker") =>
-    apiFetch<User>("/api/v1/auth/register", {
+    apiFetch<User>("/auth/register", {
       method: "POST",
       body: JSON.stringify({ email, password, full_name, role }),
     }),
-  me: () => apiFetch<User>("/api/v1/auth/me"),
-  refresh: (refresh_token: string) =>
-    apiFetch<Token>("/api/v1/auth/refresh", {
-      method: "POST",
-      body: JSON.stringify({ refresh_token }),
-    }),
+  me: () => apiFetch<User>("/auth/me"),
+  logout: () =>
+    apiFetch<{ detail: string }>("/auth/logout", { method: "POST" }),
 };
 
 export const issues = {
@@ -242,9 +211,9 @@ export const issues = {
     const q = new URLSearchParams();
     if (params?.skip) q.set("skip", String(params.skip));
     if (params?.limit) q.set("limit", String(params.limit));
-    return apiFetch<{ items: Issue[]; total: number }>(`/api/v1/issues?${q}`);
+    return apiFetch<{ items: Issue[]; total: number }>(`/issues?${q}`);
   },
-  get: (id: number) => apiFetch<Issue>(`/api/v1/issues/${id}`),
+  get: (id: number) => apiFetch<Issue>(`/issues/${id}`),
   upload: (
     file: File,
     latitude: number,
@@ -258,16 +227,30 @@ export const issues = {
     form.append("longitude", String(longitude));
     form.append("description", description);
     form.append("force_submit", String(force_submit));
-    return apiFetch<Issue>("/api/v1/issues/upload", {
+    return apiFetch<Issue>("/issues/upload", {
       method: "POST",
       body: form,
       headers: {},
     });
   },
   updateStatus: (id: number, status: string) =>
-    apiFetch<Issue>(`/api/v1/issues/${id}/status`, {
+    apiFetch<Issue>(`/issues/${id}/status`, {
       method: "PATCH",
       body: JSON.stringify({ status }),
+    }),
+  assign: (id: number, engineerId: number) =>
+    apiFetch<Issue>(`/issues/${id}/assign`, {
+      method: "POST",
+      body: JSON.stringify({ engineer_id: engineerId }),
+    }),
+  reassign: (id: number, engineerId: number) =>
+    apiFetch<Issue>(`/issues/${id}/reassign`, {
+      method: "POST",
+      body: JSON.stringify({ engineer_id: engineerId }),
+    }),
+  delete: (id: number) =>
+    apiFetch<{ detail: string; issue_id: number }>(`/issues/${id}`, {
+      method: "DELETE",
     }),
 };
 
@@ -276,34 +259,69 @@ export const admin = {
     const q = new URLSearchParams();
     if (params?.skip) q.set("skip", String(params.skip));
     if (params?.limit) q.set("limit", String(params.limit));
-    return apiFetch<{ items: Issue[]; total: number }>(`/api/v1/admin/review-queue?${q}`);
+    return apiFetch<{ items: Issue[]; total: number }>(`/admin/review-queue?${q}`);
   },
   reviewIssue: (id: number, action: string, newType?: string) =>
     apiFetch<{ detail: string; issue_id: number; issue_type: string }>(
-      `/api/v1/admin/review/${id}`,
+      `/admin/review/${id}`,
       { method: "POST", body: JSON.stringify({ action, new_type: newType }) }
+    ),
+  listUsers: (params?: { skip?: number; limit?: number; search?: string; role?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.skip) q.set("skip", String(params.skip));
+    if (params?.limit) q.set("limit", String(params.limit));
+    if (params?.search) q.set("search", params.search);
+    if (params?.role) q.set("role", params.role);
+    return apiFetch<{ items: User[]; total: number }>(`/admin/users?${q}`);
+  },
+  updateUserRole: (userId: number, role: string) =>
+    apiFetch<{ detail: string; user_id: number; role: string }>(
+      `/admin/users/${userId}/role`,
+      { method: "POST", body: JSON.stringify({ action: "change_type", new_type: role }) }
     ),
   rejectedUploads: (params?: { skip?: number; limit?: number }) => {
     const q = new URLSearchParams();
     if (params?.skip) q.set("skip", String(params.skip));
     if (params?.limit) q.set("limit", String(params.limit));
     return apiFetch<{ items: RejectedUpload[]; total: number }>(
-      `/api/v1/admin/rejected-uploads?${q}`
+      `/admin/rejected-uploads?${q}`
     );
   },
 };
 
 export const wards = {
-  list: () => apiFetch<Ward[]>("/api/v1/wards"),
+  list: () => apiFetch<Ward[]>("/wards"),
 };
 
 export const engineers = {
-  list: () => apiFetch<Engineer[]>("/api/v1/engineers"),
+  list: () => apiFetch<Engineer[]>("/engineers"),
+  create: (data: { user_id: number; ward_id: number; specialization?: string; max_workload?: number }) =>
+    apiFetch<Engineer>("/engineers", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  myAssignments: () =>
+    apiFetch<{ items: Array<{
+      assignment_id: number;
+      status: string;
+      assigned_at: string;
+      sla_deadline: string;
+      issue_id: number;
+      issue_type: string;
+      severity: number;
+      issue_status: string;
+      latitude: number;
+      longitude: number;
+      description: string | null;
+      image_url: string;
+      ward_id: number;
+      created_at: string;
+    }>; total: number }>("/engineers/me/assignments"),
 };
 
 export const dashboard = {
-  stats: () => apiFetch<DashboardStats>("/api/v1/dashboard/stats"),
-  heatmap: () => apiFetch<HeatmapPoint[]>("/api/v1/dashboard/heatmap"),
+  stats: () => apiFetch<DashboardStats>("/dashboard/stats"),
+  heatmap: () => apiFetch<HeatmapPoint[]>("/dashboard/heatmap"),
 };
 
 export const resolution = {
@@ -313,7 +331,7 @@ export const resolution = {
     form.append("file", file);
     form.append("notes", notes);
     return apiFetch<{ id: number; issue_id: number; status: string; message: string }>(
-      "/api/v1/resolution",
+      "/resolution",
       { method: "POST", body: form, headers: {} }
     );
   },

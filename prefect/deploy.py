@@ -14,6 +14,7 @@ Usage:
 
 Schedules are UTC. Exactly 5 deployments (Hobby limit);
 retrain-model dispatches trigger vs. event-driven check via the `mode` parameter.
+Two automations: retrain-triggered and drift-high-triggers-retrain.
 """
 from __future__ import annotations
 
@@ -64,7 +65,7 @@ SCHEDULES = {
 
 DESCRIPTIONS = {
     "retrain-model": "Weekly ML retrain trigger (Sun 03:00 UTC) + event-driven poller (mode=check)",
-    "drift-detection": "Detect ML model performance drift (daily 02:00 UTC)",
+    "drift-detection": "Detect ML model drift: confidence, class distribution, entropy (daily 02:00 UTC)",
     "daily-report": "Generate and store daily stats report (daily 08:00 UTC)",
     "sla-monitoring": "Monitor SLA violations and escalate (hourly — trim to 0 */4 * * * for budget)",
     "audit-log-archival": "Archive old drift reports and escalation logs (monthly 03:00 UTC)",
@@ -75,6 +76,13 @@ JOB_ENV_VARS = {k: v for k, v in {
     "CIVICPULSE_DB_URI": os.getenv("CIVICPULSE_DB_URI", ""),
     "CIVICPULSE_MONGO_URI": os.getenv("CIVICPULSE_MONGO_URI", ""),
     "DAGSHUB_TOKEN": os.getenv("DAGSHUB_TOKEN", ""),
+    # Drift alerting (drift-detection flow)
+    "SLACK_WEBHOOK_URL": os.getenv("SLACK_WEBHOOK_URL", ""),
+    "SMTP_HOST": os.getenv("SMTP_HOST", ""),
+    "SMTP_PORT": os.getenv("SMTP_PORT", ""),
+    "SMTP_USER": os.getenv("SMTP_USER", ""),
+    "SMTP_PASS": os.getenv("SMTP_PASS", ""),
+    "ALERT_EMAIL_TO": os.getenv("ALERT_EMAIL_TO", ""),
 }.items() if v}
 
 JOB_VARIABLES = {"pip_packages": PIP_PACKAGES}
@@ -92,41 +100,66 @@ def ensure_work_pool() -> None:
             print(f"Created work pool '{WORK_POOL}' (type=prefect:managed)")
 
 
-def ensure_automation(deployment_ids: dict[str, str]) -> None:
-    """Create automation: on 'civicpulse.retrain.triggered', launch a mode=check run.
+def ensure_automations(deployment_ids: dict[str, str]) -> None:
+    """Create automations for retrain triggering.
 
-    Check runs never emit that event, so they cannot re-trigger the automation (no loop).
+    1. ``retrain-triggers-check-training``: on ``civicpulse.retrain.triggered``
+       (weekly cron), launch a mode=check run.
+    2. ``drift-high-triggers-retrain``: on ``civicpulse.drift.high``
+       (emitted by drift-detection when severity=high), launch a mode=trigger
+       run which pushes an empty commit and starts training.
     """
     retrain_dep_id = deployment_ids.get("retrain-model")
     if not retrain_dep_id:
-        print("Skipping automation: missing retrain-model deployment ID")
+        print("Skipping automations: missing retrain-model deployment ID")
         return
 
     with get_client(sync_client=True) as client:
-        # Check if automation already exists
+        # ── Automation 1: retrain.triggered → mode=check ────────────
         try:
             existing = client.read_automations_by_name("retrain-triggers-check-training")
             if existing:
-                print(f"Automation 'retrain-triggers-check-training' already exists")
-                return
+                print("Automation 'retrain-triggers-check-training' already exists")
+            else:
+                raise ObjectNotFound("not found")
         except ObjectNotFound:
-            pass
+            client.create_automation(AutomationCore(
+                name="retrain-triggers-check-training",
+                description=(
+                    "When retrain-model emits 'civicpulse.retrain.triggered', launch a "
+                    "mode=check run which polls MLflow and self-reschedules until done."
+                ),
+                enabled=True,
+                trigger=EventTrigger(
+                    expect={"civicpulse.retrain.triggered"},
+                    match={"prefect.resource.name": "retrain-model"},
+                ),
+                actions=[RunDeployment(deployment_id=retrain_dep_id, parameters={"mode": "check"})],
+            ))
+            print("Created automation 'retrain-triggers-check-training'")
 
-        automation = AutomationCore(
-            name="retrain-triggers-check-training",
-            description=(
-                "When retrain-model emits 'civicpulse.retrain.triggered', launch a "
-                "mode=check run which polls MLflow and self-reschedules until done."
-            ),
-            enabled=True,
-            trigger=EventTrigger(
-                expect={"civicpulse.retrain.triggered"},
-                match={"prefect.resource.name": "retrain-model"},
-            ),
-            actions=[RunDeployment(deployment_id=retrain_dep_id, parameters={"mode": "check"})],
-        )
-        client.create_automation(automation)
-        print("Created automation 'retrain-triggers-check-training'")
+        # ── Automation 2: drift.high → mode=trigger ─────────────────
+        try:
+            existing = client.read_automations_by_name("drift-high-triggers-retrain")
+            if existing:
+                print("Automation 'drift-high-triggers-retrain' already exists")
+            else:
+                raise ObjectNotFound("not found")
+        except ObjectNotFound:
+            client.create_automation(AutomationCore(
+                name="drift-high-triggers-retrain",
+                description=(
+                    "When drift-detection emits 'civicpulse.drift.high', launch a "
+                    "retrain-model run in trigger mode (pushes empty commit to start training)."
+                ),
+                enabled=True,
+                trigger=EventTrigger(
+                    expect={"civicpulse.drift.high"},
+                    match={"prefect.resource.name": "drift-detection"},
+                ),
+                actions=[RunDeployment(deployment_id=retrain_dep_id, parameters={"mode": "trigger"})],
+            ))
+            print("Created automation 'drift-high-triggers-retrain'")
 
 
 def main() -> None:
@@ -152,7 +185,7 @@ def main() -> None:
         sched_str = cron if cron else "event-driven"
         print(f"Deployed '{name}' -> work pool '{WORK_POOL}' (schedule={sched_str})")
 
-    ensure_automation(deployment_ids)
+    ensure_automations(deployment_ids)
 
 
 if __name__ == "__main__":

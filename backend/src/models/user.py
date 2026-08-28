@@ -8,6 +8,7 @@ from src.models.base import Base
 
 
 class UserRole(str, enum.Enum):
+    super_admin = "super_admin"
     admin = "admin"
     engineer = "engineer"
     field_worker = "field_worker"

@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useReviewQueue, useReviewIssueMutation } from "@/queries/index";
+import { useAuthStore } from "@/store/auth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -137,6 +139,12 @@ function ReviewRow({
 }
 
 export default function ReviewQueuePage() {
+  const currentUser = useAuthStore((s) => s.user);
+  const router = useRouter();
+  if (currentUser && currentUser.role !== "admin" && currentUser.role !== "super_admin") {
+    router.replace("/dashboard");
+    return null;
+  }
   const { data, isLoading, refetch } = useReviewQueue({ limit: 50 });
   const reviewMutation = useReviewIssueMutation();
   const [processingId, setProcessingId] = useState<number | null>(null);

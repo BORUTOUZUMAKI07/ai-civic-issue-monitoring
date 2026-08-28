@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import exifr from "exifr";
 import { useIssues, useUploadIssueMutation, useWards } from "@/queries/index";
 import { useWebSocket } from "@/hooks/useWebSocket";
+import { useAuthStore } from "@/store/auth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -69,11 +70,7 @@ const LocationPicker = dynamic(
 const TYPE_OPTIONS = [
   "pothole",
   "garbage",
-  "broken_streetlight",
-  "waterlogging",
   "debris",
-  "sewage",
-  "road_damage",
 ];
 
 const PAGE_SIZE = 10;
@@ -140,6 +137,7 @@ function IssueRow({ issue, wardName }: { issue: Issue; wardName: string }) {
 }
 
 export default function IssuesPage() {
+  const currentUser = useAuthStore((s) => s.user);
   const { data, isLoading, refetch } = useIssues({ limit: 50 });
   const uploadMutation = useUploadIssueMutation();
   const { data: wards } = useWards();
@@ -398,13 +396,15 @@ export default function IssuesPage() {
             className="hidden"
             onChange={handleFileSelect}
           />
-          <Button
-            onClick={() => fileInputRef.current?.click()}
-            className="gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            Report Issue
-          </Button>
+          {currentUser?.role !== "viewer" && (
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              className="gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Report Issue
+            </Button>
+          )}
         </div>
       </div>
 

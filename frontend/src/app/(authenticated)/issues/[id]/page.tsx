@@ -1,18 +1,27 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { useIssue } from "@/queries/index";
-import { apiFetch } from "@/lib/api";
+import { useIssue, useEngineers, useAssignIssueMutation, useReassignIssueMutation } from "@/queries/index";
+import { useAuthStore } from "@/store/auth";
+import { apiFetch, issues } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { IssueTypeIcon } from "@/components/shared/issue-icon";
+import { toast } from "sonner";
 import {
   ArrowLeft,
   Brain,
@@ -21,6 +30,7 @@ import {
   Radio,
   RefreshCw,
   ShieldAlert,
+  Trash2,
   User,
 } from "lucide-react";
 import {
@@ -57,11 +67,18 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
   const { id } = use(params);
   const issueId = parseInt(id, 10);
   const { data: issue, isLoading } = useIssue(issueId);
+  const { data: engineers } = useEngineers();
+  const currentUser = useAuthStore((s) => s.user);
+  const isAdmin =
+    currentUser?.role === "admin" || currentUser?.role === "super_admin";
   const router = useRouter();
+  const assignMutation = useAssignIssueMutation();
+  const reassignMutation = useReassignIssueMutation();
+  const [selectedEngineer, setSelectedEngineer] = useState<string>("");
 
   const similarQuery = useQuery<SimilarResponse>({
     queryKey: ["similar-issues", issueId],
-    queryFn: () => apiFetch(`/api/v1/issues/similar/${issueId}`),
+    queryFn: () => apiFetch(`/issues/similar/${issueId}`),
     enabled: !!issueId,
     retry: false,
   });
@@ -294,7 +311,55 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
 
         {/* Sidebar */}
         <div className="space-y-4">
-          {nextAction && (
+          {isAdmin && engineers && engineers.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  {issue.assigned_to ? "Reassign engineer" : "Assign to engineer"}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Select
+                  value={selectedEngineer}
+                  onValueChange={setSelectedEngineer}
+                >
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder="Select an engineer..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {engineers.map((e) => (
+                      <SelectItem key={e.id} value={String(e.id)} className="text-sm">
+                        Engineer #{e.id} — Ward {e.ward_id} ({e.current_workload}/{e.max_workload})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  className="w-full gap-2"
+                  disabled={!selectedEngineer}
+                  onClick={async () => {
+                    try {
+                      if (issue.assigned_to) {
+                        await reassignMutation.mutateAsync({ issueId, engineerId: Number(selectedEngineer) });
+                        toast.success("Issue reassigned");
+                      } else {
+                        await assignMutation.mutateAsync({ issueId, engineerId: Number(selectedEngineer) });
+                        toast.success("Issue assigned");
+                      }
+                      window.location.reload();
+                    } catch (err: unknown) {
+                      toast.error(err instanceof Error ? err.message : "Failed to assign");
+                    }
+                  }}
+                >
+                  <User className="h-4 w-4" />
+                  {issue.assigned_to ? "Reassign" : "Assign"}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {nextAction && currentUser?.role !== "viewer" && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Actions</CardTitle>
@@ -323,6 +388,25 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
                     View on map
                   </Link>
                 </Button>
+                {isAdmin && (
+                  <Button
+                    variant="outline"
+                    className="mt-2 w-full gap-2 text-red-600 hover:bg-red-50 hover:text-red-700"
+                    onClick={async () => {
+                      if (!confirm("Delete this issue permanently?")) return;
+                      try {
+                        await issues.delete(issueId);
+                        toast.success("Issue deleted");
+                        router.push("/issues");
+                      } catch (err: unknown) {
+                        toast.error(err instanceof Error ? err.message : "Failed to delete");
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Delete issue
+                  </Button>
+                )}
               </CardContent>
             </Card>
           )}

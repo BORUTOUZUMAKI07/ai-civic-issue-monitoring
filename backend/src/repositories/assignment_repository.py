@@ -23,6 +23,20 @@ class AssignmentRepository:
         result = await self.db.execute(query.order_by(Assignment.assigned_at.desc()))
         return list(result.scalars().all())
 
+    async def count_active_for_engineer(self, engineer_id: int) -> int:
+        active_statuses = (
+            AssignmentStatus.pending,
+            AssignmentStatus.accepted,
+            AssignmentStatus.in_progress,
+        )
+        result = await self.db.execute(
+            select(Assignment).where(
+                Assignment.engineer_id == engineer_id,
+                Assignment.status.in_(active_statuses),
+            )
+        )
+        return len(list(result.scalars().all()))
+
     async def create(self, assignment: Assignment) -> Assignment:
         self.db.add(assignment)
         await self.db.commit()

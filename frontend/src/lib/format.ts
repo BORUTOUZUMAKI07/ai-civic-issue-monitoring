@@ -99,12 +99,6 @@ export const TYPE_META: Record<
     color: "#0891b2",
   },
   debris: { label: "Debris", chip: "bg-violet-50 text-violet-600", color: "#7c3aed" },
-  sewage: { label: "Sewage", chip: "bg-teal-50 text-teal-600", color: "#0d9488" },
-  road_damage: {
-    label: "Road Damage",
-    chip: "bg-orange-50 text-orange-600",
-    color: "#ea580c",
-  },
 }
 
 export function typeMeta(type: string): { label: string; chip: string; color: string } {
@@ -123,5 +117,6 @@ export const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = 
   "/map": { title: "City Map", subtitle: "Geospatial view of active issues" },
   "/engineers": { title: "Field Teams", subtitle: "Workload and availability of field engineers" },
   "/admin/review": { title: "Review Queue", subtitle: "Approve, reject, or reclassify AI-flagged issues" },
+  "/admin/users": { title: "Users", subtitle: "View and manage all registered accounts" },
   "/settings": { title: "Settings", subtitle: "Manage your account and preferences" },
 }

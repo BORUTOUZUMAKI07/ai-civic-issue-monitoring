@@ -45,14 +45,17 @@ async def init_db() -> bool:
         logger.error("Database unreachable after %d attempts — serving in degraded mode", len(_RETRY_DELAYS))
         return False
 
-    try:
-        from src.models.base import Base
+    if settings.ENVIRONMENT != "production":
+        # Auto-create tables only for dev/test convenience. Production uses
+        # Alembic migrations as the single source of truth for the schema.
+        try:
+            from src.models.base import Base
 
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables created/verified.")
-    except Exception as e:
-        logger.warning("Table creation skipped (may need manual Alembic migration): %s", e)
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("Database tables created/verified.")
+        except Exception as e:
+            logger.warning("Table creation skipped (may need manual Alembic migration): %s", e)
 
     return True
 

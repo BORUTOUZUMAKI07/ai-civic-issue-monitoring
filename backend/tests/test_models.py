@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from src.models.user import UserRole
 from src.models.issue import IssueStatus, IssueType
+from src.models.user import UserRole
 
 
 def test_user_role_values() -> None:
