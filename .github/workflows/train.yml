@@ -11,6 +11,13 @@ on:
         description: "Epochs for final model training"
         required: false
         default: "15"
+  # Auto-start on any push to main. A job-level guard (see 'train' job) only
+  # runs the full training for pushes whose subject begins with a Prefect
+  # retrain trigger, or for workflow_dispatch, or when training-relevant paths
+  # change. This lets the empty commit pushed by Prefect retrain-model kick off
+  # training automatically.
+  push:
+    branches: [main]
 
 env:
   DATA_PATH: data/raw
@@ -22,6 +29,9 @@ env:
 
 jobs:
   train:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.head_commit.message, 'Prefect retrain trigger')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
