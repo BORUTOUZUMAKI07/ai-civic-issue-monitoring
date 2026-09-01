@@ -10,13 +10,9 @@ from src.core.config import settings
 logger = logging.getLogger(__name__)
 
 CATEGORY_KEYWORDS: dict[str, list[str]] = {
-    "pothole": ["pothole", "road damage", "road crack", "broken road", "road repair", "asphalt", "road surface"],
+    "pothole": ["pothole", "road damage", "road crack", "broken road", "road repair", "asphalt", "road surface", "tarmac"],
     "garbage": ["garbage", "waste", "trash", "rubbish", "dump", "litter", "overflowing bin", "waste collection"],
-    "broken_streetlight": ["streetlight", "street light", "lamp", "lighting", "dark street", "no light", "light pole"],
-    "waterlogging": ["waterlogging", "flood", "water", "drainage", "stagnant water", "overflow", "water accumulation"],
     "debris": ["debris", "illegal construction", "encroach", "illegal structure", "rubble", "construction waste"],
-    "road_damage": ["road damage", "road broken", "asphalt", "road repair", "road surface", "tarmac"],
-    "sewage": ["sewage", "sewer", "clogged drain", "blocked drain", "drain", "overflowing sewage", "manhole"],
 }
 
 SEVERITY_KEYWORDS: dict[str, list[str]] = {
@@ -29,10 +25,6 @@ LABEL_TO_SEVERITY: dict[str, int] = {
     "pothole": 4,
     "garbage": 3,
     "debris": 5,
-    "waterlogging": 4,
-    "broken_streetlight": 2,
-    "sewage": 4,
-    "road_damage": 4,
 }
 
 
@@ -81,11 +73,7 @@ Issue description: "{text}"
 Categories (choose exactly one):
 - pothole: road potholes, road damage, broken asphalt
 - garbage: waste, trash, litter, overflowing bins
-- broken_streetlight: non-working street lights, dark streets
-- waterlogging: flooding, water accumulation, stagnant water
 - debris: construction debris, illegal structures, rubble
-- road_damage: general road surface damage
-- sewage: sewage overflow, blocked drains, manhole issues
 
 Severity (1-5):
 1 = minor/cosmetic issue

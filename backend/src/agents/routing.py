@@ -10,11 +10,7 @@ logger = logging.getLogger(__name__)
 DEPARTMENT_MAP: dict[str, str] = {
     "pothole": "Roads & Infrastructure",
     "garbage": "Solid Waste Management",
-    "broken_streetlight": "Electrical & Lighting",
-    "waterlogging": "Drainage & Flood Control",
     "debris": "Town Planning & Enforcement",
-    "road_damage": "Roads & Infrastructure",
-    "sewage": "Sewage & Sanitation",
 }
 
 

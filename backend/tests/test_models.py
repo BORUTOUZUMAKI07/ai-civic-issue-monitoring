@@ -26,7 +26,3 @@ def test_issue_type_values() -> None:
     assert IssueType.pothole == "pothole"
     assert IssueType.garbage == "garbage"
     assert IssueType.debris == "debris"
-    assert IssueType.waterlogging == "waterlogging"
-    assert IssueType.broken_streetlight == "broken_streetlight"
-    assert IssueType.sewage == "sewage"
-    assert IssueType.road_damage == "road_damage"

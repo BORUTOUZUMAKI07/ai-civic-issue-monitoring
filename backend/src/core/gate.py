@@ -4,14 +4,14 @@ from src.core.config import settings
 
 CIVIC_LABELS = {"pothole", "garbage", "debris"}
 
+# Keyword fallback keys MUST stay aligned with the DB's issuetype enum and the
+# trained ML classes (pothole, garbage, debris). road-damage text folds into
+# pothole (pavement damage class). Unrecognised civic text is routed by the
+# gate to review_required rather than into a category that no longer exists.
 CIVIC_KEYWORDS: dict[str, list[str]] = {
-    "pothole": ["pothole", "road damage", "road crack", "broken road"],
+    "pothole": ["pothole", "road damage", "road crack", "broken road", "asphalt", "road repair", "road broken"],
     "garbage": ["garbage", "waste", "trash", "rubbish", "dump", "litter"],
-    "broken_streetlight": ["streetlight", "street light", "lamp", "no light"],
-    "waterlogging": ["waterlogging", "flood", "water", "drainage", "stagnant"],
     "debris": ["debris", "rubble", "construction waste"],
-    "sewage": ["sewage", "sewer", "clogged drain", "blocked drain"],
-    "road_damage": ["road damage", "road broken", "asphalt", "road repair"],
 }
 
 
@@ -97,7 +97,7 @@ def gate_decision(vision: dict | None, description: str, force_submit: bool) -> 
         # Unsure or text hints civic → accept with review
         return {
             "action": "accept",
-            "issue_type": text["label"] if text_says_civic else "road_damage",
+            "issue_type": text["label"],
             "confidence": min(vision["confidence"], text["confidence"]),
             "review_required": True,
             "reason": "Low-confidence prediction, routed to human review",

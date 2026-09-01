@@ -12,10 +12,6 @@ class IssueType(str, enum.Enum):
     pothole = "pothole"
     garbage = "garbage"
     debris = "debris"
-    waterlogging = "waterlogging"
-    broken_streetlight = "broken_streetlight"
-    sewage = "sewage"
-    road_damage = "road_damage"
 
 
 ISSUE_TYPE_MAP = {t.value: t for t in IssueType}

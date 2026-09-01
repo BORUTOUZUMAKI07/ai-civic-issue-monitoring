@@ -21,9 +21,9 @@ class TestClassifyDescription:
         result = classify_description("garbage pile near market")
         assert result["label"] == "garbage"
 
-    def test_broken_streetlight_keywords(self) -> None:
-        result = classify_description("street light not working since 3 days")
-        assert result["label"] == "broken_streetlight"
+    def test_road_damage_text_maps_to_pothole(self) -> None:
+        result = classify_description("road damage on the highway surface")
+        assert result["label"] == "pothole"
         assert result["civic_confidence"] > 0.0
 
     def test_sure_civic_keywords_high_confidence(self) -> None:
@@ -89,7 +89,7 @@ class TestGateDecision:
             "model": "mobilenet_v2",
             "probabilities": {"non_civic": 0.90},
         }
-        result = gate_decision(vision, "street light broken", force_submit=False)
+        result = gate_decision(vision, "road damage on highway", force_submit=False)
         assert result["action"] == "accept"
         assert result["review_required"] is True
 
@@ -110,7 +110,7 @@ class TestGateDecision:
     def test_vision_unavailable_falls_back_to_text(self) -> None:
         result = gate_decision(None, "waterlogging on road", force_submit=False)
         assert result["action"] == "accept"
-        assert result["issue_type"] == "waterlogging"
+        assert result["issue_type"] == "pothole"
 
     def test_vision_unavailable_no_description_low_conf_review(self) -> None:
         result = gate_decision(None, "", force_submit=False)

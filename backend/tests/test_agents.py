@@ -13,19 +13,24 @@ def test_classify_garbage() -> None:
     assert category == "garbage"
 
 
-def test_classify_broken_streetlight() -> None:
+def test_road_damage_text_maps_to_pothole() -> None:
+    category, _, _ = _keyword_classify("Road damage with broken asphalt on the highway")
+    assert category == "pothole"
+
+
+def test_unknown_civic_text_falls_back_to_pothole() -> None:
     category, _, _ = _keyword_classify("Street light is not working on MG Road")
-    assert category == "broken_streetlight"
+    assert category == "pothole"
 
 
-def test_classify_waterlogging() -> None:
+def test_waterlogging_text_falls_back_to_pothole() -> None:
     category, _, _ = _keyword_classify("Waterlogging after heavy rain in the area")
-    assert category == "waterlogging"
+    assert category == "pothole"
 
 
-def test_classify_sewage() -> None:
+def test_sewage_text_falls_back_to_pothole() -> None:
     category, _, _ = _keyword_classify("Sewage overflowing from the drain near school")
-    assert category == "sewage"
+    assert category == "pothole"
 
 
 def test_classify_default() -> None:

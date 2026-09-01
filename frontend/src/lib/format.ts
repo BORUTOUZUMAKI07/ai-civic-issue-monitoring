@@ -88,16 +88,6 @@ export const TYPE_META: Record<
 > = {
   pothole: { label: "Pothole", chip: "bg-red-50 text-red-600", color: "#dc2626" },
   garbage: { label: "Garbage", chip: "bg-amber-50 text-amber-600", color: "#d97706" },
-  broken_streetlight: {
-    label: "Street Light",
-    chip: "bg-blue-50 text-blue-600",
-    color: "#2563eb",
-  },
-  waterlogging: {
-    label: "Waterlogging",
-    chip: "bg-cyan-50 text-cyan-600",
-    color: "#0891b2",
-  },
   debris: { label: "Debris", chip: "bg-violet-50 text-violet-600", color: "#7c3aed" },
 }
 
