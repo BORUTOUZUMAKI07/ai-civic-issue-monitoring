@@ -59,7 +59,7 @@ SCHEDULES = {
     "retrain-model": "0 3 * * 0",          # Sunday 03:00 UTC
     "drift-detection": "0 2 * * *",        # daily 02:00 UTC
     "daily-report": "0 8 * * *",           # daily 08:00 UTC
-    "sla-monitoring": "0 * * * *",         # hourly (trim to 0 */4 * * * if needed)
+    "sla-monitoring": "0 */6 * * *",       # every 6 hours to stay within free-tier compute budget
     "audit-log-archival": "0 3 1 * *",     # 1st of month 03:00 UTC
 }
 
@@ -67,7 +67,7 @@ DESCRIPTIONS = {
     "retrain-model": "Weekly ML retrain trigger (Sun 03:00 UTC) + event-driven poller (mode=check)",
     "drift-detection": "Detect ML model drift: confidence, class distribution, entropy (daily 02:00 UTC)",
     "daily-report": "Generate and store daily stats report (daily 08:00 UTC)",
-    "sla-monitoring": "Monitor SLA violations and escalate (hourly — trim to 0 */4 * * * for budget)",
+    "sla-monitoring": "Monitor SLA violations and escalate (every 6 hours to fit free-tier compute budget)",
     "audit-log-archival": "Archive old drift reports and escalation logs (monthly 03:00 UTC)",
 }
 

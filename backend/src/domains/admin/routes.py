@@ -168,9 +168,7 @@ async def update_user_role(
         # An engineer with open work can't be pulled off mid-job.
         active = await AssignmentRepository(db).count_active_for_engineer(profile.id)
         if active:
-            raise ForbiddenError(
-                "This engineer still has active assignments. Resolve them before changing the role."
-            )
+            raise ForbiddenError("This engineer still has active assignments. Resolve them before changing the role.")
         await db.delete(profile)
 
     target.role = new_role

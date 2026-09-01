@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from src.core.config import settings
 from src.core.database import check_db_health, engine, init_db
 from src.core.mongodb import init_mongodb
+from src.core.newrelic import init_newrelic, newrelic_enabled
 from src.core.redis import check_redis_health, init_redis
 from src.domains.admin.routes import router as admin_router
 from src.domains.auth.routes import router as auth_router
@@ -60,6 +61,16 @@ def create_app(lifespan_override=None):
     app.add_middleware(LoggingMiddleware)
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(RBACMiddleware)
+
+    # New Relic APM: wrap the ASGI app when a license key is present.
+    # No-op otherwise, so tests/CI/dev stay untouched.
+    if newrelic_enabled():
+        try:
+            import newrelic.agent
+
+            app = newrelic.agent.ASGIMiddleware(app)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("New Relic ASGI middleware failed to load: %s", exc)
 
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError):
@@ -120,6 +131,8 @@ def create_app(lifespan_override=None):
 async def lifespan(app: FastAPI):
     setup_logging()
     logger.info("Starting CivicPulse...")
+
+    init_newrelic()
 
     try:
         await init_db()

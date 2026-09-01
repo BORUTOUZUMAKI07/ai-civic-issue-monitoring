@@ -135,6 +135,8 @@ def fetch_recent_predictions(uri: str, days: int = 7) -> list[dict]:
 
 @task
 def detect_drift(uri: str, predictions: list[dict], baselines: dict) -> dict | None:
+    from pymongo import MongoClient
+
     logger = get_run_logger()
 
     if not predictions:
@@ -204,7 +206,6 @@ def detect_drift(uri: str, predictions: list[dict], baselines: dict) -> dict | N
 
     with MongoClient(uri) as client:
         client[MONGO_DB]["drift_reports"].insert_one(report)
-
     if drift_detected and severity == "high":
         logger.warning(
             "HIGH drift detected! conf_mean: %.2f%%, JS class: %.4f, entropy: %.2f%%",

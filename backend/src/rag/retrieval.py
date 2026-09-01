@@ -52,6 +52,8 @@ async def find_similar_issues(
     scored = []
     for issue in issues:
         try:
+            if not issue.embedding:
+                continue
             issue_vec = json.loads(issue.embedding)
             if not isinstance(issue_vec, list) or len(issue_vec) != len(query_embedding):
                 continue

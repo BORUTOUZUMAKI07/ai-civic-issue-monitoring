@@ -86,10 +86,7 @@ async def _load_assignment_map(db, issue_ids: list[int]) -> dict:
         .join(User, Engineer.user_id == User.id)
     )
     result = await db.execute(stmt)
-    return {
-        row[0].issue_id: {"user_id": row[1], "full_name": row[2]}
-        for row in result.all()
-    }
+    return {row[0].issue_id: {"user_id": row[1], "full_name": row[2]} for row in result.all()}
 
 
 def _classify_image(image_bytes: bytes) -> dict | None:
@@ -466,6 +463,7 @@ async def delete_issue(
     from sqlalchemy import delete as sa_delete
 
     from src.models.assignment import Assignment
+
     await db.execute(sa_delete(Assignment).where(Assignment.issue_id == issue.id))
 
     await db.delete(issue)

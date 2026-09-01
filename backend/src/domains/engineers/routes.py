@@ -61,6 +61,7 @@ async def create_engineer(
         raise BadRequestError("This user already has an engineer profile.")
 
     from src.repositories.user_repository import UserRepository
+
     user_repo = UserRepository(db)
     target_user = await user_repo.get(body.user_id)
     if not target_user:

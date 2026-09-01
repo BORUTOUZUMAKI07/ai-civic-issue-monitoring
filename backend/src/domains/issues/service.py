@@ -138,12 +138,15 @@ class IssueService:
         engineer = await self.engineer_repo.get(engineer_id)
         if not engineer:
             from src.errors import BadRequestError
+
             raise BadRequestError("Engineer not found.")
         if not engineer.is_available:
             from src.errors import BadRequestError
+
             raise BadRequestError("Engineer is not available.")
         if engineer.current_workload >= engineer.max_workload:
             from src.errors import BadRequestError
+
             raise BadRequestError("Engineer is at maximum workload.")
 
         existing = await self.assignment_repo.get_by_issue(issue.id)
