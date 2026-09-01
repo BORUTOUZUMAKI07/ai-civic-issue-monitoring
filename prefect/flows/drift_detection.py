@@ -69,11 +69,17 @@ def _entropy(dist: dict[str, float]) -> float:
     return -sum(v * math.log(v) for v in dist.values() if v > 0)
 
 
-@task(retries=1, retry_delay_seconds=300)
-def get_or_create_baselines(uri: str) -> dict:
-    """Load stored baselines; if missing, bootstrap from first 200 predictions."""
+@task
+def get_or_create_baselines(uri: str) -> dict | None:
+    """Load stored baselines; if missing, bootstrap from first 200 predictions.
+
+    Returns None (instead of raising) when there is not enough prediction data
+    yet, so the drift flow can exit cleanly rather than burning compute on a
+    pointless retry that cannot succeed until more predictions arrive.
+    """
     from pymongo import MongoClient
 
+    logger = get_run_logger()
     with MongoClient(uri) as client:
         db = client[MONGO_DB]
         stored = db["drift_baselines"].find_one({"_id": "current"})
@@ -90,10 +96,13 @@ def get_or_create_baselines(uri: str) -> dict:
             .limit(200)
         )
         if len(bootstrap) < MIN_SAMPLES:
-            raise RuntimeError(
-                f"Cannot bootstrap baselines: only {len(bootstrap)} predictions exist "
-                f"(need {MIN_SAMPLES}). Wait for more data."
+            logger.info(
+                "Not enough predictions to bootstrap baselines "
+                "(%d/%d). Skipping drift detection until more data arrives.",
+                len(bootstrap),
+                MIN_SAMPLES,
             )
+            return None
 
         confs = [p["confidence"] for p in bootstrap if p.get("confidence") is not None]
         labels = [p["predicted_label"] for p in bootstrap if p.get("predicted_label")]
@@ -117,7 +126,7 @@ def get_or_create_baselines(uri: str) -> dict:
 
 # ── Data fetching ───────────────────────────────────────────────────────
 
-@task(retries=1, retry_delay_seconds=300)
+@task
 def fetch_recent_predictions(uri: str, days: int = 7) -> list[dict]:
     from pymongo import MongoClient
 
@@ -312,6 +321,10 @@ def maybe_trigger_retrain(report: dict) -> None:
 def drift_detection_flow() -> dict | None:
     uri = get_mongo_uri()
     baselines = get_or_create_baselines(uri)
+    if baselines is None:
+        logger = get_run_logger()
+        logger.info("Skipping drift detection: not enough prediction data yet.")
+        return None
     predictions = fetch_recent_predictions(uri)
     report = detect_drift(uri, predictions, baselines)
     if report and report.get("drift_detected"):
