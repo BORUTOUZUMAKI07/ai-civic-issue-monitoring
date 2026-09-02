@@ -1,13 +1,33 @@
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.database import get_db
 from src.core.deps import get_current_user
-from src.domains.auth.schemas import LoginRequest, RegisterRequest, UserResponse
+from src.domains.auth.oauth import (
+    decode_oauth_state,
+    encode_oauth_state,
+    get_provider,
+    login_with_provider,
+)
+from src.domains.auth.password_reset import reset_password, send_password_reset_email
+from src.domains.auth.schemas import (
+    ForgotPasswordRequest,
+    LoginRequest,
+    RegisterRequest,
+    ResetPasswordRequest,
+    UserResponse,
+)
 from src.domains.auth.service import AuthService
+from src.errors import OAuthError, OAuthNotConfigured
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
+
+
+def _redirect_response(url: str):
+    from fastapi.responses import RedirectResponse
+
+    return RedirectResponse(url=url, status_code=302)
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
@@ -105,6 +125,70 @@ async def logout(request: Request, response: Response, db: AsyncSession = Depend
     return {"detail": "Logged out"}
 
 
+@router.get("/oauth/providers")
+async def oauth_providers():
+    from src.domains.auth.oauth import get_provider
+
+    result = {}
+    for name in ("google", "github"):
+        try:
+            result[name] = get_provider(name).configured
+        except Exception:
+            result[name] = False
+    return result
+
+
+@router.get("/oauth/{provider}/authorize")
+async def oauth_authorize(
+    provider: str,
+    redirect: str = Query(default="/dashboard"),
+):
+    oauth = get_provider(provider)
+    if not oauth.configured:
+        raise OAuthNotConfigured(provider)
+
+    state = encode_oauth_state(provider, redirect)
+    redirect_uri = _oauth_callback_uri(provider)
+    uri = oauth.authorize_uri(redirect_uri, state=state)
+    return _redirect_response(uri)
+
+
+@router.get("/oauth/{provider}/callback")
+async def oauth_callback(
+    provider: str,
+    response: Response,
+    code: str = Query(default=""),
+    state: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+):
+    oauth = get_provider(provider)
+    if not oauth.configured:
+        raise OAuthNotConfigured(provider)
+    if not code:
+        raise OAuthError("OAuth callback missing authorization code.")
+
+    redirect_target = decode_oauth_state(provider, state)
+    profile = await oauth.fetch_user(code, _oauth_callback_uri(provider))
+
+    _, access_token, refresh_token = await login_with_provider(db, oauth, profile)
+    _set_auth_cookies(response, access_token, refresh_token)
+
+    frontend = settings.FRONTEND_URL.rstrip("/")
+    return _redirect_response(f"{frontend}{redirect_target}")
+
+
+@router.post("/forgot-password")
+async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+    await send_password_reset_email(db, body.email)
+    return {"detail": "If that email is registered, a reset link has been sent."}
+
+
+@router.post("/reset-password")
+async def reset_password_endpoint(body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+    await reset_password(db, body.token, body.new_password)
+    return {"detail": "Password has been reset. You can now sign in."}
+
+
 @router.get("/me", response_model=UserResponse)
 async def me(user=Depends(get_current_user)):
     return UserResponse(
@@ -115,3 +199,16 @@ async def me(user=Depends(get_current_user)):
         is_active=user.is_active,
         created_at=user.created_at.isoformat(),
     )
+
+
+def _oauth_callback_uri(provider: str) -> str:
+    """Build the callback URL that the OAuth provider must redirect the browser to.
+
+    We route the callback through the Next.js proxy (``/api/proxy/...``) on the
+    frontend origin. The proxy forwards to the backend, and rewrites the auth
+    ``Set-Cookie`` headers onto the frontend domain so the session works exactly
+    like the normal email/login flow. This is why the URI lives under
+    ``FRONTEND_URL`` and not ``BACKEND_URL``.
+    """
+    base = settings.FRONTEND_URL.rstrip("/")
+    return f"{base}/api/proxy/auth/{provider}/callback"

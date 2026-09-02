@@ -82,6 +82,28 @@ class Settings(BaseSettings):
     NEW_RELIC_LICENSE_KEY: Optional[str] = None
     NEW_RELIC_APP_NAME: str = "CivicPulse"
 
+    # --- OAuth (Google / GitHub) ---
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GITHUB_CLIENT_ID: str = ""
+    GITHUB_CLIENT_SECRET: str = ""
+    # Base URL the browser can reach this backend at (used to build OAuth redirect URIs).
+    # e.g. http://localhost:8000 in dev. In production behind the Next.js proxy this is the
+    # public API origin.
+    BACKEND_URL: str = "http://localhost:8000"
+
+    # --- SMTP (outbound email) ---
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASS: str = ""
+    SMTP_FROM: str = "CivicPulse <no-reply@civicpulse.local>"
+    ALERT_EMAIL_TO: str = ""
+
+    # --- Password reset ---
+    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 60
+    PASSWORD_RESET_EMAIL_SUBJECT: str = "CivicPulse password reset"
+
     # --- Frontend ---
     FRONTEND_URL: str = "http://localhost:3000"
 

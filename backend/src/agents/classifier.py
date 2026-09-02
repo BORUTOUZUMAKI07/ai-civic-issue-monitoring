@@ -10,7 +10,16 @@ from src.core.config import settings
 logger = logging.getLogger(__name__)
 
 CATEGORY_KEYWORDS: dict[str, list[str]] = {
-    "pothole": ["pothole", "road damage", "road crack", "broken road", "road repair", "asphalt", "road surface", "tarmac"],
+    "pothole": [
+        "pothole",
+        "road damage",
+        "road crack",
+        "broken road",
+        "road repair",
+        "asphalt",
+        "road surface",
+        "tarmac",
+    ],
     "garbage": ["garbage", "waste", "trash", "rubbish", "dump", "litter", "overflowing bin", "waste collection"],
     "debris": ["debris", "illegal construction", "encroach", "illegal structure", "rubble", "construction waste"],
 }

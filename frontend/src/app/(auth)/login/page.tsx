@@ -12,6 +12,7 @@ import { auth, getErrorMessage } from "@/lib/api"
 import { useAuthStore } from "@/store/auth"
 import { loginSchema, type LoginFormData } from "@/lib/schemas"
 import { AuthShell } from "@/components/auth/auth-shell"
+import { OAuthButtons } from "@/components/auth/oauth-buttons"
 import { Landmark } from "lucide-react"
 
 function LoginForm() {
@@ -51,6 +52,8 @@ function LoginForm() {
         </p>
       </div>
 
+      <OAuthButtons />
+
       <div className="rounded-2xl border border-border/80 bg-card p-6 shadow-lift sm:p-7">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {errors.root && (
@@ -60,7 +63,15 @@ function LoginForm() {
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="email">Email</Label>
+              <Link
+                href="/forgot-password"
+                className="text-xs font-medium text-primary hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
             <Input id="email" type="email" placeholder="you@example.com" {...register("email")} className="h-10" />
             {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
           </div>

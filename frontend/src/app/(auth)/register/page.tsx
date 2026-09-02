@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import Link from "next/link";
 import { AuthShell } from "@/components/auth/auth-shell";
+import { OAuthButtons } from "@/components/auth/oauth-buttons";
 import { Landmark } from "lucide-react";
 
 export default function RegisterPage() {
@@ -45,6 +46,8 @@ export default function RegisterPage() {
           Join the CivicPulse platform for Vadodara Municipal
         </p>
       </div>
+
+      <OAuthButtons />
 
       <div className="rounded-2xl border border-border/80 bg-card p-6 shadow-lift sm:p-7">
         <form onSubmit={handleSubmit} className="space-y-4">
