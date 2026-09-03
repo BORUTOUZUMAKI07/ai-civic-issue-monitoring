@@ -52,8 +52,6 @@ function LoginForm() {
         </p>
       </div>
 
-      <OAuthButtons />
-
       <div className="rounded-2xl border border-border/80 bg-card p-6 shadow-lift sm:p-7">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {errors.root && (
@@ -87,6 +85,8 @@ function LoginForm() {
           </Button>
         </form>
       </div>
+
+      <OAuthButtons />
 
       <p className="mt-6 text-center text-sm text-muted-foreground">
         No account yet?{" "}

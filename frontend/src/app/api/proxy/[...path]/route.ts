@@ -58,6 +58,7 @@ async function proxy(request: NextRequest, context: RouteContext) {
     const fetchInit: RequestInit = {
       method: request.method,
       headers,
+      redirect: "manual",
     }
     if (body !== undefined) {
       fetchInit.body = body

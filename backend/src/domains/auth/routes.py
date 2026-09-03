@@ -156,7 +156,6 @@ async def oauth_authorize(
 @router.get("/oauth/{provider}/callback")
 async def oauth_callback(
     provider: str,
-    response: Response,
     code: str = Query(default=""),
     state: str = Query(default=""),
     db: AsyncSession = Depends(get_db),
@@ -171,10 +170,29 @@ async def oauth_callback(
     profile = await oauth.fetch_user(code, _oauth_callback_uri(provider))
 
     _, access_token, refresh_token = await login_with_provider(db, oauth, profile)
-    _set_auth_cookies(response, access_token, refresh_token)
 
+    # Return a 200 HTML page (NOT a 302) that carries the auth cookies and then
+    # navigates the browser to the redirect target. Setting cookies on a redirect
+    # response served through the Next.js proxy is unreliable (the browser drops
+    # them on the follow-up navigation), which caused "logged in -> bounced back to
+    # login". A 200 response keeps the proxy's Set-Cookie rewrite path identical to
+    # the (working) email/login flow.
     frontend = settings.FRONTEND_URL.rstrip("/")
-    return _redirect_response(f"{frontend}{redirect_target}")
+    target = f"{frontend}{redirect_target}"
+    escaped = target.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+    html = (
+        '<!doctype html><html><head><meta charset="utf-8">'
+        '<meta http-equiv="refresh" content="0;url={0}">'
+        '<script>window.location.replace("{0}");</script></head>'
+        '<body><script>window.location.replace("{0}");</script>'
+        "</body></html>"
+    ).format(escaped)
+
+    from fastapi.responses import HTMLResponse
+
+    html_response = HTMLResponse(content=html, status_code=200)
+    _set_auth_cookies(html_response, access_token, refresh_token)
+    return html_response
 
 
 @router.post("/forgot-password")
@@ -211,4 +229,4 @@ def _oauth_callback_uri(provider: str) -> str:
     ``FRONTEND_URL`` and not ``BACKEND_URL``.
     """
     base = settings.FRONTEND_URL.rstrip("/")
-    return f"{base}/api/proxy/auth/{provider}/callback"
+    return f"{base}/api/proxy/auth/oauth/{provider}/callback"

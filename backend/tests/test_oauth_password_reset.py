@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from httpx import AsyncClient
 
@@ -138,6 +140,47 @@ async def test_oauth_providers_endpoint(client: AsyncClient) -> None:
         settings.GOOGLE_CLIENT_SECRET = old_google_secret
         settings.GITHUB_CLIENT_ID = old_github_id
         settings.GITHUB_CLIENT_SECRET = old_github_secret
+
+
+@pytest.mark.asyncio
+async def test_oauth_callback_sets_cookies_via_200_html(client: AsyncClient) -> None:
+    """The callback must return a 200 page that carries the auth cookies (not a
+    302), matching the reliable email/login cookie path through the proxy."""
+    old_google_id = settings.GOOGLE_CLIENT_ID
+    old_google_secret = settings.GOOGLE_CLIENT_SECRET
+    old_frontend = settings.FRONTEND_URL
+    settings.GOOGLE_CLIENT_ID = "client-123"
+    settings.GOOGLE_CLIENT_SECRET = "secret-abc"
+    settings.FRONTEND_URL = "http://localhost:3000"
+    state = encode_oauth_state("google", "/dashboard")
+    try:
+        with patch(
+            "src.domains.auth.oauth.OAuthProvider.fetch_user",
+            new=AsyncMock(
+                return_value={
+                    "provider": "google",
+                    "provider_id": "12345",
+                    "email": "oauth@civicpulse.com",
+                    "name": "OAuth User",
+                }
+            ),
+        ):
+            response = await client.get(
+                f"/api/v1/auth/oauth/google/callback?code=fake&state={state}",
+                follow_redirects=False,
+            )
+        assert response.status_code == 200
+        assert "text/html" in response.headers.get("content-type", "")
+        body = response.text
+        assert "http://localhost:3000/dashboard" in body
+        set_cookie = "; ".join(response.headers.get_list("set-cookie", []))
+        assert "access_token=" in set_cookie
+        assert "refresh_token=" in set_cookie
+        assert "session_active=1" in set_cookie
+    finally:
+        settings.GOOGLE_CLIENT_ID = old_google_id
+        settings.GOOGLE_CLIENT_SECRET = old_google_secret
+        settings.FRONTEND_URL = old_frontend
 
 
 @pytest.mark.asyncio

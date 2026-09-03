@@ -47,8 +47,6 @@ export default function RegisterPage() {
         </p>
       </div>
 
-      <OAuthButtons />
-
       <div className="rounded-2xl border border-border/80 bg-card p-6 shadow-lift sm:p-7">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
@@ -91,6 +89,8 @@ export default function RegisterPage() {
           </Button>
         </form>
       </div>
+
+      <OAuthButtons />
 
       <p className="mt-6 text-center text-sm text-muted-foreground">
         Already have an account?{" "}
