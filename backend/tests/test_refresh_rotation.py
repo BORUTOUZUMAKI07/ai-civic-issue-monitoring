@@ -46,8 +46,8 @@ class _FakeSessionStore:
         self.revoked.pop(key, None)
 
     async def eval(self, _script: str, _numkeys: int, *args):
-        # args: session_key, presented_jti, new_jti, grace, ttl
-        key, presented, new_jti, _grace, _ttl = args
+        # args: session_key, presented_jti, new_jti, grace, ttl, now
+        key, presented, new_jti, _grace, _ttl, _now = args
         rec = self.records.get(key)
         if rec is None:
             return -1

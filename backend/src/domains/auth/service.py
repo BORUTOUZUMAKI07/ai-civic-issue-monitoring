@@ -50,17 +50,18 @@ end
 local presented = ARGV[1]
 local new_jti = ARGV[2]
 local grace = tonumber(ARGV[3])
+local now = tonumber(ARGV[5])
 local obj = cjson.decode(rec)
 if obj.jti == presented then
     obj.prev_jti = obj.jti
-    obj.prev_at = os.time()
+    obj.prev_at = now
     obj.jti = new_jti
     redis.call('SET', KEYS[1], cjson.encode(obj), 'EX', ARGV[4])
     return 1
 end
-if obj.prev_jti == presented and (os.time() - (obj.prev_at or 0)) <= grace then
+if obj.prev_jti == presented and (now - (obj.prev_at or 0)) <= grace then
     obj.prev_jti = obj.jti
-    obj.prev_at = os.time()
+    obj.prev_at = now
     obj.jti = new_jti
     redis.call('SET', KEYS[1], cjson.encode(obj), 'EX', ARGV[4])
     return 1
@@ -138,6 +139,7 @@ class AuthService:
                 new_jti,
                 str(_REUSE_GRACE_SECONDS),
                 str(_REFRESH_TTL),
+                str(int(time.time())),
             )
             result = int(result)
             if result == 0:
