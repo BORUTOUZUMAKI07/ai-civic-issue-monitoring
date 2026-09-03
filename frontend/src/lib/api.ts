@@ -71,7 +71,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   return rawFetch<T>(path, options);
 }
 
-export async function apiFetchBlob(path: string, options: RequestInit = {}): Promise<Blob> {
+export async function apiFetchBlob<T>(path: string, options: RequestInit = {}): Promise<Blob> {
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
   };
@@ -81,7 +81,25 @@ export async function apiFetchBlob(path: string, options: RequestInit = {}): Pro
     headers,
   });
 
-  if (res.status === 401) {
+  if (
+    res.status === 401 &&
+    !path.startsWith("/auth/login") &&
+    !path.startsWith("/auth/register") &&
+    !path.startsWith("/auth/refresh")
+  ) {
+    if (!refreshPromise) {
+      refreshPromise = tryRefresh().finally(() => {
+        refreshPromise = null;
+      });
+    }
+    const refreshed = await refreshPromise;
+    if (refreshed) {
+      const retry = await fetch(`${API_BASE}${path}`, {
+        ...options,
+        headers,
+      });
+      if (retry.ok) return retry.blob();
+    }
     if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
       window.location.href = "/login";
     }
