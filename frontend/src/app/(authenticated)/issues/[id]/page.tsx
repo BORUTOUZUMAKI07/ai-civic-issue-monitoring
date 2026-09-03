@@ -3,7 +3,7 @@
 import { use, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useIssue, useEngineers, useAssignIssueMutation, useReassignIssueMutation } from "@/queries/index";
 import { useAuthStore } from "@/store/auth";
 import { apiFetch, issues } from "@/lib/api";
@@ -72,6 +72,7 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
   const isAdmin =
     currentUser?.role === "admin" || currentUser?.role === "super_admin";
   const router = useRouter();
+  const queryClient = useQueryClient();
   const assignMutation = useAssignIssueMutation();
   const reassignMutation = useReassignIssueMutation();
   const [selectedEngineer, setSelectedEngineer] = useState<string>("");
@@ -397,6 +398,14 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
                       try {
                         await issues.delete(issueId);
                         toast.success("Issue deleted");
+                        await Promise.all([
+                          queryClient.invalidateQueries({ queryKey: ["issues"] }),
+                          queryClient.invalidateQueries({ queryKey: ["issue", issueId] }),
+                          queryClient.invalidateQueries({ queryKey: ["review-queue"] }),
+                          queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] }),
+                          queryClient.invalidateQueries({ queryKey: ["heatmap"] }),
+                          queryClient.invalidateQueries({ queryKey: ["my-assignments"] }),
+                        ]);
                         router.push("/issues");
                       } catch (err: unknown) {
                         toast.error(err instanceof Error ? err.message : "Failed to delete");

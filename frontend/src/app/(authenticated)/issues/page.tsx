@@ -172,11 +172,17 @@ export default function IssuesPage() {
 
   const onWsMessage = useCallback(
     (msg: { type: string; payload: Record<string, unknown> }) => {
-      if (msg.type === "issue_created" || msg.type === "issue_updated") {
+      if (
+        msg.type === "issue_created" ||
+        msg.type === "issue_updated" ||
+        msg.type === "issue_deleted"
+      ) {
         refetch();
-        toast.info(
-          `Issue ${msg.type === "issue_created" ? "reported" : "updated"} — real-time update`
-        );
+        if (msg.type !== "issue_deleted") {
+          toast.info(
+            `Issue ${msg.type === "issue_created" ? "reported" : "updated"} — real-time update`
+          );
+        }
       }
     },
     [refetch]

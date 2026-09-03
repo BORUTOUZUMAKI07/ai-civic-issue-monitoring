@@ -471,4 +471,15 @@ async def delete_issue(
     from src.domains.dashboard.routes import invalidate_dashboard_cache
 
     await invalidate_dashboard_cache()
+    try:
+        from src.domains.notifications.routes import broadcast_issue_update
+
+        await broadcast_issue_update(
+            {
+                "type": "issue_deleted",
+                "payload": {"id": issue_id},
+            }
+        )
+    except Exception:
+        pass
     return {"detail": "Issue deleted.", "issue_id": issue_id}
