@@ -26,7 +26,7 @@ from src.core.config import settings
 from src.core.security import (
     create_access_token,
     create_refresh_token,
-    hash_password,
+    hash_password_async,
 )
 from src.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid
 from src.models.user import User, UserRole
@@ -221,7 +221,7 @@ async def login_with_provider(db, provider: OAuthProvider, profile: dict) -> tup
     if user is None:
         user = User(
             email=email,
-            password_hash=hash_password(_OAUTH_PASSWORD),
+            password_hash=await hash_password_async(_OAUTH_PASSWORD),
             full_name=profile.get("name") or email.split("@", 1)[0],
             role=UserRole.field_worker,
         )

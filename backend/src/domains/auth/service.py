@@ -14,9 +14,9 @@ from src.core.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
-    hash_password,
+    hash_password_async,
     is_token_blacklisted,
-    verify_password,
+    verify_password_async,
 )
 from src.errors import (
     EmailAlreadyExists,
@@ -82,7 +82,7 @@ class AuthService:
         user_role = UserRole(role) if role in [r.value for r in UserRole] else UserRole.field_worker
         user = User(
             email=email,
-            password_hash=hash_password(password),
+            password_hash=await hash_password_async(password),
             full_name=full_name,
             role=user_role,
         )
@@ -90,7 +90,7 @@ class AuthService:
 
     async def login(self, email: str, password: str) -> tuple[str, str]:
         user = await self.user_repo.get_by_email(email)
-        if not user or not verify_password(password, user.password_hash):
+        if not user or not await verify_password_async(password, user.password_hash):
             raise InvalidCredentials()
         if not user.is_active:
             raise UnauthorizedError(detail="Account is deactivated.")

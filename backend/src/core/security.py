@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
@@ -17,6 +20,16 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
+
+
+async def hash_password_async(password: str) -> str:
+    """Argon2 hashing is ~100-200ms of CPU — offload it so the event loop isn't
+    blocked for every login/registration."""
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(plain: str, hashed: str) -> bool:
+    return await asyncio.to_thread(verify_password, plain, hashed)
 
 
 def create_access_token(
