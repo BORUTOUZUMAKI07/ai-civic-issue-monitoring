@@ -118,9 +118,11 @@ async def refresh(request: Request, response: Response, db: AsyncSession = Depen
 @router.post("/logout")
 async def logout(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
     refresh_token = request.cookies.get("refresh_token")
-    if refresh_token:
+    auth_header = request.headers.get("authorization", "")
+    access_token = auth_header[7:] if auth_header.startswith("Bearer ") else None
+    if refresh_token or access_token:
         svc = AuthService(db)
-        await svc.logout(refresh_token)
+        await svc.logout(refresh_token, access_token)
     _clear_auth_cookies(response)
     return {"detail": "Logged out"}
 

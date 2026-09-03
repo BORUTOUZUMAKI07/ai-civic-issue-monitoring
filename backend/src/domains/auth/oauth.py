@@ -93,6 +93,8 @@ class OAuthProvider:
         async with httpx.AsyncClient(timeout=20) as client:
             if self.name == "github":
                 resp = await client.post(self.token_url, data=data, headers={"Accept": "application/json"})
+                if resp.status_code >= 400:
+                    raise OAuthError(f"GitHub token exchange failed (HTTP {resp.status_code})")
                 token_json = resp.json()
                 access_token = token_json.get("access_token")
                 if not access_token:
@@ -101,6 +103,8 @@ class OAuthProvider:
                     self.userinfo_url,
                     headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
                 )
+                if user_resp.status_code >= 400:
+                    raise OAuthError(f"GitHub userinfo failed (HTTP {user_resp.status_code})")
                 user_json = user_resp.json()
                 email = user_json.get("email")
                 # GitHub only returns the primary verified email here; the /user
@@ -110,6 +114,8 @@ class OAuthProvider:
                         "https://api.github.com/user/emails",
                         headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
                     )
+                    if emails_resp.status_code >= 400:
+                        raise OAuthError(f"GitHub emails failed (HTTP {emails_resp.status_code})")
                     for record in emails_resp.json() or []:
                         if record.get("primary") and record.get("verified"):
                             email = record.get("email")
@@ -122,6 +128,8 @@ class OAuthProvider:
                 }
             else:  # google
                 resp = await client.post(self.token_url, data=data)
+                if resp.status_code >= 400:
+                    raise OAuthError(f"Google token exchange failed (HTTP {resp.status_code})")
                 token_json = resp.json()
                 access_token = token_json.get("access_token")
                 if not access_token:
@@ -130,6 +138,8 @@ class OAuthProvider:
                     self.userinfo_url,
                     headers={"Authorization": f"Bearer {access_token}"},
                 )
+                if user_resp.status_code >= 400:
+                    raise OAuthError(f"Google userinfo failed (HTTP {user_resp.status_code})")
                 user_json = user_resp.json()
                 return {
                     "provider": "google",
@@ -223,4 +233,10 @@ async def login_with_provider(db, provider: OAuthProvider, profile: dict) -> tup
 
     access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
     refresh_token = create_refresh_token({"sub": str(user.id)})
+
+    from src.domains.auth.service import store_refresh_session
+
+    # Record the refresh session so rotation + reuse detection apply to OAuth
+    # sign-ins as well as password logins.
+    await store_refresh_session(refresh_token)
     return user, access_token, refresh_token

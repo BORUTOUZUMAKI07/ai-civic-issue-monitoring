@@ -24,6 +24,7 @@ async function proxy(request: NextRequest, context: RouteContext) {
   try {
     const { path } = await context.params
     const accessToken = request.cookies.get("access_token")?.value
+    const refreshToken = request.cookies.get("refresh_token")?.value
 
     const targetPath = `/api/v1/${path.join("/")}`
     const url = new URL(targetPath, BACKEND)
@@ -32,6 +33,17 @@ async function proxy(request: NextRequest, context: RouteContext) {
     const headers: Record<string, string> = {}
     if (accessToken) {
       headers["Authorization"] = `Bearer ${accessToken}`
+    }
+
+    // Forward the auth cookies to the backend so endpoints that read them
+    // server-side (/auth/refresh, /auth/logout) work. The browser sends the
+    // access+refresh cookies to this proxy path, and we relay them to the
+    // backend; the access token is also sent as a Bearer header above.
+    const cookieParts: string[] = []
+    if (accessToken) cookieParts.push(`access_token=${accessToken}`)
+    if (refreshToken) cookieParts.push(`refresh_token=${refreshToken}`)
+    if (cookieParts.length > 0) {
+      headers["Cookie"] = cookieParts.join("; ")
     }
 
     const contentType = request.headers.get("content-type")

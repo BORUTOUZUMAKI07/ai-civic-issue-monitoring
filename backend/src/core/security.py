@@ -38,9 +38,16 @@ def create_access_token(
 
 def create_refresh_token(
     data: dict,
-    family: Optional[str] = None,
+    sid: Optional[str] = None,
     jti: Optional[str] = None,
 ) -> str:
+    """Mint a refresh token.
+
+    ``sid`` is a stable session identifier shared by every token issued for the
+    same login session (it survives rotation), so reuse detection can tie a
+    replayed token back to its session. ``jti`` is unique per token and changes
+    on every rotation.
+    """
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update(
@@ -48,7 +55,7 @@ def create_refresh_token(
             "exp": expire,
             "type": "refresh",
             "jti": jti or uuid4().hex,
-            "family": family or uuid4().hex,
+            "sid": sid or uuid4().hex,
         }
     )
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
