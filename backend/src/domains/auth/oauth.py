@@ -170,6 +170,7 @@ def get_provider(name: str) -> OAuthProvider:
             client_id=settings.GITHUB_CLIENT_ID,
             client_secret=settings.GITHUB_CLIENT_SECRET,
             scope="read:user user:email",
+            client_kwargs="prompt=select_account",
         )
     raise OAuthNotConfigured(name)
 
