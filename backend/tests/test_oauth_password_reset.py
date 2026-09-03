@@ -207,9 +207,9 @@ async def test_oauth_authorize_redirects_to_provider(client: AsyncClient) -> Non
         assert location.startswith("https://accounts.google.com/o/oauth2/v2/auth")
         assert "client_id=client-123" in location
         assert "state=" in location
-        # Force Google to always show the account chooser, even if the user is
-        # already signed in and previously authorized the app.
-        assert "prompt=select_account" in location
+        # Force Google to always show the account chooser AND the consent
+        # ("continue") page, even for previously-authorized test users.
+        assert "prompt=select_account+consent" in location
     finally:
         settings.GOOGLE_CLIENT_ID = old_google_id
         settings.GOOGLE_CLIENT_SECRET = old_google_secret

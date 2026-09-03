@@ -149,7 +149,7 @@ def get_provider(name: str) -> OAuthProvider:
             client_id=settings.GOOGLE_CLIENT_ID,
             client_secret=settings.GOOGLE_CLIENT_SECRET,
             scope="openid email profile",
-            client_kwargs="access_type=online&prompt=select_account",
+            client_kwargs="access_type=online&prompt=select_account consent",
         )
     if name == "github":
         return OAuthProvider(
