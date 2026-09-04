@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
@@ -16,7 +18,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { useAuthStore } from "@/store/auth";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, auth, getErrorMessage } from "@/lib/api";
 import type { MlInfo } from "@/lib/api";
 import { toast } from "sonner";
 import {
@@ -25,6 +27,7 @@ import {
   Brain,
   CalendarDays,
   CheckCircle,
+  Copy,
   KeyRound,
   Mail,
   Radio,
@@ -88,9 +91,9 @@ function ToggleRow({
 
 export default function SettingsPage() {
   const user = useAuthStore((s) => s.user);
+  const queryClient = useQueryClient();
   const [webSocket, setWebSocket] = useState(true);
   const [emailNotif, setEmailNotif] = useState(false);
-  const [twoFactor, setTwoFactor] = useState(false);
 
   const roleLabel = (user?.role ?? "field_worker").replace("_", " ");
 
@@ -149,13 +152,13 @@ export default function SettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 sm:grid-cols-2">
-              <InfoRow icon={User} label="Full name" value={user?.full_name ?? "—"} />
-              <InfoRow icon={AtSign} label="Email" value={user?.email ?? "—"} />
+              <InfoRow icon={User} label="Full name" value={user?.full_name ?? "\u2014"} />
+              <InfoRow icon={AtSign} label="Email" value={user?.email ?? "\u2014"} />
               <InfoRow icon={Wrench} label="Role" value={roleLabel} />
               <InfoRow
                 icon={CalendarDays}
                 label="Member since"
-                value={user?.created_at ? formatDate(user.created_at) : "—"}
+                value={user?.created_at ? formatDate(user.created_at) : "\u2014"}
               />
             </CardContent>
           </Card>
@@ -232,17 +235,7 @@ export default function SettingsPage() {
                 </Button>
               </div>
 
-              <ToggleRow
-                icon={ShieldCheck}
-                title="Two-factor authentication"
-                description="Add an extra layer of security to sign-ins."
-                checked={twoFactor}
-                onCheckedChange={(v) => {
-                  setTwoFactor(v);
-                  toast.info("Two-factor authentication is coming soon");
-                  setTwoFactor(false);
-                }}
-              />
+              <TwoFactorSection />
             </CardContent>
           </Card>
         </TabsContent>
@@ -255,9 +248,232 @@ export default function SettingsPage() {
       <Separator />
 
       <p className="text-center text-xs text-muted-foreground">
-        CivicPulse · Vadodara Municipal Corporation · Secure session
+        CivicPulse &middot; Vadodara Municipal Corporation &middot; Secure session
       </p>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  2FA Section                                                        */
+/* ------------------------------------------------------------------ */
+
+type TwoFactorState =
+  | { step: "idle" }
+  | { step: "setup"; secret: string; provisioningUri: string }
+  | { step: "confirm"; secret: string }
+  | { step: "done"; recoveryCodes: string[] }
+  | { step: "disable-confirm" };
+
+function TwoFactorSection() {
+  const user = useAuthStore((s) => s.user);
+  const setUser = useAuthStore((s) => s.setUser);
+  const queryClient = useQueryClient();
+  const [state, setState] = useState<TwoFactorState>({ step: "idle" });
+  const [code, setCode] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const enabled = user?.two_factor_enabled ?? false;
+
+  async function handleEnable() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await auth.twofaEnable();
+      setState({ step: "setup", secret: res.secret, provisioningUri: res.provisioning_uri });
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to enable 2FA"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleConfirmSetup(e: React.FormEvent) {
+    e.preventDefault();
+    if (code.length < 6) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await auth.twofaConfirm(code);
+      setState({ step: "done", recoveryCodes: res.recovery_codes });
+      const fresh = await auth.me();
+      setUser(fresh);
+      queryClient.invalidateQueries({ queryKey: ["me"] });
+      toast.success("Two-factor authentication enabled");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Invalid code"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleStartDisable() {
+    setState({ step: "disable-confirm" });
+    setCode("");
+    setError(null);
+  }
+
+  async function handleConfirmDisable(e: React.FormEvent) {
+    e.preventDefault();
+    if (code.length < 6) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await auth.twofaDisable(code);
+      setState({ step: "idle" });
+      const fresh = await auth.me();
+      setUser(fresh);
+      queryClient.invalidateQueries({ queryKey: ["me"] });
+      toast.success("Two-factor authentication disabled");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Invalid code"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleCopyCodes() {
+    const text = state.step === "done" ? state.recoveryCodes.join("\n") : "";
+    navigator.clipboard.writeText(text);
+    toast.success("Recovery codes copied to clipboard");
+  }
+
+  // -- Render --
+
+  // Done state: show recovery codes once
+  if (state.step === "done") {
+    return (
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 space-y-3">
+        <div className="flex items-start gap-3">
+          <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-emerald-800">2FA enabled</p>
+            <p className="text-xs text-emerald-700">Save these recovery codes somewhere safe. Each code can only be used once.</p>
+          </div>
+        </div>
+        <div className="rounded-md bg-white border p-3 font-mono text-xs space-y-1">
+          {state.recoveryCodes.map((c, i) => (
+            <div key={i}>{c}</div>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={handleCopyCodes} className="gap-1.5">
+            <Copy className="h-3 w-3" /> Copy
+          </Button>
+          <Button size="sm" onClick={() => setState({ step: "idle" })}>Done</Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Setup flow: scan QR / enter code
+  if (state.step === "setup") {
+    return (
+      <div className="rounded-lg border border-primary/25 bg-primary/5 p-4 space-y-3">
+        <p className="text-sm font-medium">Set up two-factor authentication</p>
+        <p className="text-xs text-muted-foreground">Scan this QR code with your authenticator app, or enter the secret manually.</p>
+        <div className="flex justify-center">
+          <img
+            src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(state.provisioningUri)}`}
+            alt="2FA QR code"
+            className="rounded-md border bg-white"
+            width={180}
+            height={180}
+          />
+        </div>
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">Manual entry key:</p>
+          <code className="block rounded bg-muted px-3 py-1.5 font-mono text-xs break-all">{state.secret}</code>
+        </div>
+        <Button size="sm" variant="outline" onClick={() => { setState({ step: "confirm", secret: state.secret }); setCode(""); setError(null); }}>
+          I&apos;ve scanned it &mdash; enter code
+        </Button>
+      </div>
+    );
+  }
+
+  if (state.step === "confirm") {
+    return (
+      <div className="rounded-lg border border-primary/25 bg-primary/5 p-4 space-y-3">
+        <p className="text-sm font-medium">Confirm setup</p>
+        <p className="text-xs text-muted-foreground">Enter the 6-digit code from your authenticator app.</p>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+        <form onSubmit={handleConfirmSetup} className="flex items-end gap-2">
+          <div className="flex-1 space-y-1">
+            <Label htmlFor="confirm-code" className="sr-only">Code</Label>
+            <Input
+              id="confirm-code"
+              type="text"
+              inputMode="numeric"
+              placeholder="123456"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+              className="h-9 font-mono tracking-widest"
+              maxLength={6}
+              autoFocus
+            />
+          </div>
+          <Button type="submit" size="sm" disabled={loading || code.length < 6}>
+            {loading ? "Verifying\u2026" : "Verify"}
+          </Button>
+        </form>
+      </div>
+    );
+  }
+
+  // Disable confirmation
+  if (state.step === "disable-confirm") {
+    return (
+      <div className="rounded-lg border border-destructive/25 bg-destructive/5 p-4 space-y-3">
+        <p className="text-sm font-medium">Disable two-factor authentication</p>
+        <p className="text-xs text-muted-foreground">Enter your current TOTP code to confirm.</p>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+        <form onSubmit={handleConfirmDisable} className="flex items-end gap-2">
+          <div className="flex-1 space-y-1">
+            <Label htmlFor="disable-code" className="sr-only">Code</Label>
+            <Input
+              id="disable-code"
+              type="text"
+              inputMode="numeric"
+              placeholder="123456"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+              className="h-9 font-mono tracking-widest"
+              maxLength={6}
+              autoFocus
+            />
+          </div>
+          <Button type="submit" size="sm" variant="destructive" disabled={loading || code.length < 6}>
+            {loading ? "Disabling\u2026" : "Disable"}
+          </Button>
+        </form>
+        <button
+          type="button"
+          className="text-xs text-muted-foreground hover:underline"
+          onClick={() => { setState({ step: "idle" }); setCode(""); setError(null); }}
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  // Idle: show toggle
+  return (
+    <ToggleRow
+      icon={ShieldCheck}
+      title="Two-factor authentication"
+      description={enabled ? "Enabled \u2014 your account is protected with an extra layer of security." : "Add an extra layer of security to sign-ins."}
+      checked={enabled}
+      onCheckedChange={(v) => {
+        if (v) {
+          handleEnable();
+        } else {
+          handleStartDisable();
+        }
+      }}
+    />
   );
 }
 

@@ -39,3 +39,22 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool
     created_at: str
+    two_factor_enabled: bool = False
+
+
+class TwoFactorVerifyRequest(BaseModel):
+    challenge: str
+    code: str
+
+
+class TwoFactorConfirmRequest(BaseModel):
+    code: str
+
+
+class TwoFactorEnableResponse(BaseModel):
+    secret: str
+    provisioning_uri: str
+
+
+class TwoFactorRecoveryCodesResponse(BaseModel):
+    recovery_codes: list[str]

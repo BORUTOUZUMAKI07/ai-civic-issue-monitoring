@@ -74,6 +74,21 @@ def create_refresh_token(
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
+def create_2fa_challenge_token(user_id: int) -> str:
+    """Mint a short-lived challenge token for the 2FA verification step.
+
+    The token is valid for 5 minutes and carries type="2fa_challenge" so it
+    cannot be confused with access or refresh tokens.  It is deliberately NOT
+    assigned a ``jti`` or ``sid`` because it never enters the blacklist or the
+    refresh-session store — it is consumed exactly once by the ``/2fa/verify``
+    endpoint.
+    """
+    to_encode = {"sub": str(user_id)}
+    expire = datetime.now(timezone.utc) + timedelta(minutes=5)
+    to_encode.update({"exp": expire, "type": "2fa_challenge"})
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
 def decode_token(token: str) -> dict:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])

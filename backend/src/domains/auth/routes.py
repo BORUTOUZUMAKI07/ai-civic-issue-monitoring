@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.database import get_db
-from src.core.deps import get_current_user
+from src.core.deps import get_current_active_user, get_current_user
 from src.domains.auth.oauth import (
     decode_oauth_state,
     encode_oauth_state,
@@ -16,9 +16,14 @@ from src.domains.auth.schemas import (
     LoginRequest,
     RegisterRequest,
     ResetPasswordRequest,
+    TwoFactorConfirmRequest,
+    TwoFactorEnableResponse,
+    TwoFactorRecoveryCodesResponse,
+    TwoFactorVerifyRequest,
     UserResponse,
 )
 from src.domains.auth.service import AuthService
+from src.domains.auth.twofa import TwoFactorService
 from src.errors import OAuthError, OAuthNotConfigured
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -90,15 +95,23 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
         role=user.role.value,
         is_active=user.is_active,
         created_at=user.created_at.isoformat(),
+        two_factor_enabled=user.two_factor_enabled,
     )
 
 
 @router.post("/login")
 async def login(body: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
-    svc = AuthService(db)
-    access_token, refresh_token = await svc.login(body.email, body.password)
-    _set_auth_cookies(response, access_token, refresh_token)
-    return {"detail": "Login successful"}
+    svc = TwoFactorService(db)
+    result = await svc.verify_or_challenge(body.email, body.password)
+
+    # result is either (access_token, refresh_token) or a challenge string.
+    if isinstance(result, tuple):
+        access_token, refresh_token = result
+        _set_auth_cookies(response, access_token, refresh_token)
+        return {"detail": "Login successful"}
+
+    # 2FA required — return challenge, do NOT set cookies.
+    return {"detail": "Two-factor authentication required", "challenge": result}
 
 
 @router.post("/refresh")
@@ -218,7 +231,72 @@ async def me(user=Depends(get_current_user)):
         role=user.role.value,
         is_active=user.is_active,
         created_at=user.created_at.isoformat(),
+        two_factor_enabled=user.two_factor_enabled,
     )
+
+
+# ---- Two-Factor Authentication ----
+
+
+@router.post("/2fa/enable", response_model=TwoFactorEnableResponse)
+async def enable_2fa(user=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
+    svc = TwoFactorService(db)
+    secret, uri = await svc.enable(user.id)
+    return TwoFactorEnableResponse(secret=secret, provisioning_uri=uri)
+
+
+@router.post("/2fa/confirm", response_model=TwoFactorRecoveryCodesResponse)
+async def confirm_2fa(
+    body: TwoFactorConfirmRequest,
+    user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    svc = TwoFactorService(db)
+    codes = await svc.confirm(user.id, body.code)
+    return TwoFactorRecoveryCodesResponse(recovery_codes=codes)
+
+
+@router.post("/2fa/disable")
+async def disable_2fa(
+    body: TwoFactorConfirmRequest,
+    user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    svc = TwoFactorService(db)
+    await svc.disable(user.id, body.code)
+    return {"detail": "Two-factor authentication disabled"}
+
+
+@router.post("/2fa/verify")
+async def verify_2fa(
+    body: TwoFactorVerifyRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    from src.core.security import decode_token as _decode_token
+
+    payload = _decode_token(body.challenge)
+    if payload.get("type") != "2fa_challenge":
+        from src.errors import InvalidToken
+
+        raise InvalidToken()
+
+    user_id = int(payload["sub"])
+    svc = TwoFactorService(db)
+    access_token, refresh_token = await svc.verify_challenge(user_id, body.code)
+    _set_auth_cookies(response, access_token, refresh_token)
+    return {"detail": "Login successful"}
+
+
+@router.post("/2fa/recovery-codes", response_model=TwoFactorRecoveryCodesResponse)
+async def regenerate_recovery_codes(
+    body: TwoFactorConfirmRequest,
+    user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    svc = TwoFactorService(db)
+    codes = await svc.regenerate_recovery_codes(user.id, body.code)
+    return TwoFactorRecoveryCodesResponse(recovery_codes=codes)
 
 
 def _oauth_callback_uri(provider: str) -> str:

@@ -36,6 +36,7 @@ dependencies = [
     "openai>=1.50.0",
     "numpy>=1.26.0",
     "newrelic>=9.0.0",
+    "pyotp>=2.9.0",
 ]
 
 [project.optional-dependencies]

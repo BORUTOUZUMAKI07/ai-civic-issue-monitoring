@@ -122,6 +122,7 @@ export interface User {
   role: string;
   is_active: boolean;
   created_at: string;
+  two_factor_enabled: boolean;
 }
 
 export interface Issue {
@@ -210,7 +211,7 @@ export interface HeatmapPoint {
 
 export const auth = {
   login: (email: string, password: string) =>
-    apiFetch<{ detail: string }>("/auth/login", {
+    apiFetch<{ detail: string; challenge?: string }>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
@@ -235,6 +236,32 @@ export const auth = {
   oauthAuthorizeUrl: (provider: "google" | "github", redirect?: string) =>
     `${API_BASE}/auth/oauth/${provider}/authorize${redirect ? `?redirect=${encodeURIComponent(redirect)}` : ""}`,
   oauthProviders: () => apiFetch<{ google: boolean; github: boolean }>("/auth/oauth/providers"),
+
+  // 2FA
+  twofaVerify: (challenge: string, code: string) =>
+    apiFetch<{ detail: string }>("/auth/2fa/verify", {
+      method: "POST",
+      body: JSON.stringify({ challenge, code }),
+    }),
+  twofaEnable: () =>
+    apiFetch<{ secret: string; provisioning_uri: string }>("/auth/2fa/enable", {
+      method: "POST",
+    }),
+  twofaConfirm: (code: string) =>
+    apiFetch<{ recovery_codes: string[] }>("/auth/2fa/confirm", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+  twofaDisable: (code: string) =>
+    apiFetch<{ detail: string }>("/auth/2fa/disable", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+  twofaRegenerateRecovery: (code: string) =>
+    apiFetch<{ recovery_codes: string[] }>("/auth/2fa/recovery-codes", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
 };
 
 export const issues = {

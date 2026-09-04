@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Enum, String
+from sqlalchemy import Boolean, DateTime, Enum, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.models.base import Base
@@ -28,6 +28,9 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
+    totp_secret: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+    two_factor_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    recovery_codes: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
 
     issues = relationship("Issue", back_populates="reporter")
     engineer_profile = relationship("Engineer", back_populates="user", uselist=False)

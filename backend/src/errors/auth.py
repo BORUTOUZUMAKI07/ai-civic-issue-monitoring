@@ -54,3 +54,29 @@ class InvalidToken(UnauthorizedError):
 class UserNotFound(NotFoundError):
     def __init__(self):
         super().__init__(detail="User not found.")
+
+
+class TwoFactorRequired(UnauthorizedError):
+    def __init__(self, challenge: str):
+        super().__init__(detail="Two-factor authentication required.")
+        self.challenge = challenge
+
+
+class InvalidTwoFactorCode(UnauthorizedError):
+    def __init__(self):
+        super().__init__(detail="Invalid two-factor code.")
+
+
+class TwoFactorNotEnabled(BadRequestError):
+    def __init__(self):
+        super().__init__(detail="Two-factor authentication is not enabled.")
+
+
+class TwoFactorAlreadyEnabled(BadRequestError):
+    def __init__(self):
+        super().__init__(detail="Two-factor authentication is already enabled.")
+
+
+class InvalidRecoveryCode(UnauthorizedError):
+    def __init__(self):
+        super().__init__(detail="Invalid recovery code.")

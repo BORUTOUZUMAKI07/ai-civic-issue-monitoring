@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense } from "react"
+import { Suspense, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { useForm } from "react-hook-form"
@@ -13,12 +13,17 @@ import { useAuthStore } from "@/store/auth"
 import { loginSchema, type LoginFormData } from "@/lib/schemas"
 import { AuthShell } from "@/components/auth/auth-shell"
 import { OAuthButtons } from "@/components/auth/oauth-buttons"
-import { Landmark } from "lucide-react"
+import { Landmark, ShieldCheck } from "lucide-react"
 
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const setUser = useAuthStore((s) => s.setUser)
+
+  const [challenge, setChallenge] = useState<string | null>(null)
+  const [totpCode, setTotpCode] = useState("")
+  const [totpError, setTotpError] = useState<string | null>(null)
+  const [isVerifying, setIsVerifying] = useState(false)
 
   const { register, handleSubmit, setError, formState: { errors, isSubmitting } } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
@@ -31,12 +36,33 @@ function LoginForm() {
 
   async function onSubmit(data: LoginFormData) {
     try {
-      await auth.login(data.email, data.password)
+      const res = await auth.login(data.email, data.password)
+      if (res.challenge) {
+        setChallenge(res.challenge)
+        return
+      }
       const user = await auth.me()
       setUser(user)
       redirectAfterLogin()
     } catch (err: unknown) {
       setError("root", { message: getErrorMessage(err, "Login failed") })
+    }
+  }
+
+  async function onVerifyTotp(e: React.FormEvent) {
+    e.preventDefault()
+    if (!challenge || totpCode.length < 6) return
+    setIsVerifying(true)
+    setTotpError(null)
+    try {
+      await auth.twofaVerify(challenge, totpCode)
+      const user = await auth.me()
+      setUser(user)
+      redirectAfterLogin()
+    } catch (err: unknown) {
+      setTotpError(getErrorMessage(err, "Invalid code"))
+    } finally {
+      setIsVerifying(false)
     }
   }
 
@@ -53,40 +79,88 @@ function LoginForm() {
       </div>
 
       <div className="rounded-2xl border border-border/80 bg-card p-6 shadow-lift sm:p-7">
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          {errors.root && (
-            <div className="rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3">
-              <p className="text-center text-sm text-destructive">{errors.root.message}</p>
+        {challenge ? (
+          /* ---- 2FA code entry ---- */
+          <form onSubmit={onVerifyTotp} className="space-y-4">
+            <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-3">
+              <ShieldCheck className="h-5 w-5 text-primary" />
+              <div>
+                <p className="text-sm font-medium">Two-factor authentication</p>
+                <p className="text-xs text-muted-foreground">Enter the 6-digit code from your authenticator app, or a recovery code.</p>
+              </div>
             </div>
-          )}
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="email">Email</Label>
-              <Link
-                href="/forgot-password"
-                className="text-xs font-medium text-primary hover:underline"
-              >
-                Forgot password?
-              </Link>
+            {totpError && (
+              <div className="rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3">
+                <p className="text-center text-sm text-destructive">{totpError}</p>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="totp-code">Verification code</Label>
+              <Input
+                id="totp-code"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="123456"
+                value={totpCode}
+                onChange={(e) => setTotpCode(e.target.value.replace(/[^0-9a-zA-Z-]/g, ""))}
+                className="h-10 font-mono tracking-widest"
+                autoFocus
+                maxLength={14}
+              />
             </div>
-            <Input id="email" type="email" placeholder="you@example.com" {...register("email")} className="h-10" />
-            {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
-          </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <Input id="password" type="password" placeholder="Enter your password" {...register("password")} className="h-10" />
-            {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
-          </div>
+            <Button type="submit" className="h-10 w-full" disabled={isVerifying || totpCode.length < 6}>
+              {isVerifying ? "Verifying\u2026" : "Verify"}
+            </Button>
 
-          <Button type="submit" className="h-10 w-full" disabled={isSubmitting}>
-            {isSubmitting ? "Signing in…" : "Sign In"}
-          </Button>
-        </form>
+            <button
+              type="button"
+              className="w-full text-center text-xs text-muted-foreground hover:underline"
+              onClick={() => { setChallenge(null); setTotpCode(""); setTotpError(null) }}
+            >
+              Back to sign in
+            </button>
+          </form>
+        ) : (
+          /* ---- normal login ---- */
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            {errors.root && (
+              <div className="rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3">
+                <p className="text-center text-sm text-destructive">{errors.root.message}</p>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="email">Email</Label>
+                <Link
+                  href="/forgot-password"
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+              <Input id="email" type="email" placeholder="you@example.com" {...register("email")} className="h-10" />
+              {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input id="password" type="password" placeholder="Enter your password" {...register("password")} className="h-10" />
+              {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
+            </div>
+
+            <Button type="submit" className="h-10 w-full" disabled={isSubmitting}>
+              {isSubmitting ? "Signing in\u2026" : "Sign In"}
+            </Button>
+          </form>
+        )}
       </div>
 
-      <OAuthButtons />
+      {!challenge && <OAuthButtons />}
 
       <p className="mt-6 text-center text-sm text-muted-foreground">
         No account yet?{" "}
