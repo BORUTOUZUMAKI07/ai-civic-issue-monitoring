@@ -37,6 +37,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { formatDate, initials } from "@/lib/format";
+import { QRCodeSVG } from "qrcode.react";
 
 function InfoRow({
   icon: Icon,
@@ -374,13 +375,14 @@ function TwoFactorSection() {
         <p className="text-sm font-medium">Set up two-factor authentication</p>
         <p className="text-xs text-muted-foreground">Scan this QR code with your authenticator app, or enter the secret manually.</p>
         <div className="flex justify-center">
-          <img
-            src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(state.provisioningUri)}`}
-            alt="2FA QR code"
-            className="rounded-md border bg-white"
-            width={180}
-            height={180}
-          />
+          <div className="rounded-md border bg-white p-2">
+            <QRCodeSVG
+              value={state.provisioningUri}
+              size={176}
+              level="M"
+              marginSize={1}
+            />
+          </div>
         </div>
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">Manual entry key:</p>
