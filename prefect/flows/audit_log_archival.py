@@ -14,7 +14,7 @@ MONGO_DB = "civicpulse_analytics"
 COLLECTIONS = ["drift_reports", "sla_reports", "escalation_logs"]
 
 
-@task(retries=1, retry_delay_seconds=600)
+@task(retries=2, retry_delay_seconds=60)
 def archive_old_logs(uri: str, cutoff_days: int = 90) -> int:
     logger = get_run_logger()
     cutoff = (datetime.now(timezone.utc) - timedelta(days=cutoff_days)).isoformat()

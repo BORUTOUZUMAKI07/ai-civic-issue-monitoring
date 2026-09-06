@@ -79,7 +79,7 @@ def check_drift_status(uri: str) -> dict | None:
     return latest
 
 
-@task(retries=1, retry_delay_seconds=600)
+@task(retries=2, retry_delay_seconds=60)
 def trigger_retraining(token: str) -> int:
     logger = get_run_logger()
 
