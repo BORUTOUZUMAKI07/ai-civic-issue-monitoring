@@ -35,7 +35,7 @@ from connections import (
     get_mongo_uri,
 )
 
-DAGSHUB_GIT_URL = f"https://dagshub.com/{DAGSHUB_REPO}.git"
+DAGSHUB_GIT_URL = f"https://dagshub.com/{DAGSHUB_USER}/{DAGSHUB_REPO}.git"
 MLFLOW_EXPERIMENT = "civicpulse-peft-lora"
 MLFLOW_RUN_NAME = "final-peft-model"
 REGISTERED_MODEL = "civicpulse-mobilenetv2"
