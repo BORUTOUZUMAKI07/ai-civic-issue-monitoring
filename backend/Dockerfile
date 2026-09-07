@@ -4,7 +4,8 @@ WORKDIR /app
 
 COPY pyproject.toml ./
 
-RUN pip install --no-cache-dir . && \
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch>=2.5.0,<3" "torchvision>=0.20.0,<1" && \
+    pip install --no-cache-dir ".[ml]" && \
     pip install --no-cache-dir "aiosqlite>=0.20.0"
 
 COPY src src
@@ -19,7 +20,8 @@ FROM python:3.12-slim
 WORKDIR /app
 
 RUN addgroup --system --gid 1001 app \
-    && adduser --system --uid 1001 --gid 1001 app
+    && adduser --system --uid 1001 --gid 1001 app \
+    && mkdir -p /app/logs /app/uploads && chown app:app /app/logs /app/uploads
 
 COPY --from=builder --chown=app:app /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder --chown=app:app /usr/local/bin /usr/local/bin
@@ -36,4 +38,4 @@ USER app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD python -c "import urllib.request, os, sys; port = os.environ.get('PORT', '8000'); sys.exit(0 if urllib.request.urlopen(f'http://0.0.0.0:{port}/health',timeout=3).status==200 else 1)" || exit 1
-CMD uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

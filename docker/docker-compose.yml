@@ -35,6 +35,9 @@ services:
       - ALERT_EMAIL_TO=${ALERT_EMAIL_TO:-}
       - PASSWORD_RESET_TOKEN_EXPIRE_MINUTES=${PASSWORD_RESET_TOKEN_EXPIRE_MINUTES:-60}
     restart: unless-stopped
+    volumes:
+      - ../models:/app/models:ro
+      - ../backend/uploads:/app/uploads
     networks:
       - frontend-net
 

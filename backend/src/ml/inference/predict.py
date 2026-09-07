@@ -9,14 +9,34 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from torchvision import transforms
 
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
-ADAPTER_DIR = PROJECT_ROOT / "models" / "adapter"
-ONNX_PATH = PROJECT_ROOT / "models" / "model.onnx"
-CLASS_NAMES_PATH = PROJECT_ROOT / "configs" / "class_names.json"
+
+def _find_app_root() -> Path:
+    """Walk up from this file to the app root (dir containing the `src` package).
+
+    Anchor stays valid across a local checkout (`backend/`) and the containerized
+    `/app` layout regardless of how many ancestor directories separate them.
+    """
+    current = Path(__file__).resolve().parent
+    while current != current.parent:
+        if (current / "src").is_dir():
+            return current
+        current = current.parent
+    return current.parent
+
+
+APP_ROOT = _find_app_root()
+
+# `configs` always lives alongside `src`. `models` is a sibling of the app root
+# on the host (repo root) but a sibling of `src` in the container (`/app/models`).
+CONFIGS_DIR = APP_ROOT / "configs"
+MODELS_DIR = APP_ROOT / "models" if (APP_ROOT / "models").is_dir() else APP_ROOT.parent / "models"
+
+ADAPTER_DIR = MODELS_DIR / "adapter"
+ONNX_PATH = MODELS_DIR / "model.onnx"
+CLASS_NAMES_PATH = CONFIGS_DIR / "class_names.json"
 
 
 def _get_model_path() -> Path:
@@ -24,7 +44,7 @@ def _get_model_path() -> Path:
 
     p = Path(settings.MODEL_PATH)
     if not p.is_absolute():
-        p = PROJECT_ROOT / p
+        p = MODELS_DIR / p.name
     return p
 
 
@@ -52,9 +72,12 @@ _session = None
 def _get_device():
     global _device
     if _device is None:
-        import torch
+        try:
+            import torch
 
-        _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        except ImportError:  # pragma: no cover - torch unavailable (ONNX-only deploys)
+            _device = "cpu"
     return _device
 
 
@@ -120,14 +143,23 @@ def _get_torch_model():
     return _model
 
 
-_transform = transforms.Compose(
-    [
-        transforms.Resize((224, 224)),
-        transforms.Lambda(lambda img: img.convert("RGB")),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-    ]
-)
+_transform = None
+
+
+def _get_transform():
+    global _transform
+    if _transform is None:
+        from torchvision import transforms
+
+        _transform = transforms.Compose(
+            [
+                transforms.Resize((224, 224)),
+                transforms.Lambda(lambda img: img.convert("RGB")),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+            ]
+        )
+    return _transform
 
 
 def _preprocess(image: Image.Image) -> np.ndarray:
@@ -170,7 +202,7 @@ def predict_issue(image: Image.Image) -> dict:
 
         model = _get_torch_model()
         device = _get_device()
-        img_tensor = _transform(image).unsqueeze(0).to(device)
+        img_tensor = _get_transform()(image).unsqueeze(0).to(device)
 
         with torch.no_grad():
             outputs = model(img_tensor)
