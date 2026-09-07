@@ -64,13 +64,13 @@ jobs:
           cd backend
           python -m src.ml.training.train
 
-      - name: Push model to DVC
+      - name: Push model and Optuna study to DVC
         run: |
-          dvc add models/model.pth models/adapter || true
+          dvc add models/model.pth models/adapter backend/optuna_v3.db || true
           git config user.email "dagshub-action"
           git config user.name "DagsHub Action"
-          git add models/model.pth.dvc models/adapter.dvc metrics/
-          git diff --cached --quiet || git commit -m "Update model (DagsHub Action)"
+          git add models/model.pth.dvc models/adapter.dvc backend/optuna_v3.db.dvc metrics/
+          git diff --cached --quiet || git commit -m "Update model + Optuna study (DagsHub Action)"
           dvc push -r origin
 
       - name: Upload adapter as artifact

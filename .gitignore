@@ -88,6 +88,7 @@ frontend/tsconfig.tsbuildinfo
 # --- Databases ---
 *.db
 /optuna.db
+optuna*.db
 
 # --- ML Runs & Outputs ---
 mlruns/
