@@ -27,6 +27,9 @@ venv/
 ENV/
 env/
 .env
+**/.env
+.env.*
+**/.env.*
 .python-version
 .conda/
 mamba/
@@ -76,6 +79,11 @@ coverage.xml
 htmlcov/
 backend/.coverage
 backend/coverage.xml
+
+# --- Linter / Type Check Caches ---
+.ruff_cache/
+.mypy_cache/
+frontend/tsconfig.tsbuildinfo
 
 # --- Databases ---
 *.db
