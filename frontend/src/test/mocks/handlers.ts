@@ -1,6 +1,6 @@
 import { http, HttpResponse } from "msw"
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+const API = "/api/proxy"
 
 export const mockUser = {
   id: 1,
@@ -58,37 +58,37 @@ export const mockStats = {
 }
 
 export const handlers = [
-  http.get(`${API}/api/v1/auth/me`, () => HttpResponse.json(mockUser)),
+  http.get(`${API}/auth/me`, () => HttpResponse.json(mockUser)),
 
-  http.post(`${API}/api/v1/auth/login`, () =>
+  http.post(`${API}/auth/login`, () =>
     HttpResponse.json({ access_token: "mock-token", refresh_token: "mock-refresh", token_type: "bearer" })
   ),
 
-  http.post(`${API}/api/v1/auth/register`, () => HttpResponse.json(mockUser)),
+  http.post(`${API}/auth/register`, () => HttpResponse.json(mockUser)),
 
-  http.post(`${API}/api/v1/auth/refresh`, () =>
+  http.post(`${API}/auth/refresh`, () =>
     HttpResponse.json({ access_token: "mock-refreshed-token", token_type: "bearer" })
   ),
 
-  http.get(`${API}/api/v1/issues`, () =>
+  http.get(`${API}/issues`, () =>
     HttpResponse.json({ items: [mockIssue], total: 1 })
   ),
 
-  http.get(`${API}/api/v1/issues/:id`, () => HttpResponse.json(mockIssue)),
+  http.get(`${API}/issues/:id`, () => HttpResponse.json(mockIssue)),
 
-  http.post(`${API}/api/v1/issues/upload`, () => HttpResponse.json(mockIssue)),
+  http.post(`${API}/issues/upload`, () => HttpResponse.json(mockIssue)),
 
-  http.patch(`${API}/api/v1/issues/:id/status`, () =>
+  http.patch(`${API}/issues/:id/status`, () =>
     HttpResponse.json({ ...mockIssue, status: "assigned" })
   ),
 
-  http.get(`${API}/api/v1/wards`, () => HttpResponse.json([mockWard])),
+  http.get(`${API}/wards`, () => HttpResponse.json([mockWard])),
 
-  http.get(`${API}/api/v1/engineers`, () => HttpResponse.json([mockEngineer])),
+  http.get(`${API}/engineers`, () => HttpResponse.json([mockEngineer])),
 
-  http.get(`${API}/api/v1/dashboard/stats`, () => HttpResponse.json(mockStats)),
+  http.get(`${API}/dashboard/stats`, () => HttpResponse.json(mockStats)),
 
-  http.get(`${API}/api/v1/dashboard/heatmap`, () =>
+  http.get(`${API}/dashboard/heatmap`, () =>
     HttpResponse.json([{ lat: 22.3072, lng: 73.1812, type: "pothole", severity: 3, status: "reported" }])
   ),
 ]

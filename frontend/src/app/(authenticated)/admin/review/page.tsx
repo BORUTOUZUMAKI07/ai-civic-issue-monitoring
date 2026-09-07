@@ -141,14 +141,15 @@ function ReviewRow({
 export default function ReviewQueuePage() {
   const currentUser = useAuthStore((s) => s.user);
   const router = useRouter();
-  if (currentUser && currentUser.role !== "admin" && currentUser.role !== "super_admin") {
-    router.replace("/dashboard");
-    return null;
-  }
   const { data, isLoading, refetch } = useReviewQueue({ limit: 50 });
   const reviewMutation = useReviewIssueMutation();
   const [processingId, setProcessingId] = useState<number | null>(null);
   const [rejectConfirm, setRejectConfirm] = useState<number | null>(null);
+
+  if (currentUser && currentUser.role !== "admin" && currentUser.role !== "super_admin") {
+    router.replace("/dashboard");
+    return null;
+  }
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;

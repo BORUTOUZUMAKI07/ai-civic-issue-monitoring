@@ -117,10 +117,6 @@ function UserRow({
 export default function AdminUsersPage() {
   const currentUser = useAuthStore((s) => s.user);
   const router = useRouter();
-  if (currentUser && currentUser.role !== "admin" && currentUser.role !== "super_admin") {
-    router.replace("/dashboard");
-    return null;
-  }
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("");
   const params = {
@@ -131,6 +127,11 @@ export default function AdminUsersPage() {
   const { data, isLoading, refetch } = useAdminUsers(params);
   const roleMutation = useUpdateUserRoleMutation();
   const [processingId, setProcessingId] = useState<number | null>(null);
+
+  if (currentUser && currentUser.role !== "admin" && currentUser.role !== "super_admin") {
+    router.replace("/dashboard");
+    return null;
+  }
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;

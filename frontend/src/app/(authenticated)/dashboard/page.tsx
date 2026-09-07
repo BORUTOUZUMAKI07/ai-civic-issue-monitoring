@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useMemo } from "react"
 import Link from "next/link"
 import {
   useDashboardStats,
@@ -124,17 +124,12 @@ export default function DashboardPage() {
   const { data: issuesData } = useIssues({ limit: 6 })
   const { data: wards } = useWards()
   const { data: user } = useMe()
-  const [lastUpdated, setLastUpdated] = useState<string>("")
-
-  useEffect(() => {
-    if (!isLoading && stats) {
-      setLastUpdated(
-        new Date().toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      )
-    }
+  const lastUpdated = useMemo(() => {
+    if (isLoading || !stats) return ""
+    return new Date().toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+    })
   }, [isLoading, stats])
 
   const wardName = (id: number) =>
