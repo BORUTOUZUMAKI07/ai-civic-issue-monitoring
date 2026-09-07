@@ -37,15 +37,15 @@ export function AuthShell({
     <div className="flex min-h-screen bg-background">
       {/* Showcase panel */}
       <div className="relative hidden w-1/2 overflow-hidden border-r border-white/5 lg:flex lg:flex-col lg:justify-between">
-        <div className="absolute inset-0 bg-gradient-to-br from-indigo-950 via-blue-950 to-violet-950" />
+        <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-emerald-950 to-teal-950" />
         <div aria-hidden className="absolute inset-0 bg-grid-white opacity-60" />
         <div
           aria-hidden
-          className="absolute -left-32 top-[-10%] h-[28rem] w-[28rem] animate-aurora rounded-full bg-indigo-600/40 blur-3xl"
+          className="absolute -left-32 top-[-10%] h-[28rem] w-[28rem] animate-aurora rounded-full bg-emerald-600/40 blur-3xl"
         />
         <div
           aria-hidden
-          className="absolute -right-24 bottom-[-12%] h-[26rem] w-[26rem] animate-aurora-slow rounded-full bg-violet-600/40 blur-3xl"
+          className="absolute -right-24 bottom-[-12%] h-[26rem] w-[26rem] animate-aurora-slow rounded-full bg-teal-600/40 blur-3xl"
         />
         <div
           aria-hidden
@@ -55,12 +55,12 @@ export function AuthShell({
 
         <div className="relative z-10 p-12">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-400 to-violet-500 shadow-glow-primary">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 shadow-glow-primary">
               <Landmark className="h-5 w-5 text-white" />
             </div>
             <div>
               <p className="text-lg font-semibold leading-tight text-white">CivicPulse</p>
-              <p className="text-xs text-indigo-200/80">Vadodara Municipal</p>
+              <p className="text-xs text-emerald-200/80">Vadodara Municipal</p>
             </div>
           </div>
         </div>
@@ -73,11 +73,11 @@ export function AuthShell({
           >
             <h2 className="max-w-md text-3xl font-semibold leading-tight tracking-tight text-white">
               The operating system for{" "}
-              <span className="bg-gradient-to-r from-indigo-300 via-violet-300 to-sky-300 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-emerald-300 via-teal-300 to-sky-300 bg-clip-text text-transparent">
                 modern city services
               </span>
             </h2>
-            <p className="mt-3 max-w-md text-sm leading-relaxed text-indigo-200/85">
+            <p className="mt-3 max-w-md text-sm leading-relaxed text-emerald-200/85">
               One platform to report, classify, and resolve civic issues across the
               city — powered by AI.
             </p>
@@ -86,11 +86,11 @@ export function AuthShell({
               {highlights.map((h) => (
                 <div key={h.title} className="flex items-start gap-3">
                   <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/10 ring-1 ring-inset ring-white/15">
-                    <h.icon className="h-4 w-4 text-indigo-200" />
+                    <h.icon className="h-4 w-4 text-emerald-200" />
                   </div>
                   <div>
                     <p className="text-sm font-medium text-white">{h.title}</p>
-                    <p className="text-xs leading-relaxed text-indigo-200/75">{h.desc}</p>
+                    <p className="text-xs leading-relaxed text-emerald-200/75">{h.desc}</p>
                   </div>
                 </div>
               ))}
@@ -103,7 +103,7 @@ export function AuthShell({
             {stats.map((s) => (
               <div key={s.label}>
                 <p className="text-xl font-semibold text-white">{s.value}</p>
-                <p className="text-xs text-indigo-200/75">{s.label}</p>
+                <p className="text-xs text-emerald-200/75">{s.label}</p>
               </div>
             ))}
           </div>
@@ -116,7 +116,7 @@ export function AuthShell({
           aria-hidden
           className="pointer-events-none absolute inset-0 lg:hidden"
         >
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/[0.08] via-transparent to-violet-500/[0.08]" />
+          <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/[0.08] via-transparent to-teal-500/[0.08]" />
         </div>
         <motion.div
           initial={{ opacity: 0, y: 16 }}

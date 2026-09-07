@@ -84,7 +84,7 @@ export function Sidebar({ open, onClose }: SidebarProps = {}) {
         {/* Brand */}
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-border/70 px-5">
           <Link href="/dashboard" className="flex items-center gap-2.5" onClick={close}>
-            <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-violet-500 to-indigo-600 text-white shadow-glow-primary">
+            <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 via-teal-500 to-emerald-600 text-white shadow-glow-primary">
               <Landmark className="h-5 w-5" />
               <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-card bg-emerald-500" />
             </div>
@@ -130,7 +130,7 @@ export function Sidebar({ open, onClose }: SidebarProps = {}) {
                       )}
                     >
                       {isActive && (
-                        <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-gradient-to-b from-indigo-500 to-violet-500" />
+                        <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-gradient-to-b from-emerald-500 to-teal-500" />
                       )}
                       <span
                         className={cn(
@@ -155,7 +155,7 @@ export function Sidebar({ open, onClose }: SidebarProps = {}) {
         <div className="border-t border-border/70 p-3">
           <div className="flex items-center gap-3 rounded-xl px-2.5 py-2.5">
             <Avatar size="sm">
-              <AvatarFallback className="bg-gradient-to-br from-indigo-500 to-violet-500 text-white">
+              <AvatarFallback className="bg-gradient-to-br from-emerald-500 to-teal-500 text-white">
                 {initials(user?.full_name ?? "User")}
               </AvatarFallback>
             </Avatar>

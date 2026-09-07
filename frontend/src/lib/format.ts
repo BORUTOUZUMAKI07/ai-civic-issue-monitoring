@@ -9,8 +9,8 @@ export const STATUS_META: Record<
   },
   assigned: {
     label: "Assigned",
-    dot: "bg-violet-500",
-    pill: "bg-violet-50 text-violet-700 ring-violet-600/20",
+    dot: "bg-cyan-500",
+    pill: "bg-cyan-50 text-cyan-700 ring-cyan-600/20",
   },
   in_progress: {
     label: "In Progress",
@@ -88,7 +88,7 @@ export const TYPE_META: Record<
 > = {
   pothole: { label: "Pothole", chip: "bg-red-50 text-red-600", color: "#dc2626" },
   garbage: { label: "Garbage", chip: "bg-amber-50 text-amber-600", color: "#d97706" },
-  debris: { label: "Debris", chip: "bg-violet-50 text-violet-600", color: "#7c3aed" },
+  debris: { label: "Debris", chip: "bg-teal-50 text-teal-600", color: "#0d9488" },
 }
 
 export function typeMeta(type: string): { label: string; chip: string; color: string } {

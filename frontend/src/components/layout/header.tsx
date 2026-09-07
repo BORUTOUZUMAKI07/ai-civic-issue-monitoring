@@ -106,7 +106,7 @@ export function Header({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
               aria-label="Notifications"
             >
               <Bell className="h-[18px] w-[18px]" />
-              <span className="absolute right-2 top-2 h-2 w-2 rounded-full border-2 border-background bg-gradient-to-r from-indigo-500 to-violet-500" />
+              <span className="absolute right-2 top-2 h-2 w-2 rounded-full border-2 border-background bg-gradient-to-r from-emerald-500 to-teal-500" />
             </Button>
           </PopoverTrigger>
           <PopoverContent align="end" className="w-80 p-0">
@@ -136,7 +136,7 @@ export function Header({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
               aria-label="Account menu"
             >
               <Avatar size="sm" className="ring-1 ring-border">
-                <AvatarFallback className="bg-gradient-to-br from-indigo-500 to-violet-500 text-white">
+                <AvatarFallback className="bg-gradient-to-br from-emerald-500 to-teal-500 text-white">
                   {initials(user?.full_name ?? "User")}
                 </AvatarFallback>
               </Avatar>
@@ -153,7 +153,7 @@ export function Header({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
           <DropdownMenuContent align="end" className="w-60">
             <DropdownMenuLabel className="flex items-center gap-3 font-normal">
               <Avatar size="sm">
-                <AvatarFallback className="bg-gradient-to-br from-indigo-500 to-violet-500 text-white">
+                <AvatarFallback className="bg-gradient-to-br from-emerald-500 to-teal-500 text-white">
                   {initials(user?.full_name ?? "User")}
                 </AvatarFallback>
               </Avatar>

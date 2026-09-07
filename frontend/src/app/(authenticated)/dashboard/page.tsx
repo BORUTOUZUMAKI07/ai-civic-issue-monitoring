@@ -52,7 +52,7 @@ import {
 
 const STATUS_COLORS: Record<string, string> = {
   reported: "#38bdf8",
-  assigned: "#a78bfa",
+  assigned: "#22d3ee",
   in_progress: "#fbbf24",
   resolved: "#34d399",
 }
@@ -177,9 +177,9 @@ export default function DashboardPage() {
 
   const maxWard = Math.max(1, ...wardData.map((w) => w.count))
   const rankStyles = [
-    "bg-gradient-to-br from-indigo-500 to-violet-500 text-white",
-    "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300",
-    "bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300",
+    "bg-gradient-to-br from-emerald-500 to-teal-600 text-white",
+    "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
+    "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300",
   ]
 
   const recent = (issuesData?.items ?? []).slice(0, 6)
@@ -193,15 +193,15 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* Hero band */}
-      <SpotlightCard className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-950 via-blue-950 to-violet-950 px-6 py-8 text-white shadow-lift ring-1 ring-inset ring-white/10 sm:px-8">
+      <SpotlightCard className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-950 via-emerald-950 to-teal-950 px-6 py-8 text-white shadow-lift ring-1 ring-inset ring-white/10 sm:px-8">
         <div aria-hidden className="absolute inset-0 bg-grid-white opacity-50" />
         <div
           aria-hidden
-          className="absolute -left-20 -top-24 h-72 w-72 animate-aurora rounded-full bg-indigo-500/40 blur-3xl"
+          className="absolute -left-20 -top-24 h-72 w-72 animate-aurora rounded-full bg-emerald-500/40 blur-3xl"
         />
         <div
           aria-hidden
-          className="absolute -bottom-24 right-0 h-72 w-72 animate-aurora-slow rounded-full bg-violet-500/40 blur-3xl"
+          className="absolute -bottom-24 right-0 h-72 w-72 animate-aurora-slow rounded-full bg-teal-500/40 blur-3xl"
         />
         <div
           aria-hidden
@@ -222,19 +222,19 @@ export default function DashboardPage() {
             <h2 className="mt-4 text-2xl font-semibold tracking-tight sm:text-3xl">
               {firstName ? `${greeting}, ${firstName}` : greeting}
             </h2>
-            <p className="mt-1.5 max-w-md text-sm text-indigo-100/90">
+            <p className="mt-1.5 max-w-md text-sm text-emerald-100/90">
               Here&apos;s what&apos;s happening across the city today.
             </p>
           </div>
 
           <div className="flex flex-col gap-3 sm:items-end">
-            <Button asChild size="lg" className="gap-2 bg-white text-indigo-700 shadow-lg hover:bg-indigo-50">
+            <Button asChild size="lg" className="gap-2 bg-white text-emerald-700 shadow-lg hover:bg-emerald-50">
               <Link href="/issues">
                 <Plus className="h-4 w-4" />
                 Report an issue
               </Link>
             </Button>
-            <p className="text-xs text-indigo-100/80">
+            <p className="text-xs text-emerald-100/80">
               {stats?.recent_count ?? 0} reports added this month
             </p>
           </div>
@@ -261,7 +261,7 @@ export default function DashboardPage() {
           label="Assigned"
           value={byStatus.assigned ?? 0}
           icon={Users2}
-          chipClass="bg-gradient-to-br from-violet-500 to-purple-600"
+          chipClass="bg-gradient-to-br from-cyan-500 to-sky-600"
           caption="to field teams"
         />
         <KpiCard
@@ -356,8 +356,8 @@ export default function DashboardPage() {
                 <BarChart data={typeData} margin={{ left: -18, right: 8 }}>
                   <defs>
                     <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#818cf8" />
-                      <stop offset="100%" stopColor="#4f46e5" />
+                      <stop offset="0%" stopColor="#10b981" />
+                      <stop offset="100%" stopColor="#0c8c5e" />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
@@ -412,7 +412,7 @@ export default function DashboardPage() {
                     </div>
                     <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                       <div
-                        className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500"
+                        className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500"
                         style={{ width: `${(w.count / maxWard) * 100}%` }}
                       />
                     </div>
@@ -498,7 +498,7 @@ export default function DashboardPage() {
         </span>
         <Separator orientation="vertical" className="hidden h-4 sm:block" />
         <span className="inline-flex items-center gap-1.5">
-          <CircleDot className="h-3.5 w-3.5 text-indigo-500" />
+          <CircleDot className="h-3.5 w-3.5 text-emerald-500" />
           AI classification active
         </span>
         <Separator orientation="vertical" className="hidden h-4 sm:block" />

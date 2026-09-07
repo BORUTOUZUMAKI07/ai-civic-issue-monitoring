@@ -453,7 +453,7 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
                 />
                 {issue.status !== "reported" && (
                   <TimelineItem
-                    color="bg-violet-500"
+                    color="bg-cyan-500"
                     title="Assigned"
                     subtitle="Assigned to a field team"
                     active={issue.status !== "reported"}

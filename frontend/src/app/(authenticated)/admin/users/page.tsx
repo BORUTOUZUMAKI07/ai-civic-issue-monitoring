@@ -24,7 +24,7 @@ const ROLE_OPTIONS = ["admin", "engineer", "field_worker", "viewer"] as const;
 
 const ROLE_STYLES: Record<string, string> = {
   super_admin: "border-amber-200 bg-amber-50 text-amber-700",
-  admin: "border-purple-200 bg-purple-50 text-purple-700",
+  admin: "border-teal-200 bg-teal-50 text-teal-700",
   engineer: "border-blue-200 bg-blue-50 text-blue-700",
   field_worker: "border-emerald-200 bg-emerald-50 text-emerald-700",
   viewer: "border-slate-200 bg-slate-50 text-slate-700",
@@ -53,7 +53,7 @@ function UserRow({
   return (
     <div className="flex items-center gap-4 px-5 py-4 transition-colors hover:bg-muted/40">
       {/* Avatar */}
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-sm font-semibold text-white">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 text-sm font-semibold text-white">
         {user.full_name
           .split(" ")
           .map((n) => n[0])
@@ -75,7 +75,7 @@ function UserRow({
             </Badge>
           )}
           {isSelf && (
-            <Badge variant="outline" className="border-indigo-200 bg-indigo-50 text-indigo-700">
+            <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
               You
             </Badge>
           )}
@@ -167,7 +167,7 @@ export default function AdminUsersPage() {
           return (
             <Card key={r} className="flex items-center gap-3 px-4 py-3">
               <div className={`flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br ${
-                r === "admin" ? "from-purple-500 to-indigo-500" :
+                r === "admin" ? "from-emerald-600 to-teal-700" :
                 r === "engineer" ? "from-blue-500 to-cyan-500" :
                 r === "field_worker" ? "from-emerald-500 to-teal-500" :
                 "from-slate-400 to-slate-500"

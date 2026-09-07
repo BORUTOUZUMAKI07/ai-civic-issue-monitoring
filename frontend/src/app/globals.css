@@ -96,48 +96,48 @@
 }
 
 :root {
-  --background: #f6f7f9;
-  --foreground: #0b0d12;
+  --background: #ffffff;
+  --foreground: #000000;
   --card: #ffffff;
-  --card-foreground: #0b0d12;
+  --card-foreground: #08090a;
   --popover: #ffffff;
-  --popover-foreground: #0b0d12;
-  --primary: #4f46e5;
+  --popover-foreground: #08090a;
+  --primary: #0c8c5e;
   --primary-foreground: #ffffff;
-  --secondary: #eef0f4;
-  --secondary-foreground: #16181d;
-  --muted: #eef0f4;
-  --muted-foreground: #5d6470;
-  --accent: #eceef3;
-  --accent-foreground: #16181d;
+  --secondary: #f2f2f2;
+  --secondary-foreground: #08090a;
+  --muted: #f2f2f2;
+  --muted-foreground: #666666;
+  --accent: #f2f2f2;
+  --accent-foreground: #08090a;
   --destructive: #e5484d;
   --destructive-foreground: #ffffff;
-  --border: #e3e6ec;
-  --input: #d4d8e0;
-  --ring: #6366f1;
+  --border: #dddddd;
+  --input: #dddddd;
+  --ring: #0c8c5e;
 
-  --chart-1: #4f46e5;
-  --chart-2: #7c3aed;
+  --chart-1: #0c8c5e;
+  --chart-2: #10b981;
   --chart-3: #0ea5e9;
   --chart-4: #f59e0b;
-  --chart-5: #10b981;
+  --chart-5: #22d3ee;
 
   --success: #10b981;
   --success-foreground: #ffffff;
   --warning: #f59e0b;
   --warning-foreground: #ffffff;
 
-  --radius: 0.625rem;
+  --radius: 0.5rem;
 }
 
 .dark {
-  --background: #0a0b10;
-  --foreground: #f4f5f7;
+  --background: #08090a;
+  --foreground: #f2f2f2;
   --card: #11131a;
-  --card-foreground: #f4f5f7;
+  --card-foreground: #f2f2f2;
   --popover: #12141c;
-  --popover-foreground: #f4f5f7;
-  --primary: #6366f1;
+  --popover-foreground: #f2f2f2;
+  --primary: #0c8c5e;
   --primary-foreground: #ffffff;
   --secondary: #1b1e27;
   --secondary-foreground: #e9eaef;
@@ -149,13 +149,13 @@
   --destructive-foreground: #ffffff;
   --border: #23262f;
   --input: #2c303b;
-  --ring: #818cf8;
+  --ring: #0c8c5e;
 
-  --chart-1: #818cf8;
-  --chart-2: #a78bfa;
+  --chart-1: #2bb67c;
+  --chart-2: #34d399;
   --chart-3: #38bdf8;
   --chart-4: #fbbf24;
-  --chart-5: #34d399;
+  --chart-5: #22d3ee;
 
   --success: #10b981;
   --success-foreground: #ffffff;

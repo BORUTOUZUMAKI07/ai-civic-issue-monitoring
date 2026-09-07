@@ -1,5 +1,8 @@
 node_modules/
+.next/
 dist/
 .gitignore
 README.md
 Dockerfile
+test-results/
+playwright-report/

@@ -57,7 +57,7 @@ function ForgotPasswordForm() {
   return (
     <AuthShell>
       <div className="mb-8 flex flex-col items-center text-center lg:items-start lg:text-left">
-        <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 shadow-glow-primary lg:hidden">
+        <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 shadow-glow-primary lg:hidden">
           <Landmark className="h-5 w-5 text-white" />
         </div>
         <h1 className="text-2xl font-semibold tracking-tight">Reset your password</h1>

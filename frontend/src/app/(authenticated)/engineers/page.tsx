@@ -93,7 +93,7 @@ export default function EngineersPage() {
       label: "Avg resolution",
       value: avgResolution ? `${avgResolution.toFixed(1)}h` : "—",
       icon: Clock,
-      chip: "bg-violet-50 text-violet-600",
+      chip: "bg-teal-50 text-teal-600",
     },
   ];
 

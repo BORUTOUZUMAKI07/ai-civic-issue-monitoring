@@ -28,7 +28,7 @@ const features = [
     icon: Sparkles,
     title: "Intelligent Classification",
     desc: "Every report is categorized with confidence scoring, so nothing falls through the cracks.",
-    accent: "from-indigo-500 to-violet-600",
+    accent: "from-emerald-500 to-teal-600",
   },
   {
     icon: Wrench,
@@ -46,13 +46,13 @@ const features = [
     icon: BarChart3,
     title: "Live Analytics",
     desc: "Resolution rates, backlog, and trends update in real time as reports flow in.",
-    accent: "from-fuchsia-500 to-pink-600",
+    accent: "from-teal-400 to-cyan-600",
   },
   {
     icon: ShieldCheck,
     title: "Secure By Role",
     desc: "Admins, engineers, and field teams each get a workspace tuned to their job.",
-    accent: "from-violet-500 to-purple-600",
+    accent: "from-cyan-500 to-sky-600",
   },
 ];
 
@@ -104,7 +104,7 @@ export default function LandingPage() {
       <nav className="sticky top-0 z-50 border-b border-border/60 bg-background/75 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
           <Link href="/" className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-glow-primary">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-glow-primary">
               <Landmark className="h-5 w-5" />
             </div>
             <span className="text-lg font-semibold tracking-tight">CivicPulse</span>
@@ -143,11 +143,11 @@ export default function LandingPage() {
           <div aria-hidden className="absolute inset-0 bg-dots opacity-60" />
           <div
             aria-hidden
-            className="absolute -left-40 top-[-20%] h-[30rem] w-[30rem] animate-aurora rounded-full bg-indigo-500/20 blur-3xl"
+            className="absolute -left-40 top-[-20%] h-[30rem] w-[30rem] animate-aurora rounded-full bg-emerald-500/20 blur-3xl"
           />
           <div
             aria-hidden
-            className="absolute right-[-10%] top-[-5%] h-[26rem] w-[26rem] animate-aurora-slow rounded-full bg-violet-500/20 blur-3xl"
+            className="absolute right-[-10%] top-[-5%] h-[26rem] w-[26rem] animate-aurora-slow rounded-full bg-teal-500/20 blur-3xl"
           />
           <div
             aria-hidden
@@ -214,7 +214,7 @@ export default function LandingPage() {
               <div className="space-y-3">
                 {capabilities.map((c) => (
                   <div key={c.label} className="flex items-center gap-3 rounded-lg border border-border/60 bg-background/50 px-4 py-3">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-white">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
                       <c.icon className="h-4 w-4" />
                     </div>
                     <span className="text-sm font-medium">{c.label}</span>
@@ -226,7 +226,7 @@ export default function LandingPage() {
             {/* Floating badge */}
             <div className="absolute -right-3 -top-4 animate-float rounded-xl border border-border/70 bg-card px-3.5 py-2.5 shadow-lift sm:-right-6">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-white">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
                   <Sparkles className="h-4 w-4" />
                 </div>
                 <div>
@@ -287,7 +287,7 @@ export default function LandingPage() {
             >
               <div
                 aria-hidden
-                className="absolute -right-16 -top-16 h-40 w-40 rounded-full bg-gradient-to-br from-indigo-500/10 to-violet-500/10 blur-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                className="absolute -right-16 -top-16 h-40 w-40 rounded-full bg-gradient-to-br from-emerald-500/10 to-teal-500/10 blur-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
               />
               <div
                 className={`mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm ${f.accent}`}
@@ -348,7 +348,7 @@ export default function LandingPage() {
               <span className="absolute right-5 top-5 text-3xl font-semibold text-muted-foreground/20">
                 {s.step}
               </span>
-              <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-sm">
+              <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm">
                 <s.icon className="h-5 w-5" />
               </div>
               <h3 className="font-semibold tracking-tight">{s.title}</h3>
@@ -360,7 +360,7 @@ export default function LandingPage() {
 
       {/* CTA */}
       <section className="mx-auto max-w-6xl px-6 pb-24">
-        <div className="relative overflow-hidden rounded-3xl border border-primary/20 bg-gradient-to-br from-indigo-600 via-indigo-500 to-violet-600 px-6 py-14 text-center text-white md:px-12 md:py-16">
+        <div className="relative overflow-hidden rounded-3xl border border-primary/20 bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-600 px-6 py-14 text-center text-white md:px-12 md:py-16">
           <div aria-hidden className="absolute inset-0 bg-grid-white opacity-40" />
           <div
             aria-hidden
@@ -368,18 +368,18 @@ export default function LandingPage() {
           />
           <div
             aria-hidden
-            className="absolute -bottom-24 -right-24 h-64 w-64 animate-aurora-slow rounded-full bg-violet-300/20 blur-3xl"
+            className="absolute -bottom-24 -right-24 h-64 w-64 animate-aurora-slow rounded-full bg-teal-300/20 blur-3xl"
           />
           <div className="relative">
             <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
               Ready to transform civic monitoring?
             </h2>
-            <p className="mx-auto mt-3 max-w-xl text-indigo-100">
+            <p className="mx-auto mt-3 max-w-xl text-emerald-100">
               Join the team keeping Vadodara&apos;s streets safe, clean, and moving.
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
               <Link href="/register">
-                <Button size="lg" className="bg-white text-indigo-700 shadow-lg hover:bg-indigo-50">
+                <Button size="lg" className="bg-white text-emerald-700 shadow-lg hover:bg-emerald-50">
                   Create an account
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
@@ -402,7 +402,7 @@ export default function LandingPage() {
       <footer className="border-t border-border/60">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 py-8 sm:flex-row">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-white">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
               <Landmark className="h-4 w-4" />
             </div>
             <span className="text-sm font-semibold tracking-tight">CivicPulse</span>
