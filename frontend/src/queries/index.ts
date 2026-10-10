@@ -63,13 +63,15 @@ export function useUploadIssueMutation() {
       longitude,
       description,
       force_submit,
+      idempotencyKey,
     }: {
       file: File;
       latitude: number;
       longitude: number;
       description: string;
       force_submit?: boolean;
-    }) => issues.upload(file, latitude, longitude, description, force_submit ?? false),
+      idempotencyKey?: string;
+    }) => issues.upload(file, latitude, longitude, description, force_submit ?? false, idempotencyKey),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["issues"] }),
   });
 }

@@ -75,6 +75,13 @@ const TYPE_OPTIONS = [
 
 const PAGE_SIZE = 10;
 
+function newIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `k-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function StatusBadge({ status }: { status: string }) {
   const meta = STATUS_META[status] ?? {
     label: humanize(status),
@@ -166,6 +173,11 @@ export default function IssuesPage() {
   const [rejectionReason, setRejectionReason] = useState("");
   const [forceSubmitting, setForceSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Idempotency identity of the in-flight upload: stable across retries of the
+  // same logical request (so a flaky-network retry dedupes) but rotated when
+  // the file changes or when the submit mode flips to the forced override
+  // (that is a different request and must not collide with the rejected one).
+  const idempotencyRef = useRef<{ key: string; force: boolean } | null>(null);
 
   const wsBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
   const wsUrl = wsBase.replace(/^http/, "ws") + "/api/v1/ws/issues";
@@ -240,6 +252,7 @@ export default function IssuesPage() {
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    idempotencyRef.current = null;
     setSelectedFile(file);
     setPreviewUrl(URL.createObjectURL(file));
     setLat("");
@@ -269,6 +282,13 @@ export default function IssuesPage() {
     }
   };
 
+  const currentIdempotencyKey = (force: boolean): string => {
+    if (!idempotencyRef.current || idempotencyRef.current.force !== force) {
+      idempotencyRef.current = { key: newIdempotencyKey(), force };
+    }
+    return idempotencyRef.current.key;
+  };
+
   const handleUpload = async (force = false) => {
     if (!selectedFile) return;
     setUploading(true);
@@ -295,6 +315,7 @@ export default function IssuesPage() {
         longitude: loc.lon,
         description,
         force_submit: force,
+        idempotencyKey: currentIdempotencyKey(force),
       });
       toast.success(force ? "Issue submitted for review!" : "Issue reported! AI classification in progress...");
       resetModal();
@@ -319,6 +340,7 @@ export default function IssuesPage() {
     setLat("");
     setLon("");
     setLocationSource(null);
+    idempotencyRef.current = null;
   };
 
   const resetRejection = () => {

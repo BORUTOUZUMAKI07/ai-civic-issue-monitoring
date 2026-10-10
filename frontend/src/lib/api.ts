@@ -300,7 +300,8 @@ export const issues = {
     latitude: number,
     longitude: number,
     description: string = "",
-    force_submit: boolean = false
+    force_submit: boolean = false,
+    idempotencyKey?: string
   ) => {
     const form = new FormData();
     form.append("file", file);
@@ -311,7 +312,9 @@ export const issues = {
     return apiFetch<Issue>("/issues/upload", {
       method: "POST",
       body: form,
-      headers: {},
+      // A stable key lets the backend collapse a retry of the same logical
+      // upload into the original issue instead of creating a duplicate.
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {},
     });
   },
   updateStatus: (id: number, status: string) =>
