@@ -20,13 +20,86 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   return proxy(request, context)
 }
 
+/**
+ * Backend route prefixes this proxy is allowed to reach.
+ *
+ * An allowlist, not a denylist: the previous version interpolated caller
+ * segments straight into `/api/v1/${path.join("/")}` and handed the result to
+ * `new URL()`, which normalises `..` — so `/api/proxy/issues/../../uploads/x`
+ * escaped the API prefix entirely and reached any backend route (health probe,
+ * static `/uploads`, internal tooling). Requiring the first segment to be a
+ * known router name confines every request to the API surface by construction.
+ */
+const ALLOWED_PREFIXES = new Set([
+  "auth",
+  "issues",
+  "wards",
+  "engineers",
+  "resolution",
+  "dashboard",
+  "notifications",
+  "admin",
+  "ml",
+])
+
+/**
+ * Routes that must carry the refresh cookie.
+ *
+ * The refresh token is a long-lived credential and forwarding it on *every*
+ * proxied request — as this proxy used to — multiplies the blast radius of any
+ * single leaked request (logs, tracing, an XSS'd fetch) from "one access
+ * token" to "full account takeover until the refresh token expires".
+ * `/auth/refresh` and `/auth/logout` are the only handlers that read it.
+ */
+const NEEDS_REFRESH = new Set(["auth/refresh", "auth/logout"])
+
+/** Paths that may be called without an access token (login, register, 2FA, OAuth). */
+const PUBLIC_PREFIXES = ["auth/login", "auth/register", "auth/forgot-password", "auth/reset-password", "auth/2fa", "auth/oauth", "auth/refresh", "auth/logout"]
+
+function isPublicRoute(key: string): boolean {
+  return PUBLIC_PREFIXES.some((p) => key === p || key.startsWith(`${p}/`))
+}
+
 async function proxy(request: NextRequest, context: RouteContext) {
   try {
     const { path } = await context.params
     const accessToken = request.cookies.get("access_token")?.value
     const refreshToken = request.cookies.get("refresh_token")?.value
 
-    const targetPath = `/api/v1/${path.join("/")}`
+    // Normalise every segment: reject traversal, absolute URLs, NUL bytes and
+    // anything that is not a plain path component before it is joined.
+    const segments = path
+      .map((raw) => {
+        // `path` is already URL-decoded by Next, so `%2e%2e` arrives as `..`.
+        const seg = raw.trim()
+        if (seg === ".." || seg === "." || seg.includes("/") || seg.includes("\\") || seg.includes("\0")) {
+          return null
+        }
+        return seg
+      })
+      // The type predicate is what gives `segments` a `string[]` type.
+      // Without it `segments[0]` stays `string | null` and the prefix check
+      // below does not compile; comparing against `path.length` preserves the
+      // rejection signal that `.filter` would otherwise discard.
+      .filter((seg): seg is string => seg !== null)
+
+    if (segments.length !== path.length || segments.length === 0) {
+      return NextResponse.json({ detail: "Invalid path." }, { status: 400 })
+    }
+
+    const key = segments.join("/")
+    if (!ALLOWED_PREFIXES.has(segments[0])) {
+      return NextResponse.json({ detail: "Not found." }, { status: 404 })
+    }
+
+    // Server-side auth guard. `middleware.ts` deliberately excludes `/api` from
+    // its matcher, so nothing else checks this route — without this the proxy
+    // was reachable unauthenticated and simply relayed whatever cookies it got.
+    if (!isPublicRoute(key) && !accessToken) {
+      return NextResponse.json({ detail: "Not authenticated." }, { status: 401 })
+    }
+
+    const targetPath = `/api/v1/${key}`
     const url = new URL(targetPath, BACKEND)
     url.search = request.nextUrl.search
 
@@ -41,7 +114,7 @@ async function proxy(request: NextRequest, context: RouteContext) {
     // backend; the access token is also sent as a Bearer header above.
     const cookieParts: string[] = []
     if (accessToken) cookieParts.push(`access_token=${accessToken}`)
-    if (refreshToken) cookieParts.push(`refresh_token=${refreshToken}`)
+    if (refreshToken && NEEDS_REFRESH.has(key)) cookieParts.push(`refresh_token=${refreshToken}`)
     if (cookieParts.length > 0) {
       headers["Cookie"] = cookieParts.join("; ")
     }

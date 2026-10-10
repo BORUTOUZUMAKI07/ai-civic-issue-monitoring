@@ -34,6 +34,7 @@ import {
   TYPE_META,
 } from "@/lib/format";
 import type { Issue } from "@/lib/api";
+import { mediaUrl } from "@/lib/api";
 
 const TYPE_OPTIONS = Object.keys(TYPE_META);
 
@@ -57,7 +58,7 @@ function ReviewRow({
       {/* Thumbnail */}
       <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border bg-muted">
         <img
-          src={issue.image_url}
+          src={mediaUrl(issue.image_url)}
           alt=""
           className="h-full w-full object-cover"
         />

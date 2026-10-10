@@ -52,7 +52,9 @@ export const mockEngineer = {
 export const mockStats = {
   total_issues: 156,
   by_status: { reported: 20, assigned: 15, in_progress: 10, resolved: 100, verified: 11 },
-  by_type: { pothole: 80, garbage: 40, streetlight: 20, water_logging: 16 },
+  // Only the three real issue types (see backend `IssueType`): streetlight /
+  // water_logging were removed by migration 005 and can never appear.
+  by_type: { pothole: 80, garbage: 40, debris: 36 },
   by_ward: [{ ward: "Sayajipura", count: 30 }],
   recent_count: 12,
 }

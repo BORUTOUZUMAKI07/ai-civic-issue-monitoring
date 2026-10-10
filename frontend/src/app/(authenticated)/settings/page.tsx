@@ -482,7 +482,7 @@ function TwoFactorSection() {
 function MlModelHealth() {
   const { data: info, isLoading, error } = useQuery<MlInfo>({
     queryKey: ["ml-info"],
-    queryFn: () => apiFetch("/api/v1/ml/info"),
+    queryFn: () => apiFetch("/ml/info"),
     retry: false,
   });
 

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useIssue, useEngineers, useAssignIssueMutation, useReassignIssueMutation } from "@/queries/index";
 import { useAuthStore } from "@/store/auth";
-import { apiFetch, issues } from "@/lib/api";
+import { apiFetch, issues, mediaUrl } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,8 +39,6 @@ import {
   severityMeta,
   STATUS_META,
 } from "@/lib/format";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface SimilarResponse {
   issue_id: number;
@@ -127,9 +125,7 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
     label: humanize(issue.status),
     pill: "bg-muted text-muted-foreground ring-muted",
   };
-  const imageUrl = issue.image_url?.startsWith("http")
-    ? issue.image_url
-    : `${API_BASE}${issue.image_url ?? ""}`;
+  const imageUrl = mediaUrl(issue.image_url);
 
   const similarIssues = similarQuery.data?.similar_issues ?? [];
 
@@ -370,7 +366,7 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
                   className="w-full gap-2"
                   onClick={async () => {
                     try {
-                      await apiFetch(`/api/v1/issues/${issueId}/status`, {
+                      await apiFetch(`/issues/${issueId}/status`, {
                         method: "PATCH",
                         body: JSON.stringify({ status: nextAction.next }),
                       });

@@ -1,5 +1,28 @@
 const API_BASE = "/api/proxy";
 
+/**
+ * Turn a stored ``image_url`` (``/uploads/issues/x.jpg``) into an authenticated
+ * fetch URL.
+ *
+ * Uploads are no longer served by a public ``/uploads`` static mount — they go
+ * through the authed proxy as ``/api/v1/issues/media/...``, so the browser
+ * attaches the session cookie and the proxy adds the Bearer header. Building
+ * the URL here keeps every caller from having to remember that mapping, and
+ * makes an absolute backend URL (from an older row or a test fixture) degrade
+ * to the proxied form instead of pointing at a now-unmounted path.
+ */
+export function mediaUrl(imageUrl: string | null | undefined): string {
+  if (!imageUrl) return "";
+  if (imageUrl.startsWith("/api/proxy/") || imageUrl.startsWith("/api/v1/issues/media/")) {
+    return imageUrl;
+  }
+  // Strip a leading origin, then the /uploads prefix, and rebuild under media/.
+  let path = imageUrl.replace(/^https?:\/\/[^/]+/i, "");
+  path = path.replace(/^\/uploads\//, "");
+  if (!path) return "";
+  return `${API_BASE}/issues/media/${path}`;
+}
+
 let refreshPromise: Promise<boolean> | null = null;
 
 async function tryRefresh(): Promise<boolean> {
