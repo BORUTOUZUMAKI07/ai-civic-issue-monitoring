@@ -37,7 +37,7 @@ async def get_current_user(
 
     user_id = payload.get("sub")
     token_type = payload.get("type")
-    if not user_id or token_type != "access":
+    if not user_id or token_type != "access":  # "access" is the JWT token-type claim, not a credential  # nosec B105
         raise InvalidToken()
 
     user = await UserRepository(db).get(int(user_id))

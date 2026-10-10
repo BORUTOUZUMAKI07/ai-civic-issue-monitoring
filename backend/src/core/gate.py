@@ -53,7 +53,12 @@ def gate_decision(vision: dict | None, description: str, force_submit: bool) -> 
     text = classify_description(description)
 
     if force_submit:
-        issue_type = text["label"] if text["civic_confidence"] >= 0.25 else (vision["label"] if vision else "pothole")
+        # A force-submit must still land on a real category: the vision model
+        # can answer `non_civic`, which is a reject class and not an issue type.
+        vision_label = vision.get("label") if vision else None
+        if vision_label not in CIVIC_LABELS:
+            vision_label = "pothole"
+        issue_type = text["label"] if text["civic_confidence"] >= 0.25 else vision_label
         return {
             "action": "accept",
             "issue_type": issue_type,

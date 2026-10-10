@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,8 +28,10 @@ def _require_admin(user: User) -> None:
 
 @router.get("/review-queue")
 async def review_queue(
-    skip: int = 0,
-    limit: int = 20,
+    # See issues.routes.list_issues — pagination bounds belong at the edge,
+    # where the value arrives from the client.
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
@@ -75,8 +77,8 @@ async def review_queue(
 
 @router.get("/users")
 async def list_users(
-    skip: int = 0,
-    limit: int = 50,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
     search: str = "",
     role: str | None = None,
     db: AsyncSession = Depends(get_db),
@@ -199,8 +201,16 @@ async def review_issue(
         raise NotFoundError("Issue not found.")
 
     if body.action == "reject":
-        await db.delete(issue)
-        await db.commit()
+        # Route through the service rather than `db.delete(issue)` directly:
+        # a rejected issue is one that reached review, which means it was
+        # reported and usually already assigned — and the bare delete hit the
+        # `assignments`/`resolutions` foreign keys and returned a 500 instead
+        # of deleting anything.
+        from src.domains.dashboard.routes import invalidate_dashboard_cache
+        from src.domains.issues.service import IssueService
+
+        await IssueService(db).delete_issue(issue)
+        await invalidate_dashboard_cache()
         return {"detail": "Issue rejected and deleted.", "issue_id": issue_id}
 
     if body.action == "change_type":
@@ -225,7 +235,7 @@ async def review_issue(
                 },
             }
         )
-    except Exception:
+    except Exception:  # best-effort audit emit, non-fatal  # nosec B110
         pass
 
     return {
@@ -238,8 +248,8 @@ async def review_issue(
 
 @router.get("/rejected-uploads")
 async def rejected_uploads(
-    skip: int = 0,
-    limit: int = 50,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
     user: User = Depends(get_current_active_user),
 ):
     """View rejected uploads for potential retraining data."""

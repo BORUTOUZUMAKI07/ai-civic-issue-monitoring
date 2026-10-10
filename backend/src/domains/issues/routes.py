@@ -176,7 +176,9 @@ async def _run_agent_pipeline(issue_id: int, description: str, category: str, wa
                 "ward_id": ward_id,
             }
         )
-        return result.get("result", {})
+        # `result.get` is untyped; wrap so the declared `dict` return is honest
+        # rather than laundering `Any` through a `-> dict` signature.
+        return dict(result.get("result") or {})
     except Exception as e:
         return {"error": str(e)}
 
@@ -283,7 +285,7 @@ async def upload_issue(
                 },
             }
         )
-    except Exception:
+    except Exception:  # best-effort agent event, non-fatal  # nosec B110
         pass
 
     from src.domains.dashboard.routes import invalidate_dashboard_cache
@@ -372,8 +374,12 @@ async def search_issues(
 
 @router.get("", response_model=IssueListResponse)
 async def list_issues(
-    skip: int = 0,
-    limit: int = 20,
+    # Bounded: an unbounded `limit` turned `?limit=100000000` into a full
+    # table scan plus a response of that many rows — one request, one worker
+    # pinned, one client out of memory. `skip` is floored so `?skip=-1` cannot
+    # smuggle a negative OFFSET past the ORM.
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
@@ -460,14 +466,7 @@ async def delete_issue(
     svc = IssueService(db)
     issue = await svc.get_issue(issue_id)
 
-    from sqlalchemy import delete as sa_delete
-
-    from src.models.assignment import Assignment
-
-    await db.execute(sa_delete(Assignment).where(Assignment.issue_id == issue.id))
-
-    await db.delete(issue)
-    await db.commit()
+    await svc.delete_issue(issue)
     from src.domains.dashboard.routes import invalidate_dashboard_cache
 
     await invalidate_dashboard_cache()
@@ -480,6 +479,64 @@ async def delete_issue(
                 "payload": {"id": issue_id},
             }
         )
-    except Exception:
+    except Exception:  # best-effort delete event, non-fatal  # nosec B110
         pass
     return {"detail": "Issue deleted.", "issue_id": issue_id}
+
+
+@router.get("/media/{file_path:path}")
+async def serve_media(
+    file_path: str,
+    user: User = Depends(get_current_active_user),
+):
+    """Serve an uploaded image to an authenticated caller.
+
+    This replaces the unauthenticated ``app.mount("/uploads", StaticFiles(...))``
+    which exposed every issue photo and resolution after-photo to anyone on the
+    internet for as long as the file existed: no login, no rate limit, and no
+    way to revoke access short of deleting the file. Photos of civic problems
+    are not public artefacts; they carry location, timestamps and often the
+    person who reported the issue.
+
+    Path traversal is rejected explicitly rather than relying on
+    ``StaticFiles``' own normalisation, because this handler does its own
+    resolution: the request path is decoded before it reaches us, so ``..`` is
+    literally present in the segments and must be refused by comparison.
+    """
+    import mimetypes
+
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse
+
+    allowed_suffixes = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".heic", ".heif"}
+
+    raw = file_path.strip()
+    if not raw or raw.startswith("/") or "\\" in raw or "\0" in raw:
+        raise HTTPException(status_code=400, detail="Invalid path.")
+
+    parts = [p for p in raw.split("/") if p and p != "."]
+    if not parts or any(p == ".." for p in parts):
+        raise HTTPException(status_code=400, detail="Invalid path.")
+
+    # Confine to uploads/: resolve and verify containment rather than trusting
+    # the join, so an unexpected symlink cannot walk out of the tree either.
+    root = Path("uploads").resolve()
+    target = (root / Path(*parts)).resolve()
+    if not target.is_relative_to(root):
+        raise HTTPException(status_code=400, detail="Invalid path.")
+
+    if target.suffix.lower() not in allowed_suffixes:
+        raise HTTPException(status_code=404, detail="Not found.")
+
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="Not found.")
+
+    # Content type is derived from the (allowlisted) extension, never from
+    # client-supplied headers, so a crafted request cannot talk the browser
+    # into treating the bytes as HTML or SVG: the two types that execute
+    # script. Belt and braces below the allowlist.
+    media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+    if media_type.startswith("text/") or media_type in {"image/svg+xml", "application/xhtml+xml"}:
+        raise HTTPException(status_code=404, detail="Not found.")
+
+    return FileResponse(target, media_type=media_type)

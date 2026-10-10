@@ -13,7 +13,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 
 from src.core.config import settings
 from src.core.database import check_db_health, engine, init_db
@@ -89,14 +88,14 @@ def create_app(lifespan_override=None):
             from src.core.mongodb import mongodb_initialized
 
             mongo_ok = mongodb_initialized
-        except Exception:
+        except Exception:  # optional subsystem absent -> health reports 503  # nosec B110
             pass
         try:
             from src.ml.inference.predict import get_model_info
 
             ml_info = get_model_info()
             ml_ok = ml_info.get("model_exists", False)
-        except Exception:
+        except Exception:  # optional subsystem absent -> health reports 503  # nosec B110
             pass
         status_code = 200 if db_ok and redis_ok else 503
         return JSONResponse(
@@ -120,9 +119,13 @@ def create_app(lifespan_override=None):
     app.include_router(admin_router, prefix="/api/v1")
     app.include_router(ml_router, prefix="/api/v1")
 
+    # NOTE: uploads are served by the authenticated route
+    # ``GET /api/v1/issues/media/{path}`` rather than a public static mount.
+    # Mounting ``uploads/`` at ``/uploads`` handed every photo to unauthenticated
+    # callers; images are fetched through the same cookie-authenticated proxy as
+    # the rest of the API, so access can be revoked by logging the user out.
     uploads_dir = Path("uploads")
     uploads_dir.mkdir(parents=True, exist_ok=True)
-    app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 
     return app
 
@@ -176,4 +179,10 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     import uvicorn
 
-    uvicorn.run("src.main:app", host="0.0.0.0", port=port, reload=False, access_log=False)
+    uvicorn.run(
+        "src.main:app",
+        host="0.0.0.0",  # container entrypoint must listen on every interface  # nosec B104
+        port=port,
+        reload=False,
+        access_log=False,
+    )

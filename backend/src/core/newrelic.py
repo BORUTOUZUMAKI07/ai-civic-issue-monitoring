@@ -63,7 +63,7 @@ def record_custom_event(event_type: str, params: dict) -> None:
         import newrelic.agent
 
         newrelic.agent.record_custom_event(event_type, params)
-    except Exception:  # pragma: no cover - defensive
+    except Exception:  # pragma: no cover - defensive  # telemetry must never break the request  # nosec B110
         pass
 
 
@@ -75,5 +75,5 @@ def add_custom_attribute(key: str, value) -> None:
         import newrelic.agent
 
         newrelic.agent.add_custom_attribute(key, value)
-    except Exception:  # pragma: no cover - defensive
+    except Exception:  # pragma: no cover - defensive  # telemetry must never break the request  # nosec B110
         pass
