@@ -6,6 +6,7 @@ from typing import Any
 
 from src.agents.state import AgentState
 from src.core.config import settings
+from src.core.llm import chat_completion_retryable
 
 logger = logging.getLogger(__name__)
 
@@ -68,13 +69,6 @@ async def _openai_classify(text: str) -> tuple[str, int, float] | None:
         return None
 
     try:
-        from openai import AsyncOpenAI
-
-        client = AsyncOpenAI(
-            api_key=settings.OPENAI_API_KEY,
-            base_url=settings.OPENAI_BASE_URL,
-        )
-
         prompt = f"""Classify this civic issue report into exactly one category and severity level.
 
 Issue description: "{text}"
@@ -94,7 +88,9 @@ Severity (1-5):
 Respond with ONLY a JSON object:
 {{"category": "<category>", "severity": <1-5>, "confidence": <0.0-1.0>, "reasoning": "<one sentence>"}}"""
 
-        response = await client.chat.completions.create(
+        # Shared client (connection pooling + timeout + SDK retries) wrapped in
+        # a tenacity backoff for transient upstream failures; see src/core/llm.
+        response = await chat_completion_retryable(
             model=settings.OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,

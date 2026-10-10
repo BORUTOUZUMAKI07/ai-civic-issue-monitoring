@@ -61,6 +61,20 @@ def create_app(lifespan_override=None):
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(RBACMiddleware)
 
+    # Prometheus scrape endpoint (RED metrics: rate, errors, duration), additive
+    # to New Relic rather than a replacement. Runtime-owned dashboards/alerts in
+    # Grafana-style tooling read from here; New Relic keeps APM + browser
+    # telemetry. Instrument *before* any ASGI-level wrapper (New Relic below)
+    # because `.instrument()` needs the FastAPI app's middleware API.
+    if settings.ENABLE_PROMETHEUS:
+        try:
+            from prometheus_fastapi_instrumentator import Instrumentator
+
+            Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+            logger.info("Prometheus metrics exposed at /metrics")
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Prometheus instrumentation failed to load: %s", exc)
+
     # New Relic APM: wrap the ASGI app when a license key is present.
     # No-op otherwise, so tests/CI/dev stay untouched.
     if newrelic_enabled():

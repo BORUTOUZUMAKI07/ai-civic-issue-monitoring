@@ -133,6 +133,13 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "llama-3.1-8b-instant"
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIMS: int = 1536
+    # Outbound LLM resilience: a shared client with a hard per-request timeout
+    # and bounded retries, so one slow OpenAI call cannot pin a worker forever.
+    OPENAI_TIMEOUT_SECONDS: float = 30.0
+    OPENAI_MAX_RETRIES: int = 2
+
+    # --- Prometheus /metrics (RED); additive to New Relic, not a replacement ---
+    ENABLE_PROMETHEUS: bool = True
 
     # --- HuggingFace (embeddings) ---
     HF_TOKEN: Optional[str] = None
@@ -140,6 +147,10 @@ class Settings(BaseSettings):
     # --- RAG ---
     RAG_SIMILARITY_THRESHOLD: float = 0.75
     RAG_TOP_K: int = 5
+    # Opt-in hybrid retrieval: fuse the dense vector ranking with BM25 lexical
+    # ranking via Reciprocal Rank Fusion. Off by default so retrieval behaviour
+    # is unchanged until `scripts/evaluate_ml.py --retrieval` shows it helps.
+    RETRIEVAL_HYBRID: bool = False
 
     # --- Intake Gate ---
     REJECT_THRESHOLD: float = 0.85  # vision non_civic prob above this → hard reject

@@ -34,6 +34,11 @@ dependencies = [
     "python-multipart>=0.0.18",
     "email-validator>=2.2.0",
     "httpx>=0.28.0",
+    # Retries with exponential backoff for outbound LLM + SMTP calls; a single
+    # slow/failed upstream should not turn into a slow/failed request.
+    "tenacity>=9.0.0",
+    # Prometheus /metrics (RED) independent of New Relic. Lightweight pure-py.
+    "prometheus-fastapi-instrumentator>=7.0.0",
     "pillow>=11.0.0",
     "pillow-heif>=0.19.0",
     # structlog renders the logs; stdlib `logging` still transports them to the
@@ -45,7 +50,6 @@ dependencies = [
     "langchain-core>=0.3.0",
     "openai>=1.50.0",
     "numpy>=1.26.0",
-    "newrelic>=9.0.0",
     "pyotp>=2.9.0",
 ]
 
@@ -76,6 +80,8 @@ dev = [
     # SQLite cannot exercise the JSONB columns, the issuetype enum, or the
     # ON DELETE rules introduced by migrations 005/007/008.
     "testcontainers[postgres]>=4.8.0",
+    # Property-based tests (tests/test_hypothesis.py).
+    "hypothesis>=6.100.0",
 ]
 ml = [
     "scikit-learn>=1.5.0",
@@ -86,6 +92,16 @@ ml = [
     "onnxruntime>=1.19.0",
     "onnx>=1.16.0",
     "tqdm>=4.66.0",
+]
+# New Relic APM agent. Kept OUT of the base dependencies on purpose: the agent
+# is a compiled extension with no CPython-3.12 Windows wheel, so a base-dep
+# declaration makes a fresh pixi solve build it from source (requires MSVC)
+# on every Windows contributor machine. The agent is only ever *loaded* when a
+# license key is present (see src/core/newrelic.py), so environments without
+# this extra run exactly the same code minus telemetry. The runtime image
+# installs it via `pip install ".[ml,apm]"` (backend/Dockerfile).
+apm = [
+    "newrelic>=9.0.0",
 ]
 
 [tool.pytest.ini_options]

@@ -83,6 +83,20 @@ version = ">=2.7.3"
 version = ">=4.8.0"
 extras = ["postgres"]
 
+# --- Outbound resilience: retries with exponential backoff for the OpenAI
+#     classifier and SMTP mailer (see src/core/llm.py, src/core/email.py). ---
+[pypi-dependencies.tenacity]
+version = ">=9.0.0"
+
+# --- RED metrics endpoint for Prometheus scrapers, independent of New Relic
+#     (see src/main.py; gated by ENABLE_PROMETHEUS). ---
+[pypi-dependencies.prometheus-fastapi-instrumentator]
+version = ">=7.0.0"
+
+# --- Property-based tests (backend/tests/test_hypothesis.py) ---
+[pypi-dependencies.hypothesis]
+version = ">=6.100.0"
+
 [feature.dev.dependencies]
 ruff = ">=0.8.0"
 mypy = ">=1.13.0"
@@ -100,6 +114,13 @@ pyyaml = ">=6.0"
 mlflow = ">=2.20.0"
 civicpulse-backend = {path = "./backend", editable = true, extras = ["ml"]}
 dvc-s3 = ">=3.3.0, <4"
+
+# Load testing with Locust against a real deployment
+# (backend/scripts/loadtest/locustfile.py). Deliberately NOT in the default
+# env: locust pulls gevent/msgpack/pyzmq, which would bloat the CI solve and
+# widen the pip-audit surface for zero runtime benefit.
+[feature.loadtest.pypi-dependencies]
+locust = ">=2.31.0"
 
 # Prefect ORCHESTRATION for the 5 data/MLEngineering flows.
 # Flows run in Prefect Cloud (managed) at runtime; this env is used locally to
@@ -150,9 +171,17 @@ prefect-check-connections = { cmd = "python prefect/check_connections.py" }
 prefect-deploy = { cmd = "python prefect/deploy.py" }
 prefect-test = { cmd = "python -m pytest prefect/tests/ -v" }
 prefect-register = { cmd = "python -m prefect flow register" }
+# ML evaluation harness (classifier P/R/F1, retrieval MRR/NDCG). See
+# backend/scripts/evaluate_ml.py --help. Offline + deterministic by default.
+evaluate-ml = { cmd = "python scripts/evaluate_ml.py", cwd = "backend" }
+# Load-test smoke suite. Needs the loadtest env (locust):
+#   pixi run -e loadtest -- loadtest --host https://api.example.com
+# or plain: pixi run -e loadtest -- locust -f backend/scripts/loadtest/locustfile.py --host ...
+loadtest = { cmd = "locust -f scripts/loadtest/locustfile.py", cwd = "backend" }
 
 [environments]
 default = { features = ["dev", "ml"], solve-group = "default" }
 ml = { features = ["ml"], solve-group = "default" }
 ci = { features = ["dev"], solve-group = "default" }
 prefect = { features = ["prefect"], solve-group = "default" }
+loadtest = { features = ["loadtest"], solve-group = "default" }
