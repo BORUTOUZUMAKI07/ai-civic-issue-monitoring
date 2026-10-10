@@ -35,6 +35,8 @@ from connections import (
     get_mongo_uri,
 )
 
+DAGSHUB_USER = DAGSHUB_USER or os.getenv("DAGSHUB_USERNAME") or "ram.atchutratna"
+DAGSHUB_REPO = DAGSHUB_REPO or os.getenv("DAGSHUB_REPO") or "ai-civic-issue-monitoring"
 DAGSHUB_GIT_URL = f"https://dagshub.com/{DAGSHUB_USER}/{DAGSHUB_REPO}.git"
 MLFLOW_EXPERIMENT = "civicpulse-peft-lora"
 MLFLOW_RUN_NAME = "final-peft-model"

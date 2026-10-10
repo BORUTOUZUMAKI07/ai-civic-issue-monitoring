@@ -20,7 +20,7 @@ import os
 from prefect.blocks.system import Secret
 
 DAGSHUB_REPO = os.getenv("DAGSHUB_REPO", "ai-civic-issue-monitoring")
-DAGSHUB_USER = os.getenv("DAGSHUB_USERNAME", "")
+DAGSHUB_USER = os.getenv("DAGSHUB_USERNAME") or os.getenv("DAGSHUB_USER") or "ram.atchutratna"
 MLFLOW_BASE = f"https://dagshub.com/{DAGSHUB_USER}/{DAGSHUB_REPO}.mlflow/api/2.0/mlflow"
 
 

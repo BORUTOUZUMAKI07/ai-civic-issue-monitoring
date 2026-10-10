@@ -11,19 +11,27 @@ on:
         description: "Epochs for final model training"
         required: false
         default: "15"
-  # Auto-start on any push to main. A job-level guard (see 'train' job) only
-  # runs the full training for pushes whose subject begins with a Prefect
-  # retrain trigger, or for workflow_dispatch, or when training-relevant paths
-  # change. This lets the empty commit pushed by Prefect retrain-model kick off
-  # training automatically.
+  # Auto-start on any push to main. The job-level guard below then narrows that
+  # to workflow_dispatch and to pushes whose subject begins with "Prefect
+  # retrain trigger" — the empty commit retrain_model.py pushes when it detects
+  # drift. Ordinary pushes to main do NOT start training.
   push:
     branches: [main]
+
+# Needed so the "Push model and Optuna study to DVC" step can publish the
+# `.dvc` pointer commits back to main. Without it the commit is created and
+# immediately discarded with the runner.
+permissions:
+  contents: write
 
 env:
   DATA_PATH: data/raw
   MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
   MLFLOW_TRACKING_USERNAME: ${{ secrets.DAGSHUB_USERNAME }}
   MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
+  # Resolved to "" on push events (the `inputs` context is empty there).
+  # train.py treats an empty value as "unset" and falls back to
+  # configs/training.yaml, so one line drives both event types.
   TRAIN_N_TRIALS: ${{ inputs.n_trials }}
   TRAIN_FINAL_EPOCHS: ${{ inputs.final_epochs }}
 
@@ -57,21 +65,72 @@ jobs:
 
       - name: Install training dependencies
         run: |
-          pip install torch torchvision peft optuna mlflow scikit-learn pandas pillow pyyaml
+          # CPU wheels: the runner has no GPU, and the default index hands
+          # back multi-gigabyte CUDA builds of torch/torchvision.
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          # Install the project itself rather than a hand-maintained package
+          # list. The previous list omitted tqdm and mlflow — both imported at
+          # module scope by train.py — and only worked because optuna happened
+          # to pull tqdm in transitively.
+          pip install "./backend[ml]" mlflow
 
       - name: Run training
-        run: |
-          cd backend
-          python -m src.ml.training.train
+        # MUST run from the repository root. train.py resolves DATA_PATH,
+        # ADAPTER_DIR and METRICS_PATH relative to the working directory, and
+        # `dvc pull` lays data/raw, models/ and metrics/ down at the root.
+        # The old `cd backend` sent every one of those to a directory that
+        # does not exist, so the run died at train.py's data check with
+        # "Data path not found". PYTHONPATH supplies the import path that the
+        # `cd` used to provide.
+        run: PYTHONPATH="$GITHUB_WORKSPACE/backend" python -m src.ml.training.train
 
-      - name: Push model and Optuna study to DVC
+      - name: Push model, metrics and Optuna study to DVC
         run: |
-          dvc add models/model.pth models/adapter backend/optuna_v3.db || true
+          set -euo pipefail
+
+          # Collect only the artifacts this run actually produced. Search-only
+          # runs (final_epochs <= 0) return before model.pth is written, and
+          # failing `dvc add` on a missing file is not an error worth killing
+          # an otherwise successful training over.
+          paths=()
+          for p in models/model.pth models/adapter optuna_v3.db metrics; do
+            if [ -e "$p" ]; then
+              paths+=("$p")
+            else
+              echo "::notice::Skipping $p — not produced by this run"
+            fi
+          done
+          if [ "${#paths[@]}" -eq 0 ]; then
+            echo "::error::Training finished without producing any artifact"
+            exit 1
+          fi
+
+          # No `|| true`: swallowing a failure here used to let the step
+          # continue with stale pointers, so a broken `dvc add` was invisible
+          # and the job reported green while publishing nothing.
+          dvc add "${paths[@]}"
+
+          # Data first, pointers second. Committing the `.dvc` files before
+          # the blobs exist upstream would leave main referencing objects that
+          # `dvc pull` cannot fetch.
+          dvc push -r origin --jobs 4
+
           git config user.email "dagshub-action"
           git config user.name "DagsHub Action"
-          git add models/model.pth.dvc models/adapter.dvc backend/optuna_v3.db.dvc metrics/
-          git diff --cached --quiet || git commit -m "Update model + Optuna study (DagsHub Action)"
-          dvc push -r origin
+          # `metrics/` itself is gitignored (tracked as metrics.dvc), which is
+          # why the old `git add ... metrics/` errored out. Stage the pointers
+          # and the .gitignore entries dvc writes instead.
+          git add '*.dvc' .gitignore
+
+          if git diff --cached --quiet; then
+            echo "No DVC-tracked changes to commit."
+          else
+            git commit -m "Update model + Optuna study (DagsHub Action)"
+            # Previously missing: the commit was made and thrown away with the
+            # runner, so every run re-derived the same state and the history
+            # in DagsHub never advanced.
+            git push origin HEAD
+          fi
 
       - name: Upload adapter as artifact
         uses: actions/upload-artifact@v4

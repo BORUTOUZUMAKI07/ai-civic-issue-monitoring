@@ -14,7 +14,7 @@ import json
 import logging
 import os
 import random
-import subprocess
+import subprocess  # only the constant argv below, never a shell  # nosec B404
 import sys
 import tempfile
 import time
@@ -70,7 +70,12 @@ def load_config() -> dict:
     """Load training config (search space + run settings) from YAML."""
     if CONFIG_PATH.exists():
         with open(CONFIG_PATH) as f:
-            return yaml.safe_load(f)
+            loaded = yaml.safe_load(f)
+        # `safe_load` returns `Any` (and `None` for an empty file); only a
+        # mapping is meaningful here, and returning it unchecked would let an
+        # empty `training.yaml` become a `None` that every `config[...]`
+        # downstream turns into a `TypeError` deep inside the search space.
+        return dict(loaded) if isinstance(loaded, dict) else {}
     return {}
 
 
@@ -180,7 +185,9 @@ def get_combined_dataloaders(data_path: str, batch_size: int) -> tuple[DataLoade
     """train+val combined (for final training); test kept for final eval."""
     train_loader, val_loader, test_loader, classes = get_dataloaders(data_path, batch_size)
 
-    combined = ConcatDataset(
+    # Explicitly annotated: `ConcatDataset` is generic, and letting mypy infer
+    # from the constructor alone reported "need type annotation".
+    combined: ConcatDataset = ConcatDataset(
         [
             datasets.ImageFolder(str(Path(data_path) / "train"), transform=make_train_transform()),
             datasets.ImageFolder(str(Path(data_path) / "val"), transform=make_train_transform()),
@@ -242,7 +249,9 @@ def count_trainable(model) -> tuple[int, int, float]:
 def git_commit() -> str:
     """Current HEAD hash for reproducibility."""
     try:
-        return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL
+        ).strip()  # constant argv, shell=False, no untrusted input  # nosec B603 B607
     except Exception:
         return "unknown"
 
@@ -458,7 +467,7 @@ def objective(trial: optuna.Trial, data_path: str, n_epochs: int) -> float:
         )
         try:
             mlflow.end_run()
-        except Exception:
+        except Exception:  # best-effort MLflow teardown  # nosec B110
             pass
 
     logger.info(
@@ -484,9 +493,17 @@ def main():
 
     config = load_config()
     # Env-var overrides allow right-sizing CPU/GPU runs without editing config.
-    n_trials = int(os.getenv("TRAIN_N_TRIALS", config.get("optuna", {}).get("n_trials", 20)))
-    n_epochs = int(os.getenv("TRAIN_EPOCHS", config.get("training", {}).get("epochs", 20)))
-    final_epochs = int(os.getenv("TRAIN_FINAL_EPOCHS", str(n_epochs)))
+    #
+    # `os.getenv(key, default)` only falls back when the variable is *absent*.
+    # `workflow_dispatch` sets these from its inputs, and on a `push` event the
+    # `inputs` context is empty — GitHub still *defines* the variable, just as
+    # "" — so `int("" )` raised `ValueError` and killed every Prefect-triggered
+    # run before a single epoch. `x or default` treats "unset" and "set to
+    # nothing" the same, which is the only reading that makes one workflow do
+    # the right thing for both event types.
+    n_trials = int(os.getenv("TRAIN_N_TRIALS") or config.get("optuna", {}).get("n_trials", 20))
+    n_epochs = int(os.getenv("TRAIN_EPOCHS") or config.get("training", {}).get("epochs", 20))
+    final_epochs = int(os.getenv("TRAIN_FINAL_EPOCHS") or str(n_epochs))
 
     # Set up MLflow
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
@@ -511,13 +528,34 @@ def main():
         pruner=optuna.pruners.NopPruner(),
     )
     logger.info("Starting Optuna study %s with %d trials (%d epochs each)", study_name, n_trials, n_epochs)
-    study.optimize(
-        lambda trial: objective(trial, DATA_PATH, n_epochs),
-        n_trials=n_trials,
-        # A failed trial (e.g. MLflow offline, transient error) is recorded as
-        # FAILED and the study continues instead of aborting the whole run.
-        catch=(Exception,),
-    )
+    if n_trials > 0:
+        study.optimize(
+            lambda trial: objective(trial, DATA_PATH, n_epochs),
+            n_trials=n_trials,
+            # A failed trial (e.g. MLflow offline, transient error) is recorded as
+            # FAILED and the study continues instead of aborting the whole run.
+            catch=(Exception,),
+        )
+    else:
+        # `n_trials=0` is the documented "final training only" switch, and it
+        # only means anything against a study that already holds results — the
+        # Optuna database is restored from DVC, not written by this run. On a
+        # fresh storage `study.best_params` would otherwise explode inside
+        # Optuna with "No trials are completed", an error that says nothing
+        # about the actual mistake. Fail here, saying what is wrong.
+        completed = sum(1 for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE)
+        if completed == 0:
+            logger.error(
+                "TRAIN_N_TRIALS=0 but Optuna study %r has no completed trials in %s. "
+                "Re-run with n_trials > 0, or restore the study database (dvc pull) first.",
+                study_name,
+                storage_url,
+            )
+            sys.exit(1)
+        logger.info(
+            "TRAIN_N_TRIALS=0: search skipped, reusing %d existing completed trial(s)",
+            completed,
+        )
 
     best_params = study.best_params
     logger.info("Best params: %s (best val macro-F1: %.4f)", best_params, study.best_value)
@@ -684,7 +722,7 @@ def main():
     if active_run is not None:
         try:
             mlflow.end_run()
-        except Exception:
+        except Exception:  # best-effort MLflow teardown  # nosec B110
             pass
 
     # Save adapter weights BEFORE any merge: merge_and_unload() removes the
