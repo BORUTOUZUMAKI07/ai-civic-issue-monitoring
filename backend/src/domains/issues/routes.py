@@ -5,7 +5,8 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, Query, UploadFile
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
@@ -190,6 +191,7 @@ async def upload_issue(
     longitude: str = Form(...),
     description: str = Form(""),
     force_submit: str = Form("false"),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
@@ -198,15 +200,141 @@ async def upload_issue(
     force = force_submit.lower() == "true"
 
     content = await file.read()
+    filename = file.filename or "image.jpg"
+
+    if idempotency_key is not None:
+        return await _idempotent_upload(
+            db=db,
+            user=user,
+            key=idempotency_key,
+            filename=filename,
+            content=content,
+            lat_val=lat_val,
+            lon_val=lon_val,
+            description=description,
+            force=force,
+        )
+
+    return await _execute_upload(
+        db=db,
+        user=user,
+        filename=filename,
+        content=content,
+        lat_val=lat_val,
+        lon_val=lon_val,
+        description=description,
+        force=force,
+    )
+
+
+def _idempotency_in_progress() -> JSONResponse:
+    """409 while the original request carrying this key is still running."""
+    return JSONResponse(
+        status_code=409,
+        content={
+            "detail": "A request with this Idempotency-Key is already in progress.",
+            "error_code": "IDEMPOTENCY_IN_PROGRESS",
+        },
+        headers={"Retry-After": "1"},
+    )
+
+
+async def _idempotent_upload(
+    *,
+    db: AsyncSession,
+    user: User,
+    key: str,
+    filename: str,
+    content: bytes,
+    lat_val: float,
+    lon_val: float,
+    description: str,
+    force: bool,
+) -> IssueResponse | JSONResponse:
+    """Run the upload at most once per (user, key).
+
+    Returns the stored response verbatim on a replay, 409 while the original is
+    in flight, and 400 when the key is reused for a different request. On a
+    genuine failure the record is marked ``failed`` so the client's retry
+    proceeds; on success it is marked ``succeeded`` and the response is stored.
+    """
+    from src.domains.issues.idempotency import (
+        MAX_KEY_LENGTH,
+        get_record,
+        hash_request,
+        mark_failed,
+        mark_succeeded,
+        reclaim_failed,
+        start_in_progress,
+    )
+    from src.models.idempotency import IdempotencyStatus
+
+    key = key.strip()
+    if not key or len(key) > MAX_KEY_LENGTH:
+        raise BadRequestError(f"Idempotency-Key must be between 1 and {MAX_KEY_LENGTH} characters.")
+
+    request_hash = hash_request(user.id, lat_val, lon_val, description, force, filename, content)
+
+    record = await get_record(db, user.id, key)
+    if record is not None:
+        if record.request_sha256 != request_hash:
+            raise BadRequestError("Idempotency-Key was already used for a different request.")
+        if record.status == IdempotencyStatus.succeeded and record.response_body:
+            return JSONResponse(
+                content=json.loads(record.response_body),
+                status_code=record.response_status or 200,
+                headers={"Idempotency-Replayed": "true"},
+            )
+        if record.status == IdempotencyStatus.in_progress:
+            return _idempotency_in_progress()
+        # `failed` -> a retry may reclaim it; only one concurrent retry wins.
+        if not await reclaim_failed(db, record):
+            return _idempotency_in_progress()
+    else:
+        record = await start_in_progress(db, user.id, key, request_hash)
+        if record is None:
+            # Lost the insert race to a concurrent identical request.
+            return _idempotency_in_progress()
+
+    try:
+        result = await _execute_upload(
+            db=db,
+            user=user,
+            filename=filename,
+            content=content,
+            lat_val=lat_val,
+            lon_val=lon_val,
+            description=description,
+            force=force,
+        )
+    except Exception:
+        await mark_failed(db, record)
+        raise
+
+    await mark_succeeded(db, record, 200, result.model_dump(mode="json"))
+    return result
+
+
+async def _execute_upload(
+    *,
+    db: AsyncSession,
+    user: User,
+    filename: str,
+    content: bytes,
+    lat_val: float,
+    lon_val: float,
+    description: str,
+    force: bool,
+) -> IssueResponse:
     svc = IssueService(db)
-    svc.validate_image(file.filename or "image.jpg", content)
+    svc.validate_image(filename, content)
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    ext = (file.filename or "image.jpg").split(".")[-1]
-    filename = f"{uuid.uuid4().hex}.{ext}"
-    filepath = UPLOAD_DIR / filename
+    ext = filename.split(".")[-1]
+    stored_name = f"{uuid.uuid4().hex}.{ext}"
+    filepath = UPLOAD_DIR / stored_name
     await asyncio.to_thread(filepath.write_bytes, content)
-    image_url = f"/uploads/issues/{filename}"
+    image_url = f"/uploads/issues/{stored_name}"
 
     vision = await asyncio.to_thread(_classify_image, content)
     gate = gate_decision(vision, description, force)

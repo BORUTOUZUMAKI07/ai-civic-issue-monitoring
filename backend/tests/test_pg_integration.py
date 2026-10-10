@@ -7,8 +7,9 @@ These tests need Docker. They are deliberately excluded from the default
 ``test-integration`` pixi task and the ``backend-integration`` CI job.
 
 Why a real database at all? The schema features that SQLite cannot express —
-the ``JSONB`` columns, the ``issuetype`` enum, and the ``ON DELETE`` rules
-introduced by migrations 005/007/008 — are exactly the ones worth proving
+the ``JSONB`` columns, the ``issuetype`` enum, the ``ON DELETE`` rules
+introduced by migrations 005/007/008, and the ``idempotency_keys`` table from
+009 — are exactly the ones worth proving
 against PostgreSQL. The suite never trusts that a migration chain "probably
 applied"; it runs the real ``alembic upgrade head`` against a fresh
 ``postgres:16-alpine`` container and asserts on the catalog plus the runtime
@@ -122,7 +123,7 @@ async def _clean_db(pg_engine):
     async with pg_engine.begin() as conn:
         await conn.execute(
             text(
-                "TRUNCATE assignments, resolutions, issues, engineers, wards, users "
+                "TRUNCATE idempotency_keys, assignments, resolutions, issues, engineers, wards, users "
                 "RESTART IDENTITY CASCADE"
             )
         )
@@ -141,10 +142,10 @@ async def conn(pg_engine):
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def test_alembic_reached_head(pg_engine) -> None:
-    """The full chain 001→008 applied; the head revision is 008."""
+    """The full chain 001→009 applied; the head revision is 009."""
     async with pg_engine.connect() as c:
         version = await c.scalar(text("SELECT version_num FROM alembic_version"))
-    assert version == "008"
+    assert version == "009"
 
     async with pg_engine.connect() as c:
         tables = {
@@ -156,7 +157,15 @@ async def test_alembic_reached_head(pg_engine) -> None:
                 )
             )
         }
-    assert {"users", "wards", "engineers", "issues", "assignments", "resolutions"} <= tables
+    assert {
+        "users",
+        "wards",
+        "engineers",
+        "issues",
+        "assignments",
+        "resolutions",
+        "idempotency_keys",
+    } <= tables
 
 
 async def test_issue_type_enum_has_exactly_three_values(pg_engine) -> None:
