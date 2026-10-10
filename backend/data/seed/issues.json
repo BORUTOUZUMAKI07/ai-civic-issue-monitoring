@@ -1,402 +1,402 @@
 [
   {
     "issue_type": "garbage",
-    "latitude": 22.34314723074926,
-    "longitude": 73.17977819920853,
-    "ward_name": "Gotri",
-    "status": "in_progress",
-    "severity": 3
-  },
-  {
-    "issue_type": "garbage",
-    "latitude": 22.28429012502757,
-    "longitude": 73.1666329277686,
-    "ward_name": "Sayajipura",
-    "status": "in_progress",
-    "severity": 3
-  },
-  {
-    "issue_type": "waterlogging",
-    "latitude": 22.332951724917866,
-    "longitude": 73.15000965118186,
-    "ward_name": "Kalali",
-    "status": "in_progress",
-    "severity": 3
-  },
-  {
-    "issue_type": "debris",
-    "latitude": 22.281731346435702,
-    "longitude": 73.19265924262982,
-    "ward_name": "Manjalpur",
-    "status": "in_progress",
-    "severity": 4
-  },
-  {
-    "issue_type": "sewage",
-    "latitude": 22.292584816769022,
-    "longitude": 73.17704135095163,
-    "ward_name": "Mandvi",
-    "status": "resolved",
-    "severity": 4
-  },
-  {
-    "issue_type": "pothole",
-    "latitude": 22.373494767765525,
-    "longitude": 73.17177174100966,
-    "ward_name": "Harni",
-    "status": "reported",
-    "severity": 5
-  },
-  {
-    "issue_type": "road_damage",
-    "latitude": 22.33629817311209,
-    "longitude": 73.15270379626806,
-    "ward_name": "Kalali",
-    "status": "resolved",
-    "severity": 4
-  },
-  {
-    "issue_type": "sewage",
-    "latitude": 22.318065487958425,
-    "longitude": 73.18150216717895,
-    "ward_name": "Alkapuri",
-    "status": "in_progress",
-    "severity": 3
-  },
-  {
-    "issue_type": "broken_streetlight",
-    "latitude": 22.312966160139663,
-    "longitude": 73.17616085931613,
-    "ward_name": "Nyay Mandir",
-    "status": "resolved",
-    "severity": 5
-  },
-  {
-    "issue_type": "debris",
-    "latitude": 22.323048383170306,
-    "longitude": 73.17766987055336,
-    "ward_name": "Nizampura",
-    "status": "in_progress",
-    "severity": 3
-  },
-  {
-    "issue_type": "debris",
-    "latitude": 22.33030108522147,
-    "longitude": 73.18060388375653,
-    "ward_name": "Nizampura",
-    "status": "resolved",
-    "severity": 5
-  },
-  {
-    "issue_type": "debris",
-    "latitude": 22.349565304679324,
-    "longitude": 73.17763845082759,
-    "ward_name": "Gotri",
-    "status": "resolved",
-    "severity": 4
-  },
-  {
-    "issue_type": "road_damage",
-    "latitude": 22.324839707489474,
-    "longitude": 73.15672690484578,
-    "ward_name": "Akota",
-    "status": "reported",
-    "severity": 1
-  },
-  {
-    "issue_type": "pothole",
-    "latitude": 22.29045889577064,
-    "longitude": 73.1677040602142,
-    "ward_name": "Sayajipura",
-    "status": "reported",
-    "severity": 2
-  },
-  {
-    "issue_type": "pothole",
-    "latitude": 22.297158899032897,
-    "longitude": 73.17861411140734,
-    "ward_name": "Mandvi",
-    "status": "reported",
-    "severity": 3
-  },
-  {
-    "issue_type": "road_damage",
-    "latitude": 22.299790834473622,
-    "longitude": 73.17651675179134,
-    "ward_name": "Mandvi",
-    "status": "reported",
-    "severity": 5
-  },
-  {
-    "issue_type": "road_damage",
-    "latitude": 22.32427573429379,
-    "longitude": 73.17819738567076,
-    "ward_name": "Nizampura",
-    "status": "in_progress",
-    "severity": 2
-  },
-  {
-    "issue_type": "waterlogging",
-    "latitude": 22.30975621706035,
-    "longitude": 73.18874609097394,
-    "ward_name": "Fatehganj",
-    "status": "reported",
-    "severity": 2
-  },
-  {
-    "issue_type": "waterlogging",
-    "latitude": 22.315018175086852,
-    "longitude": 73.17822556520407,
-    "ward_name": "Alkapuri",
-    "status": "reported",
-    "severity": 4
-  },
-  {
-    "issue_type": "road_damage",
-    "latitude": 22.3486349755841,
-    "longitude": 73.18150186272652,
-    "ward_name": "Gotri",
-    "status": "reported",
-    "severity": 4
-  },
-  {
-    "issue_type": "broken_streetlight",
-    "latitude": 22.295719978893228,
-    "longitude": 73.17945879966442,
-    "ward_name": "Mandvi",
-    "status": "reported",
-    "severity": 5
-  },
-  {
-    "issue_type": "waterlogging",
-    "latitude": 22.347940014662004,
-    "longitude": 73.1794015358794,
-    "ward_name": "Gotri",
-    "status": "resolved",
-    "severity": 5
-  },
-  {
-    "issue_type": "broken_streetlight",
-    "latitude": 22.26757708396401,
-    "longitude": 73.17236509230099,
-    "ward_name": "Tarsali",
-    "status": "in_progress",
-    "severity": 2
-  },
-  {
-    "issue_type": "waterlogging",
-    "latitude": 22.291316816794964,
-    "longitude": 73.17262966529148,
-    "ward_name": "Sayajipura",
-    "status": "in_progress",
-    "severity": 2
-  },
-  {
-    "issue_type": "garbage",
-    "latitude": 22.34910229572841,
-    "longitude": 73.18429593672289,
-    "ward_name": "Gotri",
-    "status": "in_progress",
-    "severity": 4
-  },
-  {
-    "issue_type": "garbage",
-    "latitude": 22.353121315195686,
-    "longitude": 73.15268498713901,
-    "ward_name": "Atladara",
-    "status": "in_progress",
-    "severity": 5
-  },
-  {
-    "issue_type": "road_damage",
-    "latitude": 22.341460213824465,
-    "longitude": 73.15227865938489,
-    "ward_name": "Kalali",
-    "status": "resolved",
-    "severity": 2
-  },
-  {
-    "issue_type": "broken_streetlight",
-    "latitude": 22.3047211093118,
-    "longitude": 73.19140366006597,
-    "ward_name": "Fatehganj",
-    "status": "reported",
-    "severity": 3
-  },
-  {
-    "issue_type": "debris",
-    "latitude": 22.27418476112622,
-    "longitude": 73.19099315889282,
-    "ward_name": "Manjalpur",
-    "status": "resolved",
-    "severity": 2
-  },
-  {
-    "issue_type": "waterlogging",
-    "latitude": 22.38098054025773,
-    "longitude": 73.16856086835342,
-    "ward_name": "Harni",
-    "status": "in_progress",
-    "severity": 4
-  },
-  {
-    "issue_type": "debris",
-    "latitude": 22.360791701813387,
-    "longitude": 73.15015604880618,
-    "ward_name": "Atladara",
-    "status": "reported",
-    "severity": 5
-  },
-  {
-    "issue_type": "garbage",
-    "latitude": 22.34317907831645,
-    "longitude": 73.16562840617746,
-    "ward_name": "Sama",
-    "status": "resolved",
-    "severity": 3
-  },
-  {
-    "issue_type": "debris",
-    "latitude": 22.305417793294904,
-    "longitude": 73.18986976245087,
-    "ward_name": "Fatehganj",
-    "status": "resolved",
-    "severity": 5
-  },
-  {
-    "issue_type": "pothole",
-    "latitude": 22.32760180238648,
-    "longitude": 73.18402509837317,
-    "ward_name": "Nizampura",
-    "status": "resolved",
-    "severity": 4
-  },
-  {
-    "issue_type": "pothole",
-    "latitude": 22.325989745462643,
-    "longitude": 73.1636003549075,
-    "ward_name": "Akota",
-    "status": "resolved",
-    "severity": 3
-  },
-  {
-    "issue_type": "road_damage",
-    "latitude": 22.37768812081668,
-    "longitude": 73.16628611595031,
-    "ward_name": "Harni",
-    "status": "reported",
-    "severity": 3
-  },
-  {
-    "issue_type": "garbage",
-    "latitude": 22.338427708761337,
-    "longitude": 73.19409735367118,
+    "latitude": 22.332962704856044,
+    "longitude": 73.19228925630318,
     "ward_name": "Wadi",
-    "status": "in_progress",
+    "status": "resolved",
     "severity": 5
   },
   {
-    "issue_type": "debris",
-    "latitude": 22.278370147547648,
-    "longitude": 73.19499807095262,
-    "ward_name": "Manjalpur",
-    "status": "resolved",
-    "severity": 4
-  },
-  {
     "issue_type": "garbage",
-    "latitude": 22.30774334363289,
-    "longitude": 73.1890158219493,
-    "ward_name": "Fatehganj",
-    "status": "reported",
-    "severity": 4
-  },
-  {
-    "issue_type": "waterlogging",
-    "latitude": 22.278589842903074,
-    "longitude": 73.18836563694988,
-    "ward_name": "Manjalpur",
-    "status": "in_progress",
-    "severity": 1
-  },
-  {
-    "issue_type": "garbage",
-    "latitude": 22.3220055007662,
-    "longitude": 73.17186791027152,
-    "ward_name": "Nyay Mandir",
-    "status": "reported",
-    "severity": 4
-  },
-  {
-    "issue_type": "pothole",
-    "latitude": 22.33687946647579,
-    "longitude": 73.19330767397092,
-    "ward_name": "Wadi",
-    "status": "reported",
-    "severity": 3
-  },
-  {
-    "issue_type": "waterlogging",
-    "latitude": 22.3503886218244,
-    "longitude": 73.16009719646704,
-    "ward_name": "Sama",
-    "status": "resolved",
-    "severity": 4
-  },
-  {
-    "issue_type": "road_damage",
-    "latitude": 22.348210567506463,
-    "longitude": 73.18413750376973,
-    "ward_name": "Gotri",
-    "status": "in_progress",
-    "severity": 2
-  },
-  {
-    "issue_type": "pothole",
-    "latitude": 22.28386954462809,
-    "longitude": 73.1746197965276,
-    "ward_name": "Sayajipura",
-    "status": "resolved",
-    "severity": 1
-  },
-  {
-    "issue_type": "broken_streetlight",
-    "latitude": 22.30619169440258,
-    "longitude": 73.16893481338568,
+    "latitude": 22.31084864124472,
+    "longitude": 73.16748355126833,
     "ward_name": "Raopura",
     "status": "resolved",
+    "severity": 1
+  },
+  {
+    "issue_type": "garbage",
+    "latitude": 22.311041332643793,
+    "longitude": 73.16625729985476,
+    "ward_name": "Raopura",
+    "status": "reported",
+    "severity": 1
+  },
+  {
+    "issue_type": "pothole",
+    "latitude": 22.363960605805364,
+    "longitude": 73.15935588472001,
+    "ward_name": "Bhayli",
+    "status": "reported",
+    "severity": 3
+  },
+  {
+    "issue_type": "pothole",
+    "latitude": 22.332226607108414,
+    "longitude": 73.14957662207077,
+    "ward_name": "Kalali",
+    "status": "resolved",
+    "severity": 5
+  },
+  {
+    "issue_type": "pothole",
+    "latitude": 22.30766724468902,
+    "longitude": 73.18668415085138,
+    "ward_name": "Fatehganj",
+    "status": "reported",
+    "severity": 1
+  },
+  {
+    "issue_type": "pothole",
+    "latitude": 22.31731048823051,
+    "longitude": 73.18575047920542,
+    "ward_name": "Alkapuri",
+    "status": "in_progress",
+    "severity": 1
+  },
+  {
+    "issue_type": "pothole",
+    "latitude": 22.2811569404217,
+    "longitude": 73.1924838942597,
+    "ward_name": "Manjalpur",
+    "status": "reported",
+    "severity": 4
+  },
+  {
+    "issue_type": "debris",
+    "latitude": 22.291480704511752,
+    "longitude": 73.17123183809916,
+    "ward_name": "Sayajipura",
+    "status": "in_progress",
     "severity": 2
   },
   {
-    "issue_type": "road_damage",
-    "latitude": 22.33407005087625,
-    "longitude": 73.16769741351898,
+    "issue_type": "debris",
+    "latitude": 22.341886750735984,
+    "longitude": 73.19010137669659,
+    "ward_name": "Wadi",
+    "status": "reported",
+    "severity": 1
+  },
+  {
+    "issue_type": "debris",
+    "latitude": 22.358524270916874,
+    "longitude": 73.14651794450941,
+    "ward_name": "Atladara",
+    "status": "in_progress",
+    "severity": 3
+  },
+  {
+    "issue_type": "garbage",
+    "latitude": 22.358283287817482,
+    "longitude": 73.16680702106227,
+    "ward_name": "Karelibaug",
+    "status": "in_progress",
+    "severity": 3
+  },
+  {
+    "issue_type": "debris",
+    "latitude": 22.361191896128254,
+    "longitude": 73.1685245388617,
+    "ward_name": "Karelibaug",
+    "status": "in_progress",
+    "severity": 2
+  },
+  {
+    "issue_type": "garbage",
+    "latitude": 22.27635793046914,
+    "longitude": 73.19175619049265,
+    "ward_name": "Manjalpur",
+    "status": "reported",
+    "severity": 1
+  },
+  {
+    "issue_type": "garbage",
+    "latitude": 22.317593653518898,
+    "longitude": 73.17111826102493,
+    "ward_name": "Nyay Mandir",
+    "status": "resolved",
+    "severity": 1
+  },
+  {
+    "issue_type": "garbage",
+    "latitude": 22.290320743213023,
+    "longitude": 73.16625691528006,
+    "ward_name": "Sayajipura",
+    "status": "resolved",
+    "severity": 3
+  },
+  {
+    "issue_type": "pothole",
+    "latitude": 22.280526599087228,
+    "longitude": 73.1873757210688,
+    "ward_name": "Manjalpur",
+    "status": "resolved",
+    "severity": 2
+  },
+  {
+    "issue_type": "debris",
+    "latitude": 22.32727311458344,
+    "longitude": 73.18472296656371,
+    "ward_name": "Nizampura",
+    "status": "in_progress",
+    "severity": 4
+  },
+  {
+    "issue_type": "debris",
+    "latitude": 22.357299653583265,
+    "longitude": 73.17417641545737,
+    "ward_name": "Karelibaug",
+    "status": "in_progress",
+    "severity": 2
+  },
+  {
+    "issue_type": "debris",
+    "latitude": 22.331339915035148,
+    "longitude": 73.15651250802763,
+    "ward_name": "Akota",
+    "status": "reported",
+    "severity": 5
+  },
+  {
+    "issue_type": "pothole",
+    "latitude": 22.350583890395093,
+    "longitude": 73.17737598629896,
+    "ward_name": "Gotri",
+    "status": "in_progress",
+    "severity": 2
+  },
+  {
+    "issue_type": "garbage",
+    "latitude": 22.276137758253356,
+    "longitude": 73.1918500251493,
+    "ward_name": "Manjalpur",
+    "status": "reported",
+    "severity": 2
+  },
+  {
+    "issue_type": "pothole",
+    "latitude": 22.30574441434865,
+    "longitude": 73.18882018789297,
+    "ward_name": "Fatehganj",
+    "status": "in_progress",
+    "severity": 4
+  },
+  {
+    "issue_type": "debris",
+    "latitude": 22.32906324488421,
+    "longitude": 73.1832124329264,
+    "ward_name": "Nizampura",
+    "status": "reported",
+    "severity": 3
+  },
+  {
+    "issue_type": "pothole",
+    "latitude": 22.329443820185087,
+    "longitude": 73.16215804931936,
+    "ward_name": "Akota",
+    "status": "reported",
+    "severity": 4
+  },
+  {
+    "issue_type": "debris",
+    "latitude": 22.29948613533181,
+    "longitude": 73.17826299448132,
+    "ward_name": "Mandvi",
+    "status": "resolved",
+    "severity": 3
+  },
+  {
+    "issue_type": "garbage",
+    "latitude": 22.334833960422074,
+    "longitude": 73.17284972942201,
     "ward_name": "Subhanpura",
+    "status": "in_progress",
+    "severity": 3
+  },
+  {
+    "issue_type": "garbage",
+    "latitude": 22.317935610774285,
+    "longitude": 73.17133504681806,
+    "ward_name": "Nyay Mandir",
+    "status": "in_progress",
+    "severity": 1
+  },
+  {
+    "issue_type": "debris",
+    "latitude": 22.315644975961987,
+    "longitude": 73.17305469306007,
+    "ward_name": "Nyay Mandir",
+    "status": "reported",
+    "severity": 2
+  },
+  {
+    "issue_type": "debris",
+    "latitude": 22.37059100870993,
+    "longitude": 73.15678032493884,
+    "ward_name": "Bhayli",
+    "status": "reported",
+    "severity": 5
+  },
+  {
+    "issue_type": "pothole",
+    "latitude": 22.317101811099683,
+    "longitude": 73.16924057637527,
+    "ward_name": "Nyay Mandir",
     "status": "reported",
     "severity": 5
   },
   {
     "issue_type": "garbage",
-    "latitude": 22.30901277109715,
-    "longitude": 73.1928586509113,
-    "ward_name": "Fatehganj",
+    "latitude": 22.33384599776485,
+    "longitude": 73.18916416527418,
+    "ward_name": "Wadi",
     "status": "resolved",
+    "severity": 1
+  },
+  {
+    "issue_type": "pothole",
+    "latitude": 22.272402828748692,
+    "longitude": 73.18887867309984,
+    "ward_name": "Manjalpur",
+    "status": "resolved",
+    "severity": 2
+  },
+  {
+    "issue_type": "pothole",
+    "latitude": 22.269919192778982,
+    "longitude": 73.17078796630975,
+    "ward_name": "Tarsali",
+    "status": "in_progress",
     "severity": 4
   },
   {
-    "issue_type": "sewage",
-    "latitude": 22.379302231992288,
-    "longitude": 73.17221399757833,
+    "issue_type": "pothole",
+    "latitude": 22.363250572631912,
+    "longitude": 73.15679177862424,
+    "ward_name": "Bhayli",
+    "status": "in_progress",
+    "severity": 2
+  },
+  {
+    "issue_type": "garbage",
+    "latitude": 22.38185900574977,
+    "longitude": 73.17454038532853,
     "ward_name": "Harni",
+    "status": "resolved",
+    "severity": 2
+  },
+  {
+    "issue_type": "debris",
+    "latitude": 22.279259384940886,
+    "longitude": 73.19167795460518,
+    "ward_name": "Manjalpur",
+    "status": "reported",
+    "severity": 2
+  },
+  {
+    "issue_type": "debris",
+    "latitude": 22.276128348637066,
+    "longitude": 73.18901121304604,
+    "ward_name": "Manjalpur",
+    "status": "reported",
+    "severity": 1
+  },
+  {
+    "issue_type": "debris",
+    "latitude": 22.3487530166695,
+    "longitude": 73.1635311947163,
+    "ward_name": "Sama",
+    "status": "in_progress",
+    "severity": 2
+  },
+  {
+    "issue_type": "pothole",
+    "latitude": 22.343294000622087,
+    "longitude": 73.17676904431197,
+    "ward_name": "Gotri",
     "status": "reported",
     "severity": 3
   },
   {
-    "issue_type": "road_damage",
-    "latitude": 22.338168386566668,
-    "longitude": 73.1668306583701,
+    "issue_type": "garbage",
+    "latitude": 22.307701451631697,
+    "longitude": 73.19329213908244,
+    "ward_name": "Fatehganj",
+    "status": "reported",
+    "severity": 4
+  },
+  {
+    "issue_type": "debris",
+    "latitude": 22.34169412034268,
+    "longitude": 73.15567362896421,
+    "ward_name": "Kalali",
+    "status": "resolved",
+    "severity": 5
+  },
+  {
+    "issue_type": "pothole",
+    "latitude": 22.338136823324263,
+    "longitude": 73.17028273246392,
     "ward_name": "Subhanpura",
     "status": "in_progress",
     "severity": 4
+  },
+  {
+    "issue_type": "garbage",
+    "latitude": 22.286941514065127,
+    "longitude": 73.17490807363836,
+    "ward_name": "Sayajipura",
+    "status": "resolved",
+    "severity": 5
+  },
+  {
+    "issue_type": "debris",
+    "latitude": 22.3440684725817,
+    "longitude": 73.16381498381874,
+    "ward_name": "Sama",
+    "status": "resolved",
+    "severity": 4
+  },
+  {
+    "issue_type": "garbage",
+    "latitude": 22.377038192707477,
+    "longitude": 73.17581385672383,
+    "ward_name": "Harni",
+    "status": "in_progress",
+    "severity": 5
+  },
+  {
+    "issue_type": "debris",
+    "latitude": 22.332821168013574,
+    "longitude": 73.194674655055,
+    "ward_name": "Wadi",
+    "status": "reported",
+    "severity": 4
+  },
+  {
+    "issue_type": "debris",
+    "latitude": 22.327709768391,
+    "longitude": 73.16428703917313,
+    "ward_name": "Akota",
+    "status": "reported",
+    "severity": 1
+  },
+  {
+    "issue_type": "garbage",
+    "latitude": 22.33507664841048,
+    "longitude": 73.14684088762708,
+    "ward_name": "Kalali",
+    "status": "resolved",
+    "severity": 4
+  },
+  {
+    "issue_type": "garbage",
+    "latitude": 22.330964401362934,
+    "longitude": 73.18285211202354,
+    "ward_name": "Nizampura",
+    "status": "resolved",
+    "severity": 1
   }
 ]

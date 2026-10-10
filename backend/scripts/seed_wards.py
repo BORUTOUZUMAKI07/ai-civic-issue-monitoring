@@ -316,7 +316,10 @@ VADODARA_WARDS = [
     },
 ]
 
-ISSUE_TYPES = ["pothole", "garbage", "debris", "waterlogging", "broken_streetlight", "sewage", "road_damage"]
+# Must stay aligned with `src.models.issue.IssueType`: migration 005 dropped
+# waterlogging / broken_streetlight / sewage / road_damage from the enum, so
+# generating them here produces rows PostgreSQL rejects outright.
+ISSUE_TYPES = ["pothole", "garbage", "debris"]
 ISSUE_STATUSES = ["reported", "in_progress", "resolved"]
 
 
@@ -369,16 +372,20 @@ async def seed_wards() -> None:
 async def seed_sample_issues() -> None:
     import random
 
+    # Seeded so re-running the generator does not churn the tracked
+    # data/seed/issues.json on every run.
+    rng = random.Random(20261007)
+
     issues = []
     for i in range(50):
-        ward = random.choice(VADODARA_WARDS)
+        ward = rng.choice(VADODARA_WARDS)
         issues.append({
-            "issue_type": random.choice(ISSUE_TYPES),
-            "latitude": ward["center_lat"] + random.uniform(-0.005, 0.005),
-            "longitude": ward["center_lon"] + random.uniform(-0.005, 0.005),
+            "issue_type": rng.choice(ISSUE_TYPES),
+            "latitude": ward["center_lat"] + rng.uniform(-0.005, 0.005),
+            "longitude": ward["center_lon"] + rng.uniform(-0.005, 0.005),
             "ward_name": ward["name"],
-            "status": random.choice(ISSUE_STATUSES),
-            "severity": random.randint(1, 5),
+            "status": rng.choice(ISSUE_STATUSES),
+            "severity": rng.randint(1, 5),
         })
 
     output_path = "data/seed/issues.json"

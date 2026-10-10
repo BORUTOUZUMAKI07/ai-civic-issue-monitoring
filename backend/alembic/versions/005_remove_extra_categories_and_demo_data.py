@@ -29,6 +29,25 @@ def _demo_engineer_emails(table: str) -> str:
 def upgrade() -> None:
     bind = op.get_bind()
 
+    # 0. Resolutions first. `resolutions.issue_id` and `resolutions.engineer_id`
+    #    are plain foreign keys with no ON DELETE clause, so leaving them in
+    #    place made step 2 (and step 3) die with a foreign-key violation as
+    #    soon as any demo issue had been resolved — which is the one demo case
+    #    seed_demo.py existed to create. Assignments were already handled;
+    #    resolutions were the missing half.
+    bind.exec_driver_sql(
+        """
+        DELETE FROM resolutions
+        WHERE issue_id IN (SELECT id FROM issues WHERE description LIKE '[DEMO]%')
+           OR engineer_id IN (
+                SELECT e.id
+                FROM engineers e
+                JOIN users u ON u.id = e.user_id
+                WHERE u.email LIKE 'demo_%@civicpulse.test'
+           )
+        """
+    )
+
     # 1. Assignments referencing either demo issues or demo engineers.
     bind.exec_driver_sql(
         """
