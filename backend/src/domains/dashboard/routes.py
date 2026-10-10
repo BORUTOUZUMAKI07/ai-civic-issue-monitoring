@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.core.deps import get_current_active_user
-from src.core.redis import delete_cached, get_cached, set_cached
+from src.core.redis import delete_cached, get_cached_or_compute
 from src.domains.dashboard.schemas import HeatmapPoint, StatsResponse
 from src.domains.issues.service import IssueService
 
@@ -19,13 +19,13 @@ async def get_stats(
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_active_user),
 ):
-    cached = await get_cached(STATS_CACHE_KEY)
-    if cached:
-        return StatsResponse(**cached)
+    async def _compute() -> dict:
+        return dict(await IssueService(db).get_dashboard_stats())
 
-    svc = IssueService(db)
-    stats = await svc.get_dashboard_stats()
-    await set_cached(STATS_CACHE_KEY, dict(stats), ttl=CACHE_TTL)
+    # get_cached_or_compute collapses the post-invalidation stampede: every
+    # client that refreshes the dashboard within the same instant shares one
+    # database computation instead of each issuing its own.
+    stats = await get_cached_or_compute(STATS_CACHE_KEY, CACHE_TTL, _compute)
     return StatsResponse(**stats)
 
 
@@ -34,13 +34,10 @@ async def get_heatmap(
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_active_user),
 ):
-    cached = await get_cached(HEATMAP_CACHE_KEY)
-    if cached:
-        return [HeatmapPoint(**p) for p in cached]
+    async def _compute() -> list[dict]:
+        return list(await IssueService(db).get_heatmap_data())
 
-    svc = IssueService(db)
-    points = await svc.get_heatmap_data()
-    await set_cached(HEATMAP_CACHE_KEY, points, ttl=CACHE_TTL)
+    points = await get_cached_or_compute(HEATMAP_CACHE_KEY, CACHE_TTL, _compute)
     return [HeatmapPoint(**p) for p in points]
 
 

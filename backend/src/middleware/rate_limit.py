@@ -1,12 +1,28 @@
+from typing import cast
+
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 from src.core.config import settings
-from src.core.redis import check_rate_limit
+from src.core.redis import RateLimitResult, consume_rate_limit
+
+# Paths that must never be throttled: liveness/health probes and the Prometheus
+# scrape endpoint. A scrape is not "traffic" from a user, and denying it on a
+# busy host would blind monitoring exactly when it is needed most.
+_UNTHROTTLED_PATHS = ("/health", "/favicon.ico", "/metrics")
 
 
-def _too_many_requests(retry_after: str | None = None) -> JSONResponse:
+def _rate_limit_headers(result: RateLimitResult) -> dict[str, str]:
+    """The RFC-style budget headers every throttled response carries."""
+    return {
+        "X-RateLimit-Limit": str(result.limit),
+        "X-RateLimit-Remaining": str(result.remaining),
+        "X-RateLimit-Reset": str(result.reset_seconds),
+    }
+
+
+def _too_many_requests(result: RateLimitResult) -> JSONResponse:
     """A 429 built as a response rather than raised as an exception.
 
     Raising ``HTTPException`` from inside ``BaseHTTPMiddleware.dispatch`` puts
@@ -17,10 +33,14 @@ def _too_many_requests(retry_after: str | None = None) -> JSONResponse:
     Returning the response directly is the correct shape for middleware.
 
     The body matches the ``AppError`` handler's ``{detail, error_code}`` shape
-    so clients parse it like any other error, and carries ``Retry-After`` so an
-    automated caller knows when to come back instead of hammering.
+    so clients parse it like any other error, and carries ``Retry-After`` plus
+    the ``X-RateLimit-*`` budget so an automated caller knows when to come back
+    and how much headroom it has, instead of hammering blindly.
     """
-    headers = {"Retry-After": retry_after} if retry_after else None
+    headers = {
+        "Retry-After": str(result.reset_seconds),
+        **_rate_limit_headers(result),
+    }
     return JSONResponse(
         status_code=429,
         content={
@@ -32,46 +52,29 @@ def _too_many_requests(retry_after: str | None = None) -> JSONResponse:
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        if request.url.path in ("/health", "/favicon.ico"):
-            return await call_next(request)
+    async def dispatch(self, request: Request, call_next) -> Response:
+        if request.url.path in _UNTHROTTLED_PATHS:
+            return cast(Response, await call_next(request))
 
         client_ip = request.client.host if request.client else "unknown"
         ip_key = f"rl:ip:{client_ip}"
-        limited = await check_rate_limit(ip_key, settings.RATE_LIMIT_IP_CAPACITY, settings.RATE_LIMIT_IP_REFILL)
-        if limited:
-            return _too_many_requests()
+        ip_result = await consume_rate_limit(ip_key, settings.RATE_LIMIT_IP_CAPACITY, settings.RATE_LIMIT_IP_REFILL)
+        if not ip_result.allowed:
+            return _too_many_requests(ip_result)
 
-        user_id = None
+        user_id = _user_id_from_request(request)
 
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            try:
-                from src.core.security import decode_token
-
-                payload = decode_token(auth_header[7:])
-                user_id = payload.get("sub")
-            except Exception:  # bad bearer token -> anonymous bucket  # nosec B110
-                pass
-
-        if not user_id:
-            token_cookie = request.cookies.get("access_token")
-            if token_cookie:
-                try:
-                    from src.core.security import decode_token
-
-                    payload = decode_token(token_cookie)
-                    user_id = payload.get("sub")
-                except Exception:  # bad cookie token -> anonymous bucket  # nosec B110
-                    pass
-
+        # The headers reflect the *tightest* bucket that applied: the per-user
+        # bucket when the caller is identified, the per-IP bucket otherwise.
+        effective = ip_result
         if user_id:
             user_key = f"rl:user:{user_id}"
-            user_limited = await check_rate_limit(
+            user_result = await consume_rate_limit(
                 user_key, settings.RATE_LIMIT_USER_CAPACITY, settings.RATE_LIMIT_USER_REFILL
             )
-            if user_limited:
-                return _too_many_requests()
+            if not user_result.allowed:
+                return _too_many_requests(user_result)
+            effective = user_result
 
         try:
             request.state.user_id = int(user_id) if user_id else None
@@ -79,4 +82,24 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             request.state.user_id = None
 
         response = await call_next(request)
-        return response
+        for header, value in _rate_limit_headers(effective).items():
+            response.headers[header] = value
+        return cast(Response, response)
+
+
+def _user_id_from_request(request: Request) -> str | None:
+    """Best-effort subject extraction for the per-user bucket.
+
+    A malformed or absent token simply falls back to the per-IP bucket — this
+    runs before routing, so it must never raise.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    token = auth_header[7:] if auth_header.startswith("Bearer ") else request.cookies.get("access_token")
+    if not token:
+        return None
+    try:
+        from src.core.security import decode_token
+
+        return decode_token(token).get("sub") or None
+    except Exception:  # bad/expired token -> anonymous bucket
+        return None

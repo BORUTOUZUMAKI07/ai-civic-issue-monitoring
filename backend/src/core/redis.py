@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from upstash_redis.asyncio import Redis as UpstashRedis
 
@@ -96,20 +96,49 @@ else
     tokens = math.min(capacity, tokens + delta * refill_rate)
 end
 
+local limited = 0
 if tokens >= requested then
     tokens = tokens - requested
-    redis.call('HMSET', key, 'tokens', tokens, 'last_updated', current_time)
-    redis.call('EXPIRE', key, 86400)
-    return 1
 else
-    redis.call('HMSET', key, 'tokens', tokens, 'last_updated', current_time)
-    redis.call('EXPIRE', key, 86400)
-    return 0
+    limited = 1
 end
+
+redis.call('HMSET', key, 'tokens', tokens, 'last_updated', current_time)
+redis.call('EXPIRE', key, 86400)
+
+-- Return status plus the numbers a client needs to pace itself:
+--   remaining tokens after this request, and seconds until the bucket is full
+--   again. Both feed the X-RateLimit-* response headers.
+local remaining = math.floor(tokens)
+if remaining < 0 then remaining = 0 end
+local reset = math.max(1, math.ceil((capacity - tokens) / refill_rate))
+return {limited, remaining, reset}
 """
 
 
-async def check_rate_limit(key: str, capacity: int, refill_rate_per_sec: float) -> bool:
+class RateLimitResult:
+    """Outcome of one token-bucket consume, header-friendly.
+
+    ``allowed`` is the decision; ``remaining``/``reset_seconds``/``limit`` are
+    propagated to the caller as ``X-RateLimit-*``.
+    """
+
+    __slots__ = ("allowed", "remaining", "reset_seconds", "limit")
+
+    def __init__(self, *, allowed: bool, remaining: int, reset_seconds: int, limit: int) -> None:
+        self.allowed = allowed
+        self.remaining = remaining
+        self.reset_seconds = reset_seconds
+        self.limit = limit
+
+
+async def consume_rate_limit(key: str, capacity: int, refill_rate_per_sec: float) -> RateLimitResult:
+    """Consume one token from ``key``'s bucket and report the decision + budget.
+
+    Fails **open** (allows the request) when Redis is unreachable or a stub
+    without Lua support is in place — a rate limiter that takes the API down
+    when its own store is degraded is worse than the traffic it protects.
+    """
     try:
         now = time.time()
         result = await redis_client.eval(
@@ -121,10 +150,24 @@ async def check_rate_limit(key: str, capacity: int, refill_rate_per_sec: float) 
             str(now),
             "1",
         )
-        return result == 0  # type: ignore[no-any-return]
+        if isinstance(result, (list, tuple)) and len(result) >= 3:
+            return RateLimitResult(
+                allowed=int(result[0]) == 0,
+                remaining=max(0, int(result[1])),
+                reset_seconds=max(1, int(result[2])),
+                limit=capacity,
+            )
     except Exception as e:
         logger.error("Rate limit check failed for key %s: %s", key, e)
-        return False
+
+    # Stub Redis (no Lua) or a Redis outage: allow, with a full budget.
+    return RateLimitResult(allowed=True, remaining=capacity, reset_seconds=1, limit=capacity)
+
+
+async def check_rate_limit(key: str, capacity: int, refill_rate_per_sec: float) -> bool:
+    """True when the request should be rejected. Thin wrapper over ``consume_rate_limit``."""
+    result = await consume_rate_limit(key, capacity, refill_rate_per_sec)
+    return not result.allowed
 
 
 async def get_cached(key: str) -> Any | None:
@@ -164,6 +207,52 @@ async def delete_cached(key: str) -> None:
         await redis_client.delete(key)
     except Exception as e:
         logger.debug("Cache delete failed for %s: %s", key, e)
+
+
+# Per-process in-flight map shared by get_cached_or_compute. A cache stampede
+# (many concurrent requests for the same cold key) is a *per-process* concern
+# here: one uvicorn worker holds one event loop, and the dashboard caches are
+# read at the same instant by every client after an invalidation. Keys are
+# removed in `finally`, so a crash in the factory cannot leak an entry.
+_inflight: dict[str, "asyncio.Future[Any]"] = {}
+
+
+async def get_cached_or_compute(key: str, ttl: int, factory: "Callable[[], Awaitable[Any]]") -> Any:
+    """Cache-aside with a single-flight guard around ``factory``.
+
+    Returns the cached value when present. Otherwise the first caller runs
+    ``factory`` and stores the result; concurrent callers for the same key
+    await that same result instead of each hammering the database — so a cold
+    or just-invalidated key produces exactly one upstream computation rather
+    than one per request.
+
+    The guard is deliberately process-local: Redis would be the place for a
+    cross-worker lock, but that adds a lock round-trip and its own failure
+    modes to every read, and a single-deployment API does not need it.
+    """
+    cached = await get_cached(key)
+    if cached is not None:
+        return cached
+
+    existing = _inflight.get(key)
+    if existing is not None and not existing.done():
+        # Someone is already computing this key; share their result.
+        return await asyncio.shield(existing)
+
+    loop = asyncio.get_running_loop()
+    future: "asyncio.Future[Any]" = loop.create_future()
+    _inflight[key] = future
+    try:
+        value = await factory()
+        await set_cached(key, value, ttl=ttl)
+        future.set_result(value)
+        return value
+    except BaseException as exc:  # surface the failure to every waiter
+        if not future.done():
+            future.set_exception(exc)
+        raise
+    finally:
+        _inflight.pop(key, None)
 
 
 async def check_redis_health() -> bool:
