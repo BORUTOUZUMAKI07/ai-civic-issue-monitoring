@@ -30,6 +30,11 @@ env/
 **/.env
 .env.*
 **/.env.*
+# `.env.example` templates are deliberately tracked: they hold only
+# placeholders and document which keys a new contributor must set.
+# (Without this the `**/.env.*` rule above swallows them.)
+!.env.example
+!**/.env.example
 .python-version
 .conda/
 mamba/
@@ -79,6 +84,8 @@ coverage.xml
 htmlcov/
 backend/.coverage
 backend/coverage.xml
+# Output of `npm run test:coverage` (vitest's default `coverage/` dir).
+frontend/coverage/
 
 # --- Linter / Type Check Caches ---
 .ruff_cache/
