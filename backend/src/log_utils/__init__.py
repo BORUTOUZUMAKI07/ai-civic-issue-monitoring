@@ -1,84 +1,187 @@
 """
-Structured logging setup with JSON format and correlation ID support.
+Structured logging built on structlog.
+
+Two halves with clearly separate jobs:
+
+* **stdlib ``logging`` owns transport.** Every call site keeps using plain
+  ``logging.getLogger(...)`` and ``logger.info("... %s", x, extra={...})``, and
+  the console + file handlers installed by :func:`setup_logging` deliver them.
+  Nothing outside this module had to change.
+* **structlog owns rendering and context.** It turns a record into JSON
+  (production, and always in the log file) or a readable console line
+  (development), and merges in whatever is bound to the *contextvars* context.
+
+This replaced ``python-json-logger``, which could only flatten the fields of
+the one record it was handed. The upgrade that actually matters is
+:mod:`structlog.contextvars`: :class:`src.middleware.logging.LoggingMiddleware`
+binds ``correlation_id`` once per request, so every log line emitted anywhere
+during that request carries it automatically -- including the ~30 modules that
+call ``logging.getLogger(__name__)`` directly and never passed
+``extra={"correlation_id": ...}`` themselves.
+
+Handlers are installed on the **root** logger rather than on ``civicpulse``
+alone. Call sites are split between ``get_logger()`` (which namespaces under
+``civicpulse.``) and bare ``logging.getLogger(__name__)`` (which namespaces
+under ``src.``); attaching only to ``civicpulse`` silently dropped the latter
+to Python's last-resort handler, so most of the codebase's INFO logs never
+reached the JSON file at all.
 """
+
+from __future__ import annotations
 
 import logging
 import os
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
-from pythonjsonlogger import jsonlogger
+import structlog
 
 from src.core.config import settings
 
+__all__ = ["setup_logging", "get_logger", "log_request_start", "log_request_end"]
 
-class CorrelationIdFilter(logging.Filter):
-    def __init__(self, correlation_id: Optional[str] = None):
-        super().__init__()
-        self.correlation_id = correlation_id
+# Marks the handlers this module owns, so setup_logging() can replace them
+# idempotently without ripping out handlers pytest or uvicorn installed on the
+# root logger (those would otherwise be cleared on every app lifespan).
+_HANDLER_MARKER = "_civicpulse_handler"
 
-    def filter(self, record):
-        if not hasattr(record, "correlation_id"):
-            record.correlation_id = self.correlation_id or "no-correlation-id"
-        return True
-
-
-class JSONFormatter(jsonlogger.JsonFormatter):
-    def add_fields(self, log_record, record, message_dict):
-        super().add_fields(log_record, record, message_dict)
-        log_record["timestamp"] = datetime.now(timezone.utc).isoformat()
-        log_record["service"] = settings.PROJECT_NAME
-        log_record["environment"] = settings.ENVIRONMENT
-        log_record["version"] = settings.VERSION
-        if hasattr(record, "correlation_id"):
-            log_record["correlation_id"] = record.correlation_id
-        for attr in ("trace_id", "span_id", "user_id", "issue_id"):
-            if hasattr(record, attr):
-                log_record[attr] = getattr(record, attr)
+# Once the root logger is wired up these libraries become chatty. WARNING
+# keeps genuine failures visible without burying application logs.
+_NOISY_LOGGERS = (
+    "httpx",
+    "httpcore",
+    "urllib3",
+    "asyncio",
+    "sqlalchemy.engine",
+    "multipart",
+    "PIL",
+)
 
 
-def setup_logging(correlation_id: Optional[str] = None):
-    logger = logging.getLogger("civicpulse")
+# Every attribute a LogRecord always carries. Anything else sitting on the
+# record was put there by `extra=` and is a field the caller wants rendered.
+_STANDARD_RECORD_ATTRS = frozenset(logging.LogRecord("", 0, "", 0, "", None, None).__dict__) | {
+    "message",
+    "asctime",
+    "taskName",
+    "_record",
+    "_from_structlog",
+}
+
+
+def _merge_record_extras(logger: Any, method: str, event_dict: dict[str, Any]) -> dict[str, Any]:
+    """Recover ``extra={...}`` fields from a stdlib ``LogRecord``.
+
+    ``ProcessorFormatter`` forwards only the message, level and timestamp by
+    default, whereas the ``python-json-logger`` setup this replaced included
+    them -- so without this, ``http_status_code`` and ``duration_ms`` on the
+    request logs would silently vanish. ``setdefault`` means a value already
+    bound to the contextvars context (correlation_id, user_id) still wins.
+    """
+    record = event_dict.get("_record")
+    if record is None:
+        return event_dict
+    for key, value in record.__dict__.items():
+        if key in _STANDARD_RECORD_ATTRS:
+            continue
+        event_dict.setdefault(key, value)
+    return event_dict
+
+
+def _enrich(logger: Any, method: str, event_dict: dict[str, Any]) -> dict[str, Any]:
+    """Stamp the constant service metadata onto every rendered event.
+
+    Runs for structlog-native records and, via ``foreign_pre_chain``, for plain
+    stdlib records -- which is every record this application produces.
+    """
+    event_dict.setdefault("service", settings.PROJECT_NAME)
+    event_dict.setdefault("environment", settings.ENVIRONMENT)
+    event_dict.setdefault("version", settings.VERSION)
+    return event_dict
+
+
+def _pre_chain() -> list[Any]:
+    """Processors applied to every record before it reaches a renderer."""
+    return [
+        # `extra={...}` off the LogRecord; must run before anything reads them.
+        _merge_record_extras,
+        # Whatever the request scope bound (correlation_id, user_id, ...).
+        structlog.contextvars.merge_contextvars,
+        structlog.stdlib.add_log_level,
+        _enrich,
+        structlog.processors.StackInfoRenderer(),
+        # Flattens `exc_info` into a formatted traceback under `exception`.
+        structlog.processors.format_exc_info,
+        structlog.processors.TimeStamper(fmt="iso", utc=True, key="timestamp"),
+    ]
+
+
+def _formatter(renderer: Any, pre_chain: list[Any]) -> logging.Formatter:
+    return structlog.stdlib.ProcessorFormatter(
+        processors=[
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            renderer,
+        ],
+        foreign_pre_chain=pre_chain,
+    )
+
+
+def setup_logging(correlation_id: str | None = None) -> logging.Logger:
+    """Configure structlog and install the console + file handlers.
+
+    Idempotent: calling it twice (reloader, repeated TestClient lifespans)
+    swaps our handlers rather than duplicating them, and leaves handlers other
+    tools installed untouched.
+    """
     is_prod = settings.ENVIRONMENT == "production"
     log_level = logging.INFO if is_prod else logging.DEBUG
-    logger.setLevel(log_level)
-    logger.handlers.clear()
 
-    formatter = JSONFormatter(fmt="%(timestamp)s %(level)s %(name)s %(message)s", timestamp=True)
-    correlation_filter: logging.Filter = CorrelationIdFilter(correlation_id)
+    pre_chain = _pre_chain()
+    structlog.configure(
+        processors=pre_chain + [structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
+        wrapper_class=structlog.make_filtering_bound_logger(log_level),
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
+    )
 
-    prod_filter = None
-    if is_prod:
+    # Production and the on-disk log are always machine-readable; only the
+    # developer console is allowed to be pretty.
+    json_renderer = structlog.processors.JSONRenderer()
+    console_renderer = json_renderer if is_prod else structlog.dev.ConsoleRenderer()
 
-        class ProdFilter(logging.Filter):
-            def filter(self, record):
-                return record.levelno >= logging.INFO
+    root = logging.getLogger()
+    root.setLevel(log_level)
+    for name in _NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
 
-        prod_filter = ProdFilter()
+    # Drop only handlers from a previous call; anything pytest or uvicorn put
+    # on the root logger stays where it is.
+    for existing in list(root.handlers):
+        if getattr(existing, _HANDLER_MARKER, False):
+            root.removeHandler(existing)
+            existing.close()
 
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(log_level)
-    console_handler.setFormatter(formatter)
-    console_handler.addFilter(correlation_filter)
-    if prod_filter:
-        console_handler.addFilter(prod_filter)
-    logger.addHandler(console_handler)
+    console_handler.setFormatter(_formatter(console_renderer, pre_chain))
+    setattr(console_handler, _HANDLER_MARKER, True)
+    root.addHandler(console_handler)
 
     log_dir = Path(os.getenv("LOG_DIR", "logs"))
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / "civicpulse.log"
-    file_handler = logging.FileHandler(filename=log_file, encoding="utf-8")
+    file_handler = logging.FileHandler(filename=log_dir / "civicpulse.log", encoding="utf-8")
     file_handler.setLevel(log_level)
-    file_handler.setFormatter(formatter)
-    file_handler.addFilter(correlation_filter)
-    if prod_filter:
-        file_handler.addFilter(prod_filter)
-    logger.addHandler(file_handler)
+    file_handler.setFormatter(_formatter(json_renderer, pre_chain))
+    setattr(file_handler, _HANDLER_MARKER, True)
+    root.addHandler(file_handler)
 
-    logger.addFilter(correlation_filter)
-    return logger
+    # Kept for callers that still pass one; correlation also flows through
+    # contextvars, which is what reaches the modules that never pass it.
+    if correlation_id:
+        structlog.contextvars.bind_contextvars(correlation_id=correlation_id)
+
+    return logging.getLogger("civicpulse")
 
 
 def get_logger(name: str = "civicpulse") -> logging.Logger:
@@ -87,27 +190,37 @@ def get_logger(name: str = "civicpulse") -> logging.Logger:
     return logging.getLogger(name)
 
 
-def log_request_start(logger: logging.Logger, method: str, path: str, correlation_id: str):
+def log_request_start(logger: logging.Logger, method: str, path: str, correlation_id: str) -> None:
     logger.info(
-        f"Request started: {method} {path}",
-        extra={"correlation_id": correlation_id, "event": "request_start", "http_method": method, "http_path": path},
+        "Request started: %s %s",
+        method,
+        path,
+        extra={
+            "correlation_id": correlation_id,
+            # structlog reserves `event` for the log message itself, so the
+            # machine-readable tag lives under `event_type`.
+            "event_type": "request_start",
+            "http_method": method,
+            "http_path": path,
+        },
     )
 
 
 def log_request_end(
     logger: logging.Logger, method: str, path: str, status_code: int, duration_ms: float, correlation_id: str
-):
+) -> None:
     logger.info(
-        f"Request completed: {method} {path} -> {status_code} ({duration_ms:.2f}ms)",
+        "Request completed: %s %s -> %s (%.2fms)",
+        method,
+        path,
+        status_code,
+        duration_ms,
         extra={
             "correlation_id": correlation_id,
-            "event": "request_end",
+            "event_type": "request_end",
             "http_method": method,
             "http_path": path,
             "http_status_code": status_code,
             "duration_ms": duration_ms,
         },
     )
-
-
-__all__ = ["setup_logging", "get_logger", "log_request_start", "log_request_end"]
