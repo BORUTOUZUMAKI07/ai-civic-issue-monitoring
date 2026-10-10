@@ -10,8 +10,21 @@ class Resolution(Base):
     __tablename__ = "resolutions"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    issue_id: Mapped[int] = mapped_column(Integer, ForeignKey("issues.id"), unique=True, nullable=False)
-    engineer_id: Mapped[int] = mapped_column(Integer, ForeignKey("engineers.id"), nullable=False)
+    issue_id: Mapped[int] = mapped_column(
+        Integer,
+        # See Assignment.issue_id: a deleted issue must take its resolution,
+        # which is what made `db.delete(issue)` 500 on every resolved issue.
+        ForeignKey("issues.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+    )
+    engineer_id: Mapped[int | None] = mapped_column(
+        Integer,
+        # See Assignment.engineer_id — attribution is dropped rather than the
+        # resolution itself when the engineer's profile is removed.
+        ForeignKey("engineers.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     before_image_url: Mapped[str] = mapped_column(String, nullable=False)
     after_image_url: Mapped[str] = mapped_column(String, nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="")

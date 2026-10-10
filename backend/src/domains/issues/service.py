@@ -70,24 +70,25 @@ class IssueService:
         model_used = classification.get("model")
         probabilities = classification.get("probabilities")
 
-        issue_type = ISSUE_TYPE_MAP.get(label, IssueType.pothole)
+        # The DB enum, the keyword gate (see core/gate.py CIVIC_LABELS) and the
+        # model's civic output all share the same three categories. Anything
+        # else - notably the model's `non_civic` reject class - is not a
+        # category at all, so it must never be coerced into one silently: the
+        # issue is still stored under a valid enum value but is forced to
+        # human review rather than being presented as a confident pothole.
+        issue_type = ISSUE_TYPE_MAP.get(label)
+        unknown_label = issue_type is None
+        if unknown_label:
+            issue_type = IssueType.pothole
 
         severity = 1
-        review_required = False
-        if confidence < 0.7:
-            review_required = True
+        review_required = unknown_label or confidence < 0.7
         if label == "pothole":
             severity = 4 if confidence > 0.8 else 3
         elif label == "garbage":
             severity = 3
         elif label == "debris":
             severity = 5 if confidence > 0.8 else 3
-        elif label in ("waterlogging", "sewage"):
-            severity = 4 if confidence > 0.8 else 3
-        elif label == "broken_streetlight":
-            severity = 2
-        elif label == "road_damage":
-            severity = 4 if confidence > 0.8 else 3
 
         wards = await self.ward_repo.list_all()
         ward = get_ward_from_coords(latitude, longitude, wards)
@@ -151,7 +152,19 @@ class IssueService:
 
         existing = await self.assignment_repo.get_by_issue(issue.id)
         if existing:
-            await self.engineer_repo.decrement_workload(existing.engineer_id)
+            # Supersede, don't accumulate. The old code decremented the
+            # outgoing engineer's workload and then *also* inserted a second
+            # Assignment row, leaving the issue assigned to two people at
+            # once: dashboard counts doubled, workload drifted down for one
+            # engineer and up for another, and once a second row existed
+            # `get_by_issue`'s `scalar_one_or_none()` started raising
+            # `MultipleResultsFound` — a permanent 500 on every subsequent
+            # read or reassignment of that issue.
+            if existing.engineer_id is not None and existing.engineer_id != engineer.id:
+                # `engineer_id` is NULLable (SET NULL on profile removal), so
+                # a superseded assignment may no longer name anyone.
+                await self.engineer_repo.decrement_workload(existing.engineer_id)
+            await self.assignment_repo.delete_by_issue(issue.id)
 
         await self.engineer_repo.increment_workload(engineer.id)
 
@@ -177,6 +190,27 @@ class IssueService:
         if not issue:
             raise IssueNotFound()
         return issue
+
+    async def delete_issue(self, issue: Issue) -> None:
+        """Delete ``issue`` together with every row that references it.
+
+        `resolutions.issue_id` and `assignments.issue_id` are plain FKs with
+        no `ON DELETE` clause, so `db.delete(issue)` on an issue that has been
+        assigned or resolved hit a foreign-key violation and came back as a
+        500 — the two most common cases, since assignment and resolution are
+        the normal lifecycle. This clears the dependents first; the model-level
+        `ondelete` added alongside this method makes the DB enforce the same
+        order for anyone who reaches around the service.
+        """
+        from sqlalchemy import delete as sa_delete
+
+        from src.models.resolution import Resolution
+
+        issue_id = issue.id
+        await self.assignment_repo.delete_by_issue(issue_id)
+        await self.db.execute(sa_delete(Resolution).where(Resolution.issue_id == issue_id))
+        await self.db.delete(issue)
+        await self.db.commit()
 
     async def list_issues(self, skip: int = 0, limit: int = 20) -> tuple[list[Issue], int]:
         issues = await self.issue_repo.list_all(skip=skip, limit=limit)
