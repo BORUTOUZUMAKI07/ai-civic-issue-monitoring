@@ -15,11 +15,17 @@ dependencies = [
     "uvicorn>=0.32.0",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.7.0",
-    "sqlalchemy>=2.0.36",
+    # The `asyncio` extra is what pulls in greenlet; without it
+    # `sqlalchemy.ext.asyncio` raises ModuleNotFoundError at import time.
+    "sqlalchemy[asyncio]>=2.0.36",
     "asyncpg>=0.30.0",
     "alembic>=1.14.0",
     "beanie>=1.29.0,<2.0.0",
-    "motor>=3.6.0,<3.7.0",
+    # motor 3.6.x caps pymongo<4.10, which is below every fixed release for the
+    # 2026 pymongo CVEs; 3.7.0 lifts that cap, and pymongo gets an explicit
+    # floor at 4.18.2 (first fixed release) to match pixi.toml.
+    "motor>=3.7.0",
+    "pymongo>=4.18.2,<5",
     "redis>=5.2.0",
     "upstash-redis>=1.0.0",
     "python-jose[cryptography]>=3.3.0",
@@ -30,7 +36,10 @@ dependencies = [
     "httpx>=0.28.0",
     "pillow>=11.0.0",
     "pillow-heif>=0.19.0",
-    "python-json-logger>=2.0.0",
+    # structlog renders the logs; stdlib `logging` still transports them to the
+    # console/file handlers. Replaced python-json-logger, which could only
+    # flatten a record's own fields and had no notion of request-scoped context.
+    "structlog>=24.1.0",
     "pgvector>=0.3.0",
     "langgraph>=0.2.0",
     "langchain-core>=0.3.0",
@@ -51,7 +60,22 @@ dev = [
     "mypy>=1.13.0",
     "pre-commit>=4.0.0",
     "mongomock>=4.3.0",
+    # The test suite replaces Redis and MongoDB with in-process fakes (see
+    # tests/conftest.py, "Layer 1"). Both are imported lazily with a fallback
+    # stub, so omitting them here does not fail the run — it silently drops
+    # the suite down to a dict-based stand-in that does not reproduce
+    # lua scripts, TTLs, or `SET NX` semantics the auth code depends on.
+    # Declaring them makes the fallback the exception rather than the norm.
+    "fakeredis>=2.23.0",
+    "mongomock-motor>=0.0.29",
     "aiosqlite>=0.20.0",
+    # SAST + dependency audit, run by the `backend-security` CI job.
+    "bandit>=1.8.0",
+    "pip-audit>=2.7.3",
+    # Real-Postgres integration tests, run by the `backend-integration` job.
+    # SQLite cannot exercise the JSONB columns, the issuetype enum, or the
+    # ON DELETE rules introduced by migrations 005/007/008.
+    "testcontainers[postgres]>=4.8.0",
 ]
 ml = [
     "scikit-learn>=1.5.0",
@@ -66,11 +90,23 @@ ml = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# asyncpg binds connections to the event loop they were created on (unlike
+# aiosqlite, which tolerates loop churn). The session-scoped loop makes the
+# real-Postgres integration tests usable at all — without it, any async fixture
+# at module/session scope is created on one loop and used on the next test's.
+# conftest.py already ships a session-scoped ``event_loop`` fixture reflecting
+# the same intent.
+asyncio_default_test_loop_scope = "session"
+asyncio_default_fixture_loop_scope = "session"
 testpaths = ["tests"]
 addopts = "-v --cov=src --cov-report=term-missing --cov-report=xml"
 markers = [
     "slow: marks tests as slow",
     "integration: marks tests that require external services",
+    # Declared because tests/conftest.py documents a "mock-integration" layer
+    # under this name. An unregistered marker makes pytest warn on every use
+    # and, with `--strict-markers` (already common in CI), fail outright.
+    "mock_integration: marks tests that mock every external service end-to-end",
 ]
 
 [tool.ruff]
@@ -83,15 +119,118 @@ ignore = ["E501", "E712"]
 
 [tool.mypy]
 python_version = "3.12"
+
+# The target for every module. `strict` already implies check_untyped_defs,
+# warn_redundant_casts and warn_return_any, which this file used to spell out.
+# The single strict flag held back globally is warn_unused_ignores: the
+# codebase carries conditional `# type: ignore` comments for optional heavy
+# dependencies, and reporting the ones that happen not to fire on a given
+# machine is noise rather than signal.
+strict = true
 warn_unused_ignores = false
-strict = false
-check_untyped_defs = true
-warn_redundant_casts = true
-warn_return_any = true
 
 [[tool.mypy.overrides]]
-module = ["langgraph.*", "langchain.*", "pgvector.*", "openai.*", "newrelic.*"]
+module = [
+    "langgraph.*",
+    "langchain.*",
+    "pgvector.*",
+    "openai.*",
+    "newrelic.*",
+    # Untyped dependencies. These ship no `py.typed` marker (or no stubs at
+    # all), so mypy can only ever report `import-not-found` / `import-untyped`
+    # for them — noise that hides the real errors in the code that calls them.
+    # Note `torch`, `peft` and friends are deliberately absent: they ARE
+    # typed, so their mistakes show up as genuine type errors instead of
+    # import noise, and those are worth seeing.
+    "jose.*",
+    "passlib.*",
+    "pillow_heif.*",
+    "torchvision.*",
+    "onnxruntime.*",
+    "yaml.*",
+    "tqdm.*",
+    "sklearn.*",
+    "pandas.*",
+    "numpy.*",
+]
 ignore_missing_imports = true
+
+
+# ---------------------------------------------------------------------------
+# RAMP TO STRICT -- modules not yet fully annotated
+# ---------------------------------------------------------------------------
+# `strict = true` above is the target for every module. Running
+# `mypy src/ --strict` reports 256 errors across the 47 modules listed below.
+# They all reduce to four flags, which surface as three reported codes:
+#
+#   disallow_untyped_defs    ->  no-untyped-def    43   no annotations at all
+#   disallow_incomplete_defs ->  no-untyped-def    85   some annotations, not all
+#   disallow_untyped_calls   ->  no-untyped-call   65   calling the above
+#   disallow_any_generics    ->  type-arg          62   bare `dict`, not `dict[str, Any]`
+#
+# So until a module is annotated it opts out of exactly those four. Every
+# OTHER strict flag applies to it right now: no_implicit_optional,
+# no_implicit_reexport, strict_equality, disallow_untyped_decorators,
+# warn_unreachable, warn_redundant_casts and warn_return_any -- as does
+# disallow_any_generics for everything the 53 already-clean modules touch.
+#
+# Burn-down: run `mypy src/<path>`, annotate what it reports, and delete the
+# module from the list below. The list shrinking is the metric; a module
+# graduating is what proves it.
+[[tool.mypy.overrides]]
+module = [
+"src.agents.graph",
+    "src.core.config",
+    "src.core.database",
+    "src.core.deps",
+    "src.core.gate",
+    "src.core.mongodb",
+    "src.core.newrelic",
+    "src.core.redis",
+    "src.core.security",
+    "src.documents.audit_log",
+    "src.documents.drift_report",
+    "src.domains.admin.routes",
+    "src.domains.auth.oauth",
+    "src.domains.auth.password_reset",
+    "src.domains.auth.routes",
+    "src.domains.auth.service",
+    "src.domains.auth.twofa",
+    "src.domains.dashboard.routes",
+    "src.domains.dashboard.schemas",
+    "src.domains.engineers.routes",
+    "src.domains.engineers.service",
+    "src.domains.issues.routes",
+    "src.domains.issues.schemas",
+    "src.domains.issues.service",
+    "src.domains.ml.routes",
+    "src.domains.notifications.routes",
+    "src.domains.resolution.routes",
+    "src.domains.wards.geofencing",
+    "src.domains.wards.routes",
+    "src.domains.wards.schemas",
+    "src.domains.wards.service",
+    "src.errors.auth",
+    "src.errors.issue",
+    "src.main",
+    "src.middleware.logging",
+    "src.middleware.rate_limit",
+    "src.middleware.rbac",
+    "src.ml.inference.ab_testing",
+    "src.ml.inference.predict",
+    "src.ml.models.build_model",
+    "src.ml.registry.model_registry",
+    "src.ml.training.clean_data",
+    "src.ml.training.train",
+    "src.models.issue",
+    "src.models.ward",
+    "src.rag.retrieval",
+    "src.repositories.issue_repository",
+]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+disallow_any_generics = false
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["F401"]
