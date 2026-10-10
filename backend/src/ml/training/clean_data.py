@@ -34,7 +34,7 @@ HASH_CHUNK = 1 << 20
 
 
 def file_hash(path: Path) -> str:
-    h = hashlib.md5()
+    h = hashlib.md5(usedforsecurity=False)  # dedup checksum, not a security control
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(HASH_CHUNK), b""):
             h.update(chunk)
@@ -42,7 +42,7 @@ def file_hash(path: Path) -> str:
 
 
 def count_split() -> dict[str, dict[str, int]]:
-    counts = {}
+    counts: dict[str, dict[str, int]] = {}
     for split in SPLITS:
         counts[split] = {}
         for cls in CLASSES:

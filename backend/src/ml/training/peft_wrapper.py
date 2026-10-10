@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import cast
 
 import torch.nn as nn
 from peft import (
@@ -21,6 +22,7 @@ from peft import (
     LoKrConfig,
     LoraConfig,
     OFTConfig,
+    PeftConfig,
     PeftModel,
     get_peft_model,
 )
@@ -95,7 +97,11 @@ def apply_peft(
     # transformers-style task_type would dispatch to a wrapper that passes
     # `input_ids` and breaks the forward pass.
     if method in ("lora", "dora", "rslora", "lora_fa", "lora_plus", "dora_plus"):
-        config = LoraConfig(
+        # Declared as the shared `PeftConfig` base: the branch below assigns a
+        # different subclass per method, and letting mypy infer the type from
+        # the first branch (`LoraConfig`) made every later branch a type error
+        # even though they are all valid inputs to `get_peft_model`.
+        config: PeftConfig = LoraConfig(
             r=r,
             lora_alpha=alpha,
             lora_dropout=dropout,
@@ -183,7 +189,9 @@ def merge_adapter(peft_model: PeftModel) -> nn.Module:
     """
     merged = peft_model.merge_and_unload()
     logger.info("Merged adapter weights into base model")
-    return merged
+    # `merge_and_unload` is typed as returning the PEFT base class; the actual
+    # object is a plain `nn.Module`, which is what this function promises.
+    return cast(nn.Module, merged)
 
 
 def save_adapter(peft_model: PeftModel, path: str | Path) -> None:

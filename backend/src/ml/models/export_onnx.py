@@ -46,7 +46,9 @@ def export_to_onnx(
 
     torch.onnx.export(
         model,
-        dummy_input,
+        # `args` must be a tuple of inputs — a bare tensor is the legacy
+        # shorthand the type stubs (rightly) refuse.
+        (dummy_input,),
         str(output_path),
         opset_version=opset,
         input_names=["input"],

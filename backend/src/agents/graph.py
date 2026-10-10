@@ -47,7 +47,7 @@ class AnalyticsGraph:
         workflow.add_edge("escalate", END)
         workflow.add_edge("analytics", END)
 
-        return workflow.compile()
+        return workflow.compile()  # type: ignore[return-value]
 
     async def _classify_node(self, state: AgentState) -> dict[str, Any]:
         from src.agents.classifier import classify_issue
@@ -103,5 +103,5 @@ class AnalyticsGraph:
             "result": {},
             "errors": [],
         }
-        final_state = await self.graph.ainvoke(initial_state)
+        final_state = await self.graph.ainvoke(initial_state)  # type: ignore[attr-defined]
         return dict(final_state)

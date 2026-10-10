@@ -22,10 +22,16 @@ from typing import Optional
 import numpy as np
 from PIL import Image
 
-logger = logging.getLogger(__name__)
+# Reuse predict.py's model-directory resolution instead of computing our own.
+# The previous line was `Path(__file__).resolve().parent.parent.parent`, which
+# from `backend/src/ml/inference/ab_testing.py` lands on `backend/src` — so
+# `MODELS_DIR` pointed at the *SQLAlchemy* `src/models` package and every
+# lookup for `model.pth` / `model.onnx` silently returned "not found". A/B
+# testing could therefore never find the champion model, let alone a
+# challenger, while looking entirely wired up.
+from src.ml.inference.predict import MODELS_DIR
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-MODELS_DIR = PROJECT_ROOT / "models"
+logger = logging.getLogger(__name__)
 
 CHAMPION_PATH = MODELS_DIR / "model.pth"
 CHAMPION_ONNX = MODELS_DIR / "model.onnx"
@@ -182,7 +188,7 @@ class ABTestPredictor:
 
         if self.config.mode == "traffic_split" and challenger is not None:
             self._stats["total"] += 1
-            if random.random() < self.config.traffic_pct:
+            if random.random() < self.config.traffic_pct:  # traffic bucketing, never a security decision  # nosec B311
                 self._stats["challenger"] += 1
                 return ABTestResult(
                     champion=champion,
@@ -213,8 +219,11 @@ class ABTestPredictor:
 
         raise RuntimeError("No champion model found")
 
-    def _predict_challenger(self, image: Image.Image) -> PredictionResult:
-        """Run inference on challenger model."""
+    def _predict_challenger(self, image: Image.Image) -> PredictionResult | None:
+        """Run inference on challenger model.
+
+        Returns ``None`` when no challenger has been trained yet — which is the
+        normal state, so the annotation has to admit it."""
         session = self._get_onnx_session(CHALLENGER_ONNX)
         if session:
             return self._infer_onnx(session, image, "challenger")

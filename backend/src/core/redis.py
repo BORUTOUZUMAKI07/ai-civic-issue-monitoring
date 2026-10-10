@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import time
+from typing import Any
 
 from upstash_redis.asyncio import Redis as UpstashRedis
 
@@ -22,6 +23,22 @@ class UpstashRedisAdapter:
 
     async def setex(self, key: str, ttl: int, value: str):
         return await self._client.set(key, value, ex=ttl)
+
+    async def set(self, key: str, value: str, ex: int | None = None, nx: bool = False):
+        """SET with the two options single-use markers depend on.
+
+        The adapter previously exposed only `get`/`setex`/`delete`, so any
+        caller reaching for `SET NX` — the atomic primitive that makes "first
+        writer wins" possible — hit `AttributeError: UpstashRedisAdapter has
+        no attribute 'set'`. Password-reset tokens and 2FA challenges were
+        both written against it and failed open (caught and swallowed), so
+        neither was ever actually marked consumed; this existed before those
+        call sites and silently disabled them.
+
+        `nx=True` makes the call return falsy when the key already exists,
+        which is exactly the "someone else got here first" signal.
+        """
+        return await self._client.set(key, value, ex=ex, nx=nx)
 
     async def delete(self, key: str):
         return await self._client.delete(key)
@@ -60,7 +77,7 @@ async def init_redis():
                 raise
 
 
-TOKEN_BUCKET_LUA = """
+RATE_LIMIT_BUCKET_LUA = """
 local key = KEYS[1]
 local capacity = tonumber(ARGV[1])
 local refill_rate = tonumber(ARGV[2])
@@ -96,7 +113,7 @@ async def check_rate_limit(key: str, capacity: int, refill_rate_per_sec: float) 
     try:
         now = time.time()
         result = await redis_client.eval(
-            TOKEN_BUCKET_LUA,
+            RATE_LIMIT_BUCKET_LUA,
             1,
             key,
             str(capacity),
@@ -110,7 +127,14 @@ async def check_rate_limit(key: str, capacity: int, refill_rate_per_sec: float) 
         return False
 
 
-async def get_cached(key: str) -> dict | None:
+async def get_cached(key: str) -> Any | None:
+    """Read a JSON value back out of the cache.
+
+    Returned as `Any` rather than `dict | None` for the same reason
+    :func:`set_cached` accepts `Any`: the cache stores whatever was written,
+    lists included, and pretending otherwise only pushed the mismatch onto
+    the caller.
+    """
     try:
         data = await redis_client.get(key)
         if data:
@@ -121,7 +145,14 @@ async def get_cached(key: str) -> dict | None:
         return None
 
 
-async def set_cached(key: str, value: dict, ttl: int = 86400) -> None:
+async def set_cached(key: str, value: Any, ttl: int = 86400) -> None:
+    """Cache an arbitrary JSON-serialisable value.
+
+    Widened from `dict` because callers legitimately cache lists too (the
+    heatmap endpoint caches a `list[dict]`, which does not satisfy `dict`) —
+    the runtime behaviour was always `json.dumps`, so the narrower annotation
+    was simply wrong.
+    """
     try:
         await redis_client.setex(key, ttl, json.dumps(value))
     except Exception as e:

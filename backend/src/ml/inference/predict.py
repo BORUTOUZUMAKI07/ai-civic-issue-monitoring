@@ -6,6 +6,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from PIL import Image
@@ -64,7 +65,11 @@ def _load_class_names() -> list[str]:
 CLASS_NAMES = _load_class_names()
 
 _model = None
-_device = None
+# Deliberately untyped: this holds a `torch.device` when torch is importable
+# and a plain `"cpu"` string when it is not (ONNX-only deploys), and torch is
+# an optional dependency here. Annotating it `None` made both of those
+# assignments look like violations.
+_device: Any = None
 _model_type = None
 _session = None
 
@@ -208,7 +213,14 @@ def predict_issue(image: Image.Image) -> dict:
             outputs = model(img_tensor)
             probs = torch.softmax(outputs, dim=1)
 
-        confidence, pred_idx = torch.max(probs, dim=1)
+        # Unpack to scalars rather than leaving a 1-element tensor in each.
+        # The ONNX branch above already yields `int`/`float`, so the two
+        # branches produced different types for the same variables — and the
+        # `isinstance` guards at the call site existed purely to paper over
+        # that. Normalising here makes the guard's fast path the only path.
+        conf_tensor, idx_tensor = torch.max(probs, dim=1)
+        confidence = float(conf_tensor[0].item())
+        pred_idx = int(idx_tensor[0].item())
         all_probs = {CLASS_NAMES[i]: round(probs[0][i].item(), 4) for i in range(len(CLASS_NAMES))}
         model_type = _model_type or "pytorch"
         model_path = str(MODEL_PATH)

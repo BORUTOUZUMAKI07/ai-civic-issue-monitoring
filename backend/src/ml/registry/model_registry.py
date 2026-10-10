@@ -8,7 +8,7 @@ and provides promote/rollback capabilities.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -130,20 +130,22 @@ class ModelRegistry:
             prod_versions = self.client.get_latest_versions(name, stages=["Production"])
             if prod_versions:
                 prod = prod_versions[0]
-        except Exception:
+        except Exception:  # registry unreachable -> stage treated as empty  # nosec B110
             pass
 
         try:
             staging_versions = self.client.get_latest_versions(name, stages=["Staging"])
             if staging_versions:
                 staging = staging_versions[0]
-        except Exception:
+        except Exception:  # registry unreachable -> stage treated as empty  # nosec B110
             pass
 
         if not prod and not staging:
             return None
 
-        result = {"production": None, "staging": None, "recommendation": None}
+        # Annotated: an unannotated all-None literal infers as
+        # `dict[str, None]`, which then rejects every real value assigned below.
+        result: dict[str, Any] = {"production": None, "staging": None, "recommendation": None}
 
         if prod:
             prod_metrics = self.client.get_run(prod.run_id).data.metrics
@@ -177,7 +179,7 @@ class ModelRegistry:
 
     def _get_latest_version(self, name: str) -> str:
         versions = self.client.search_model_versions(f"name='{name}'")
-        return max(versions, key=lambda v: int(v.version)).version
+        return str(max(versions, key=lambda v: int(v.version)).version)
 
 
 _registry: ModelRegistry | None = None
