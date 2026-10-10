@@ -16,7 +16,7 @@ from src.core.security import (
     decode_token,
     hash_password_async,
     is_token_blacklisted,
-    verify_password_async,
+    verify_password_for_login_async,
 )
 from src.errors import (
     EmailAlreadyExists,
@@ -91,7 +91,9 @@ class AuthService:
 
     async def login(self, email: str, password: str) -> tuple[str, str]:
         user = await self.user_repo.get_by_email(email)
-        if not user or not await verify_password_async(password, user.password_hash):
+        if not user or not await verify_password_for_login_async(
+            password, user.password_hash, oauth_provider=user.oauth_provider
+        ):
             raise InvalidCredentials()
         if not user.is_active:
             raise UnauthorizedError(detail="Account is deactivated.")
@@ -99,6 +101,10 @@ class AuthService:
         access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
         refresh_token = create_refresh_token({"sub": str(user.id)})
 
+        # A completed password login lifts the post-replay refresh lockout —
+        # otherwise a single replayed token locked the account out of /refresh
+        # for 7 days with no way back in.
+        await clear_refresh_family_revocation(user.id)
         await store_refresh_session(refresh_token)
 
         return access_token, refresh_token
@@ -119,7 +125,12 @@ class AuthService:
             raise TokenRevoked()
 
         user_id = payload.get("sub")
-        user = await self.user_repo.get(int(user_id))
+        if not user_id:
+            # `sub` is what ties a refresh token to an account. Silently
+            # treating a missing one as user 0 (or letting `int(None)` raise
+            # a TypeError out as a 500) is worse than rejecting the token.
+            raise InvalidToken()
+        user = await self.user_repo.get(int(str(user_id)))
         if not user:
             raise UserNotFound()
 
@@ -199,6 +210,27 @@ class AuthService:
         if not user:
             raise UserNotFound()
         return user
+
+
+async def clear_refresh_family_revocation(user_id: int) -> None:
+    """Lift the post-replay lockout once the user has re-authenticated.
+
+    ``refresh:revoked:{user_id}`` is set when a replayed refresh token is
+    detected and gates *every* future refresh for that user — but it was never
+    cleared anywhere, so one replay left the account permanently unable to
+    refresh for the full 7-day TTL, with no recovery path short of waiting it
+    out. Since the flag's job is "no session survives the compromise signal",
+    a fresh interactive login is exactly the event that should lift it: the
+    user has just proven control of their credentials, and any session that
+    existed before is moot because they are starting a new one.
+
+    Best-effort, matching the rest of this module: if Redis is unreachable the
+    login still succeeds and the flag ages out on its own TTL.
+    """
+    try:
+        await redis_client.delete(f"{_REFRESH_REVOKED_PREFIX}{user_id}")
+    except Exception as e:
+        logger.warning("refresh: failed to clear revocation flag for user %s: %s", user_id, e)
 
 
 async def store_refresh_session(refresh_token: str) -> None:

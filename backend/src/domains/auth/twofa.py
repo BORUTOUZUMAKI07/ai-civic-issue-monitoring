@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.security import (
     create_2fa_challenge_token,
-    verify_password_async,
+    verify_password_for_login_async,
 )
 from src.errors import (
     InvalidCredentials,
@@ -24,24 +24,78 @@ from src.repositories.user_repository import UserRepository
 
 logger = logging.getLogger("civicpulse")
 
-# 10 recovery codes, each in XXXX-XXXX format (8 hex chars)
+# 10 recovery codes, each in XXXX-XXXX-XXXX-XXXX format (16 hex chars = 64 bits)
 _RECOVERY_CODE_COUNT = 10
+_RECOVERY_CODE_BYTES = 8  # 64 bits of entropy per code
+
+# scrypt parameters for recovery-code hashing. Deliberately modest: these run
+# once per login attempt on a 6-digit input, but must still make an offline
+# attack over a stolen DB costly. n=2**15/r=8/p=1 is ~32 MiB and ~50 ms.
+_RECOVERY_SCRYPT_N = 2**15
+_RECOVERY_SCRYPT_R = 8
+_RECOVERY_SCRYPT_P = 1
 
 
 def _generate_recovery_codes() -> list[str]:
     """Generate plain-text recovery codes. Returned to the user once at
-    enable time; the caller must store *hashed* versions in the DB."""
+    enable time; the caller must store *hashed* versions in the DB.
+
+    Was ``secrets.token_hex(4)`` — 32 bits, 4 billion values — hashed with a
+    bare SHA-256. An attacker holding the DB could exhaust the entire space in
+    minutes on a GPU, so every recovery code was effectively known. 64 bits
+    makes the same search ~2^32 times harder, and scrypt with a per-code salt
+    removes the rainbow-table/vectorisation win that plain SHA-256 handed them.
+    """
     codes = []
     for _ in range(_RECOVERY_CODE_COUNT):
-        raw = secrets.token_hex(4)  # 8 hex chars
-        codes.append(f"{raw[:4]}-{raw[4:]}")
+        raw = secrets.token_hex(_RECOVERY_CODE_BYTES)  # 16 hex chars
+        codes.append("-".join(raw[i : i + 4] for i in range(0, len(raw), 4)))
     return codes
 
 
-def _hash_recovery_code(code: str) -> str:
-    """SHA-256 hash of the normalised (upper, stripped) code."""
+def _hash_recovery_code(code: str, salt: str | None = None) -> str:
+    """Hash a normalised recovery code.
+
+    Returns a versioned, self-describing string::
+
+        scrypt$<salt_hex>$<hash_hex>
+
+    Older rows hold a bare 64-char SHA-256 hex digest with no salt. Those are
+    still *verified* by :func:`_verify_recovery_code` so existing users are not
+    locked out, but nothing new is written in that format.
+    """
     normalised = code.strip().upper()
-    return hashlib.sha256(normalised.encode()).hexdigest()
+    salt_bytes = bytes.fromhex(salt) if salt else secrets.token_bytes(16)
+    digest = hashlib.scrypt(
+        normalised.encode(),
+        salt=salt_bytes,
+        n=_RECOVERY_SCRYPT_N,
+        r=_RECOVERY_SCRYPT_R,
+        p=_RECOVERY_SCRYPT_P,
+        dklen=32,
+    )
+    return f"scrypt${salt_bytes.hex()}${digest.hex()}"
+
+
+def _verify_recovery_code(code: str, stored: str) -> bool:
+    """Constant-time check of ``code`` against one stored entry.
+
+    Handles both the salted scrypt format and the legacy unsalted SHA-256 form.
+    A malformed stored value fails closed rather than raising.
+    """
+    normalised = code.strip().upper()
+    if stored.startswith("scrypt$"):
+        try:
+            _, salt_hex, digest_hex = stored.split("$", 2)
+            expected = _hash_recovery_code(normalised, salt=salt_hex)
+        except (ValueError, TypeError):
+            return False
+        return hmac.compare_digest(expected, f"scrypt${salt_hex}${digest_hex}")
+    # Legacy bare-hex SHA-256.
+    if len(stored) == 64 and all(c in "0123456789abcdef" for c in stored):
+        legacy = hashlib.sha256(normalised.encode()).hexdigest()
+        return hmac.compare_digest(legacy, stored)
+    return False
 
 
 def _store_recovery_codes(codes: list[str]) -> str:
@@ -133,7 +187,12 @@ class TwoFactorService:
           the second step).
         """
         user = await self.user_repo.get_by_email(email)
-        if not user or not await verify_password_async(password, user.password_hash):
+        if not user:
+            raise InvalidCredentials()
+        # Refuses OAuth-bound accounts and the legacy public sentinel before any
+        # Argon2 work; a wrong password and an OAuth account look identical to
+        # the caller.
+        if not await verify_password_for_login_async(password, user.password_hash, oauth_provider=user.oauth_provider):
             raise InvalidCredentials()
         if not user.is_active:
             from src.errors import UnauthorizedError
@@ -144,10 +203,11 @@ class TwoFactorService:
             return create_2fa_challenge_token(user.id)
 
         from src.core.security import create_access_token, create_refresh_token
-        from src.domains.auth.service import store_refresh_session
+        from src.domains.auth.service import clear_refresh_family_revocation, store_refresh_session
 
         access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
         refresh_token = create_refresh_token({"sub": str(user.id)})
+        await clear_refresh_family_revocation(user.id)
         await store_refresh_session(refresh_token)
         return access_token, refresh_token
 
@@ -174,26 +234,40 @@ class TwoFactorService:
             # Try recovery code.
             if not user.recovery_codes:
                 raise InvalidTwoFactorCode()
-            stored_hashes: list[str] = json.loads(user.recovery_codes)
-            provided_hash = _hash_recovery_code(code_clean)
-            # Constant-time comparison of each stored hash.
-            matched = False
-            for i, h in enumerate(stored_hashes):
-                if hmac.compare_digest(h, provided_hash):
-                    matched = True
-                    stored_hashes.pop(i)
-                    break
-            if not matched:
+            try:
+                stored_codes: list[str] = json.loads(user.recovery_codes)
+            except (TypeError, ValueError):
                 raise InvalidTwoFactorCode()
+            if not isinstance(stored_codes, list):
+                raise InvalidTwoFactorCode()
+
+            # Each stored entry carries its own salt, so the candidate must be
+            # verified *against* the entry — hashing the input once and
+            # comparing (the old approach) is impossible with per-code salts
+            # and was the reason the previous code had to use bare SHA-256.
+            # Every entry is checked rather than stopping at the first match,
+            # so the timing profile does not reveal which slot matched; the
+            # loop therefore cannot mutate the list while iterating.
+            matched_index = -1
+            for i, stored in enumerate(stored_codes):
+                if not isinstance(stored, str):
+                    continue
+                if _verify_recovery_code(code_clean, stored):
+                    matched_index = i
+            if matched_index < 0:
+                raise InvalidTwoFactorCode()
+
             # Remove the used recovery code.
-            user.recovery_codes = json.dumps(stored_hashes) if stored_hashes else None
+            stored_codes.pop(matched_index)
+            user.recovery_codes = json.dumps(stored_codes) if stored_codes else None
             await self.db.commit()
 
         from src.core.security import create_access_token, create_refresh_token
-        from src.domains.auth.service import store_refresh_session
+        from src.domains.auth.service import clear_refresh_family_revocation, store_refresh_session
 
         access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
         refresh_token = create_refresh_token({"sub": str(user.id)})
+        await clear_refresh_family_revocation(user.id)
         await store_refresh_session(refresh_token)
         return access_token, refresh_token
 

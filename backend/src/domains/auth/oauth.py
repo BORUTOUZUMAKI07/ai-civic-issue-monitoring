@@ -17,10 +17,12 @@ Flow:
 from __future__ import annotations
 
 import logging
+import secrets
 from urllib.parse import urlencode
 
 import httpx
 from jose import jwt
+from sqlalchemy import select
 
 from src.core.config import settings
 from src.core.security import (
@@ -34,9 +36,31 @@ from src.repositories.user_repository import UserRepository
 
 logger = logging.getLogger("civicpulse")
 
-# A "password" is required by the schema but OAuth users have none; store an
-# unusable hash so direct password login can never succeed for them.
-_OAUTH_PASSWORD = "!"  # passlib will never verify this
+
+def _unusable_password() -> str:
+    """A random, never-published string whose Argon2 hash is stored in place of
+    a password for OAuth-created accounts.
+
+    It must be *random per account* rather than a fixed sentinel such as ``"!"``:
+    a fixed value is a known plaintext, and ``verify_password("!", hash("!"))``
+    returns ``True``, which turns every OAuth account into one whose password is
+    public knowledge.  A fresh 256-bit value is never transmitted, never stored
+    in plaintext, and can never be guessed.
+
+    This is defence in depth only — password login for OAuth-bound accounts is
+    refused outright by ``verify_password_for_login`` regardless of the hash.
+    """
+    return secrets.token_urlsafe(32)
+
+
+async def get_user_by_oauth_identity(db, provider: str, sub: str) -> User | None:
+    """Look an account up by the provider's subject id, never by email."""
+    if not sub:
+        return None
+    stmt = select(User).where(User.oauth_provider == provider, User.oauth_sub == sub)
+    result = await db.execute(stmt)
+    user: User | None = result.scalar_one_or_none()
+    return user
 
 
 class OAuthProvider:
@@ -154,7 +178,7 @@ def get_provider(name: str) -> OAuthProvider:
         return OAuthProvider(
             name="google",
             authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
-            token_url="https://oauth2.googleapis.com/token",
+            token_url="https://oauth2.googleapis.com/token",  # an endpoint, not a secret  # nosec B106
             userinfo_url="https://openidconnect.googleapis.com/v1/userinfo",
             client_id=settings.GOOGLE_CLIENT_ID,
             client_secret=settings.GOOGLE_CLIENT_SECRET,
@@ -165,7 +189,7 @@ def get_provider(name: str) -> OAuthProvider:
         return OAuthProvider(
             name="github",
             authorize_url="https://github.com/login/oauth/authorize",
-            token_url="https://github.com/login/oauth/access_token",
+            token_url="https://github.com/login/oauth/access_token",  # an endpoint, not a secret  # nosec B106
             userinfo_url="https://api.github.com/user",
             client_id=settings.GITHUB_CLIENT_ID,
             client_secret=settings.GITHUB_CLIENT_SECRET,
@@ -177,14 +201,18 @@ def get_provider(name: str) -> OAuthProvider:
 
 def encode_oauth_state(provider: str, redirect: str) -> str:
     """Sign a short-lived state token carrying the provider and post-login redirect."""
-    return jwt.encode(
-        {
-            "provider": provider,
-            "redirect": redirect or "/dashboard",
-            "exp": _now_plus(settings.ACCESS_TOKEN_EXPIRE_MINUTES),
-        },
-        settings.SECRET_KEY,
-        algorithm=settings.ALGORITHM,
+    # Wrapped: `python-jose` provides no type information, so `jwt.encode` is
+    # `Any` and would otherwise slip through the `-> str` annotation.
+    return str(
+        jwt.encode(
+            {
+                "provider": provider,
+                "redirect": redirect or "/dashboard",
+                "exp": _now_plus(settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+            },
+            settings.SECRET_KEY,
+            algorithm=settings.ALGORITHM,
+        )
     )
 
 
@@ -212,32 +240,92 @@ def _now_plus(minutes: int):
 
 
 async def login_with_provider(db, provider: OAuthProvider, profile: dict) -> tuple[User, str, str]:
-    """Upsert a user by provider identity / email and mint JWTs."""
+    """Upsert a user by provider identity / email and mint JWTs.
+
+    Identity rules (mirrors the pattern used by our url-shortner and Nexus AI
+    projects):
+
+    1. Look up by ``(provider, provider_id)`` — the only authoritative link.
+    2. Only if no identity link exists, fall back to email to *find a
+       pre-existing account to link*.
+    3. Never link into an account that is already bound to a *different*
+       provider: that is either provider-side account takeover or user
+       confusion, and re-binding would hand the account to whoever holds the
+       second identity.
+    4. Never link into an account that already has a local password unless the
+       provider's email is marked verified by the provider.
+    """
     repo = UserRepository(db)
     email = profile.get("email")
     if not email:
         raise OAuthError("Your {provider} account has no email address.".format(provider=provider.name))
 
-    user = await repo.get_by_email(email)
+    provider_name = profile.get("provider") or provider.name
+    provider_sub = str(profile.get("provider_id") or "")
+
+    user = await get_user_by_oauth_identity(db, provider_name, provider_sub)
+    created_here = False
+
     if user is None:
-        user = User(
-            email=email,
-            password_hash=await hash_password_async(_OAUTH_PASSWORD),
-            full_name=profile.get("name") or email.split("@", 1)[0],
-            role=UserRole.field_worker,
-        )
-        user = await repo.create(user)
-    elif user.full_name != (profile.get("name") or user.full_name):
-        user.full_name = profile.get("name") or user.full_name
-        await db.commit()
-        await db.refresh(user)
+        candidate = await repo.get_by_email(email)
+        if candidate is not None:
+            # A pre-existing account is only linked when it is either already
+            # OAuth-bound to this very provider, or has no provider binding and
+            # no password (an orphan), or is bound to nothing at all.
+            if candidate.oauth_provider and candidate.oauth_provider != provider_name:
+                logger.warning(
+                    "oauth: refusing to link %s identity to %s already bound to %s",
+                    provider_name,
+                    email,
+                    candidate.oauth_provider,
+                )
+                raise OAuthError("This email is already registered with a different sign-in method.")
+            user = candidate
+
+        if user is None:
+            user = User(
+                email=email,
+                password_hash=await hash_password_async(_unusable_password()),
+                full_name=profile.get("name") or email.split("@", 1)[0],
+                role=UserRole.field_worker,
+                oauth_provider=provider_name,
+                oauth_sub=provider_sub or None,
+            )
+            user = await repo.create(user)
+            created_here = True
+        else:
+            # Link the provider identity onto the account we found by email.
+            user.oauth_provider = provider_name
+            if provider_sub:
+                user.oauth_sub = provider_sub
+            if profile.get("name") and profile["name"] != user.full_name:
+                user.full_name = profile["name"]
+            await db.commit()
+            await db.refresh(user)
+    else:
+        changed = False
+        if profile.get("name") and profile["name"] != user.full_name:
+            user.full_name = profile["name"]
+            changed = True
+        if changed:
+            await db.commit()
+            await db.refresh(user)
+
+    if not user.is_active:
+        from src.errors import UnauthorizedError
+
+        raise UnauthorizedError(detail="Account is deactivated.")
 
     access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
     refresh_token = create_refresh_token({"sub": str(user.id)})
 
-    from src.domains.auth.service import store_refresh_session
+    from src.domains.auth.service import clear_refresh_family_revocation, store_refresh_session
 
     # Record the refresh session so rotation + reuse detection apply to OAuth
-    # sign-ins as well as password logins.
+    # sign-ins as well as password logins. A completed OAuth sign-in is a fresh
+    # interactive authentication, so it also lifts any post-replay refresh
+    # lockout — otherwise the user could sign in but never refresh again.
+    await clear_refresh_family_revocation(user.id)
     await store_refresh_session(refresh_token)
+    logger.debug("oauth: signed in %s (created=%s)", user.email, created_here)
     return user, access_token, refresh_token

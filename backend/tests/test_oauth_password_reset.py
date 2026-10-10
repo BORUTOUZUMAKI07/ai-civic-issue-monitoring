@@ -40,7 +40,18 @@ def test_get_provider_unknown_raises() -> None:
 
 def test_password_reset_token_round_trip() -> None:
     token = create_password_reset_token(42)
-    assert decode_password_reset_token(token) == 42
+    user_id, jti = decode_password_reset_token(token)
+    assert user_id == 42
+    # Every token must carry a jti so it can be marked consumed after first use.
+    assert jti
+
+
+def test_password_reset_tokens_are_unique() -> None:
+    # Two tokens for the same user must not share a jti, otherwise consuming
+    # one would silently invalidate the other (or, worse, allow a replay).
+    _, jti_a = decode_password_reset_token(create_password_reset_token(7))
+    _, jti_b = decode_password_reset_token(create_password_reset_token(7))
+    assert jti_a != jti_b
 
 
 def test_password_reset_token_rejects_wrong_type() -> None:
@@ -74,7 +85,11 @@ async def test_forgot_password_unknown_email_soft_success(client: AsyncClient) -
 
 @pytest.mark.asyncio
 async def test_forgot_password_existing_user_smtp_failure(client: AsyncClient) -> None:
-    # A registered user whose reset email cannot be delivered surfaces an error.
+    # A known address whose mail cannot be delivered must look *identical* to
+    # an unknown address. The earlier behaviour raised 400 here while returning
+    # 200 for an unregistered address, which turned this endpoint into an
+    # account-enumeration oracle: one request per address told an attacker
+    # exactly which mailboxes exist.
     from unittest.mock import patch
 
     from src.core.database import AsyncSessionLocal, engine
@@ -105,7 +120,10 @@ async def test_forgot_password_existing_user_smtp_failure(client: AsyncClient) -
                 "/api/v1/auth/forgot-password",
                 json={"email": "existing@civicpulse.com"},
             )
-        assert response.status_code == 400
+        assert response.status_code == 200
+        assert response.json() == {
+            "detail": "If that email is registered, a reset link has been sent."
+        }
         assert fake_send.called
     finally:
         settings.SMTP_HOST = old_host

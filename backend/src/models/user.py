@@ -32,5 +32,13 @@ class User(Base):
     two_factor_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     recovery_codes: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
 
+    # OAuth identity. A user is bound to exactly one (provider, sub) pair; when
+    # ``oauth_provider`` is set the account has NO usable password and password
+    # login is refused outright (see ``verify_password_for_login``). ``oauth_sub``
+    # is indexed and unique-per-provider so identity is established by the
+    # provider's subject, never by an email address an attacker may control.
+    oauth_provider: Mapped[str | None] = mapped_column(String, nullable=True, default=None, index=True)
+    oauth_sub: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+
     issues = relationship("Issue", back_populates="reporter")
     engineer_profile = relationship("Engineer", back_populates="user", uselist=False)

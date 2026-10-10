@@ -25,6 +25,7 @@ from src.domains.auth.schemas import (
 from src.domains.auth.service import AuthService
 from src.domains.auth.twofa import TwoFactorService
 from src.errors import OAuthError, OAuthNotConfigured
+from src.errors.base import AppError
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -60,7 +61,13 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         "session_active",
         "1",
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
-        httponly=False,
+        # Readable only by the server. Nothing in the client ever reads or
+        # writes this cookie — it exists purely so `middleware.ts` can decide
+        # whether to redirect to /login — so leaving it non-HttpOnly made that
+        # check bypassable by a single `document.cookie` line, or by any XSS
+        # that wanted to keep the shell on the protected routes. Only the
+        # backend can now assert that a session exists.
+        httponly=True,
         samesite="lax",
         secure=is_secure,
         path="/",
@@ -68,9 +75,12 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
 
 
 def _clear_auth_cookies(response: Response) -> None:
-    response.delete_cookie("access_token", path="/")
-    response.delete_cookie("refresh_token", path="/")
-    response.delete_cookie("session_active", path="/")
+    # Each deletion must carry the same attributes as the `set_cookie` that
+    # created it; a mismatched flag produces a second, distinct cookie in some
+    # clients rather than removing the original.
+    response.delete_cookie("access_token", path="/", httponly=True, samesite="lax", secure=settings.COOKIE_SECURE)
+    response.delete_cookie("refresh_token", path="/", httponly=True, samesite="lax", secure=settings.COOKIE_SECURE)
+    response.delete_cookie("session_active", path="/", httponly=True, samesite="lax", secure=settings.COOKIE_SECURE)
 
 
 @router.post("/register", response_model=UserResponse)
@@ -116,14 +126,30 @@ async def login(body: LoginRequest, response: Response, db: AsyncSession = Depen
 
 @router.post("/refresh")
 async def refresh(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    from fastapi.responses import JSONResponse
+
     refresh_token = request.cookies.get("refresh_token")
     if not refresh_token:
-        from fastapi.responses import JSONResponse
-
+        # Nothing to refresh with — drop whatever auth cookies are left so the
+        # browser stops presenting a session it cannot use.
+        _clear_auth_cookies(response)
         return JSONResponse(status_code=401, content={"detail": "No refresh token"})
 
     svc = AuthService(db)
-    access_token, new_refresh_token = await svc.refresh(refresh_token)
+    try:
+        access_token, new_refresh_token = await svc.refresh(refresh_token)
+    except AppError:
+        # A revoked, replayed or malformed refresh token previously raised
+        # straight through to the global handler: the caller got a 401 but the
+        # cookies stayed exactly as they were. `session_active` therefore
+        # outlived the session it describes, so `middleware.ts` kept letting
+        # the user into every protected page while every API call under them
+        # 401'd — a "logged in" shell with no data, for the full 7-day cookie
+        # life. Clearing here is what makes the frontend guard and reality
+        # agree.
+        _clear_auth_cookies(response)
+        return JSONResponse(status_code=401, content={"detail": "Refresh token rejected"})
+
     _set_auth_cookies(response, access_token, new_refresh_token)
     return {"detail": "Refresh successful"}
 
@@ -132,7 +158,14 @@ async def refresh(request: Request, response: Response, db: AsyncSession = Depen
 async def logout(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
     refresh_token = request.cookies.get("refresh_token")
     auth_header = request.headers.get("authorization", "")
-    access_token = auth_header[7:] if auth_header.startswith("Bearer ") else None
+    if auth_header.startswith("Bearer "):
+        access_token: str | None = auth_header[7:]
+    else:
+        # Also accept the cookie: the proxy forwards it, and a direct call to
+        # this endpoint (curl, a test, a non-proxied client) has no reason to
+        # duplicate it into a header. Without this the token blocklist step in
+        # `AuthService.logout` was silently skipped for cookie-only callers.
+        access_token = request.cookies.get("access_token")
     if refresh_token or access_token:
         svc = AuthService(db)
         await svc.logout(refresh_token, access_token)
@@ -283,9 +316,37 @@ async def verify_2fa(
 
     user_id = int(payload["sub"])
     svc = TwoFactorService(db)
+
+    # Burn the challenge *after* the code checks out but before tokens are
+    # issued, so one challenge mints exactly one session. Consuming it first
+    # would force a full re-login on a mistyped digit; never consuming it
+    # (the old behaviour) let a stolen challenge be replayed for 5 minutes.
+    if payload.get("jti"):
+        await _consume_2fa_challenge(payload["jti"])
+
     access_token, refresh_token = await svc.verify_challenge(user_id, body.code)
     _set_auth_cookies(response, access_token, refresh_token)
     return {"detail": "Login successful"}
+
+
+async def _consume_2fa_challenge(jti: str) -> None:
+    """Mark ``jti`` as used; raise if it has already been used.
+
+    Redis being unavailable must not lock every 2FA user out, so the failure
+    mode is "do not consume" rather than "deny" — equivalent to the old
+    always-replayable behaviour, never worse.
+    """
+    from src.errors import InvalidToken
+
+    key = f"2fa:used:{jti}"
+    try:
+        from src.core.redis import redis_client
+
+        was_new = await redis_client.set(key, "1", ex=300, nx=True)
+    except Exception:
+        return
+    if not bool(was_new):
+        raise InvalidToken()
 
 
 @router.post("/2fa/recovery-codes", response_model=TwoFactorRecoveryCodesResponse)
