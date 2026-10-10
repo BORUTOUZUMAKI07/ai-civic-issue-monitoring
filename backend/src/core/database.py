@@ -14,15 +14,25 @@ connect_args = {}
 if settings.ASYNC_DATABASE_URI.startswith("postgresql"):
     connect_args["statement_cache_size"] = 0
 
-engine = create_async_engine(
-    settings.ASYNC_DATABASE_URI,
-    echo=False,
-    pool_size=20,
-    max_overflow=10,
-    pool_pre_ping=True,
-    pool_recycle=300,
-    connect_args=connect_args,
-)
+# Pool sizing is a property of the pool class, not of SQLAlchemy in general.
+# PostgreSQL gets a QueuePool and honours `pool_size`/`max_overflow`; SQLite
+# (the test suite's `sqlite+aiosqlite:///:memory:`) gets a StaticPool, whose
+# constructor accepts neither — passing them raised
+# `TypeError: Invalid argument(s) 'pool_size','max_overflow' sent to
+# create_engine()` at import time, which took out every test module that
+# imported the session factory. Conditional kwargs keep one engine definition
+# correct for both.
+engine_kwargs: dict = {
+    "echo": False,
+    "pool_pre_ping": True,
+    "pool_recycle": 300,
+    "connect_args": connect_args,
+}
+if not settings.ASYNC_DATABASE_URI.startswith("sqlite"):
+    engine_kwargs["pool_size"] = 20
+    engine_kwargs["max_overflow"] = 10
+
+engine = create_async_engine(settings.ASYNC_DATABASE_URI, **engine_kwargs)
 
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,
