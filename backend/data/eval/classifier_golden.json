@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "description": "Human-labelled civic-issue descriptions for the offline deterministic classifier (src/agents/classifier._keyword_classify). Categories match the 3-class taxonomy (pothole, garbage, debris); severity is the 1-5 scale the agent emits.",
+  "cases": [
+    { "text": "Dangerous pothole on the main road causing cars to swerve", "category": "pothole", "severity": 4 },
+    { "text": "Road damage with a deep crack blocking traffic", "category": "pothole", "severity": 3 },
+    { "text": "Broken road surface needs urgent repair", "category": "pothole", "severity": 4 },
+    { "text": "Minor pothole near the curb", "category": "pothole", "severity": 1 },
+    { "text": "Asphalt is damaged and crumbling after the rains", "category": "pothole", "severity": 3 },
+    { "text": "Overflowing garbage bin on the street corner", "category": "garbage", "severity": 3 },
+    { "text": "Trash pile blocking the sidewalk", "category": "garbage", "severity": 3 },
+    { "text": "Litter scattered around the park is a risk to children", "category": "garbage", "severity": 4 },
+    { "text": "Illegal dumping of waste near the river", "category": "garbage", "severity": 1 },
+    { "text": "Small rubbish pile outside the market", "category": "garbage", "severity": 1 },
+    { "text": "Construction waste and rubble left on the road", "category": "debris", "severity": 1 },
+    { "text": "Debris from a collapsed structure is blocking the lane", "category": "debris", "severity": 4 },
+    { "text": "Construction waste and rubble dumped on the footpath", "category": "debris", "severity": 1 },
+    { "text": "Debris is creating an obstruction on the highway", "category": "debris", "severity": 3 },
+    { "text": "Large pothole causing an accident risk at night", "category": "pothole", "severity": 4 },
+    { "text": "Garbage overflow is severe near the bus stop", "category": "garbage", "severity": 4 },
+    { "text": "Minor wear on the road surface needs cosmetic repair", "category": "pothole", "severity": 1 },
+    { "text": "Road crack widening and becoming dangerous", "category": "pothole", "severity": 4 },
+    { "text": "Illegal structure encroaching on the road", "category": "debris", "severity": 1 },
+    { "text": "Waste collection missed again, garbage is piling up", "category": "garbage", "severity": 1 },
+    { "text": "Rubbish dump site has become a health hazard", "category": "garbage", "severity": 4 },
+    { "text": "Broken asphalt is damaged and deteriorating", "category": "pothole", "severity": 3 },
+    { "text": "Emergency collapsed drain and debris on the road", "category": "debris", "severity": 4 },
+    { "text": "Small debris pile on the corner", "category": "debris", "severity": 1 },
+    { "text": "Road repair left rubble and construction waste behind", "category": "debris", "severity": 1 },
+    { "text": "Pothole is an emergency on the highway", "category": "pothole", "severity": 4 }
+  ]
+}

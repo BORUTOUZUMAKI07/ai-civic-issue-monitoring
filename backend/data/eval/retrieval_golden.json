@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "description": "Query -> relevant issue_type probes for retrieval quality. A retrieved issue counts as relevant when its issue_type matches. Run against a database that has issues with embeddings; the harness skips cleanly when none are available.",
+  "cases": [
+    { "query": "large pothole on the main road", "relevant_type": "pothole" },
+    { "query": "broken asphalt road surface damage", "relevant_type": "pothole" },
+    { "query": "garbage overflowing from the bin", "relevant_type": "garbage" },
+    { "query": "litter and waste piling on the street", "relevant_type": "garbage" },
+    { "query": "construction rubble and debris left behind", "relevant_type": "debris" },
+    { "query": "illegal dumping of construction waste", "relevant_type": "debris" }
+  ]
+}
