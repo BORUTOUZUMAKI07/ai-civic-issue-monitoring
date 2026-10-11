@@ -93,15 +93,14 @@ ml = [
     "onnx>=1.16.0",
     "tqdm>=4.66.0",
 ]
-# New Relic APM agent. Kept OUT of the base dependencies on purpose: the agent
-# is a compiled extension with no CPython-3.12 Windows wheel, so a base-dep
-# declaration makes a fresh pixi solve build it from source (requires MSVC)
-# on every Windows contributor machine. The agent is only ever *loaded* when a
-# license key is present (see src/core/newrelic.py), so environments without
-# this extra run exactly the same code minus telemetry. The runtime image
-# installs it via `pip install ".[ml,apm]"` (backend/Dockerfile).
-apm = [
-    "newrelic>=9.0.0",
+# Layer-1 -> Layer-2 OTLP log export (3-layer New Relic observability). The app
+# itself never holds the New Relic license key -- the Layer-2 OpenTelemetry
+# collector owns it (docker/otel-collector-config.yaml). Kept as an optional
+# extra so a fresh pixi solve stays lean; the runtime image installs it via
+# `pip install ".[ml,observability]"` (backend/Dockerfile).
+observability = [
+    "opentelemetry-sdk>=1.28.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.28.0",
 ]
 
 [tool.pytest.ini_options]
@@ -151,7 +150,7 @@ module = [
     "langchain.*",
     "pgvector.*",
     "openai.*",
-    "newrelic.*",
+    "opentelemetry.*",
     # Untyped dependencies. These ship no `py.typed` marker (or no stubs at
     # all), so mypy can only ever report `import-not-found` / `import-untyped`
     # for them — noise that hides the real errors in the code that calls them.
@@ -201,7 +200,7 @@ module = [
     "src.core.deps",
     "src.core.gate",
     "src.core.mongodb",
-    "src.core.newrelic",
+    "src.core.observability",
     "src.core.redis",
     "src.core.security",
     "src.documents.audit_log",

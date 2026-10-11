@@ -1,9 +1,10 @@
 """The Prometheus scrape endpoint must exist and stay unthrottled.
 
-New Relic remains the APM of record; ``/metrics`` is the additive,
-vendor-neutral RED feed for a Prometheus scraper. The two things worth locking
-down are that the endpoint is mounted at all and that the rate-limit middleware
-does not treat a scrape as user traffic.
+In the 3-layer setup ``/metrics`` is the in-process metric source of truth:
+the Layer-2 OpenTelemetry collector scrapes it and forwards to New Relic
+(Layer 3). The two things worth locking down are that the endpoint is mounted
+at all and that the rate-limit middleware does not treat a scrape as user
+traffic (auth of the scrape itself is covered by test_observability_3layer.py).
 """
 from __future__ import annotations
 

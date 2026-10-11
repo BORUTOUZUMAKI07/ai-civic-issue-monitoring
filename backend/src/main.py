@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from src.core.config import settings
 from src.core.database import check_db_health, engine, init_db
 from src.core.mongodb import init_mongodb
-from src.core.newrelic import init_newrelic, newrelic_enabled
+from src.core.observability import shutdown_otlp_log_handler
 from src.core.redis import check_redis_health, init_redis
 from src.domains.admin.routes import router as admin_router
 from src.domains.auth.routes import router as auth_router
@@ -30,7 +30,7 @@ from src.domains.resolution.routes import router as resolution_router
 from src.domains.wards.routes import router as wards_router
 from src.errors.base import AppError
 from src.log_utils import setup_logging
-from src.middleware import LoggingMiddleware, RateLimitMiddleware, RBACMiddleware
+from src.middleware import LoggingMiddleware, MetricsAuthMiddleware, RateLimitMiddleware, RBACMiddleware
 
 logger = logging.getLogger("civicpulse")
 
@@ -60,12 +60,14 @@ def create_app(lifespan_override=None):
     app.add_middleware(LoggingMiddleware)
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(RBACMiddleware)
+    # In the 3-layer setup the Layer-2 OpenTelemetry collector scrapes /metrics
+    # over the network; when METRICS_TOKEN is set the scrape must be authenticated.
+    app.add_middleware(MetricsAuthMiddleware)
 
-    # Prometheus scrape endpoint (RED metrics: rate, errors, duration), additive
-    # to New Relic rather than a replacement. Runtime-owned dashboards/alerts in
-    # Grafana-style tooling read from here; New Relic keeps APM + browser
-    # telemetry. Instrument *before* any ASGI-level wrapper (New Relic below)
-    # because `.instrument()` needs the FastAPI app's middleware API.
+    # Prometheus scrape endpoint (RED metrics: rate, errors, duration). This is
+    # the in-process metric source of truth; the Layer-2 OpenTelemetry collector
+    # scrapes it and forwards to New Relic (Layer 3), which also receives the
+    # OTLP log stream wired in src/log_utils. Gated by ENABLE_PROMETHEUS.
     if settings.ENABLE_PROMETHEUS:
         try:
             from prometheus_fastapi_instrumentator import Instrumentator
@@ -74,16 +76,6 @@ def create_app(lifespan_override=None):
             logger.info("Prometheus metrics exposed at /metrics")
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("Prometheus instrumentation failed to load: %s", exc)
-
-    # New Relic APM: wrap the ASGI app when a license key is present.
-    # No-op otherwise, so tests/CI/dev stay untouched.
-    if newrelic_enabled():
-        try:
-            import newrelic.agent
-
-            app = newrelic.agent.ASGIMiddleware(app)
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("New Relic ASGI middleware failed to load: %s", exc)
 
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError):
@@ -149,8 +141,6 @@ async def lifespan(app: FastAPI):
     setup_logging()
     logger.info("Starting CivicPulse...")
 
-    init_newrelic()
-
     try:
         await init_db()
         logger.info("Database connected.")
@@ -183,6 +173,7 @@ async def lifespan(app: FastAPI):
 
     await close_mongodb()
     await engine.dispose()
+    shutdown_otlp_log_handler()
     logger.info("Shutdown complete.")
 
 

@@ -176,6 +176,18 @@ def setup_logging(correlation_id: str | None = None) -> logging.Logger:
     setattr(file_handler, _HANDLER_MARKER, True)
     root.addHandler(file_handler)
 
+    # Layer-1 -> Layer-2: when NEW_RELIC_ENABLED, forward every rendered line
+    # to the OpenTelemetry collector over OTLP/HTTP (it owns the New Relic
+    # key). Fail-open -- an unconfigured or broken export must never break
+    # logging.
+    if settings.NEW_RELIC_ENABLED:
+        try:
+            from src.core.observability import setup_otlp_log_handler
+
+            setup_otlp_log_handler(log_level)
+        except Exception as exc:  # noqa: BLE001 - fail-open seam
+            logging.getLogger("civicpulse").warning("OTLP log handler setup failed: %s", exc)
+
     # Kept for callers that still pass one; correlation also flows through
     # contextvars, which is what reaches the modules that never pass it.
     if correlation_id:

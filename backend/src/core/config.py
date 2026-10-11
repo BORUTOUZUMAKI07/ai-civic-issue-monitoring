@@ -78,9 +78,21 @@ class Settings(BaseSettings):
             )
         return self
 
-    # --- NewRelic ---
-    NEW_RELIC_LICENSE_KEY: Optional[str] = None
-    NEW_RELIC_APP_NAME: str = "CivicPulse"
+    # --- Observability: 3-layer New Relic via OTLP (Layer 1 -> 2 -> 3) ---
+    # The app exports structured logs over OTLP/HTTP to the Layer-2
+    # OpenTelemetry collector (docker/otel-collector-config.yaml, compose
+    # service ``otel-collector``), which owns NEW_RELIC_LICENSE_KEY and
+    # forwards everything to New Relic (Layer 3). The app therefore never
+    # holds the vendor credential. ``/metrics`` stays the in-process metric
+    # source of truth (the collector scrapes it). No-op when disabled, the
+    # endpoint is unset, or the ``[observability]`` extras are not installed.
+    NEW_RELIC_ENABLED: bool = False
+    NEW_RELIC_OTLP_ENDPOINT: str = "http://localhost:4318"
+    NEW_RELIC_EXPORT_INTERVAL_SECONDS: int = 30
+    NEW_RELIC_APP_NAME: str = "CivicPulse-API"
+    # Bearer token the Layer-2 collector must present to scrape /metrics.
+    # Unset (None/"") leaves /metrics open (local dev, tests).
+    METRICS_TOKEN: Optional[str] = None
 
     # --- OAuth (Google / GitHub) ---
     GOOGLE_CLIENT_ID: str = ""
