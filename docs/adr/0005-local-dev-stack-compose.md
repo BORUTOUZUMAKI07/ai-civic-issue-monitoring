@@ -29,7 +29,7 @@ exactly this.
    `docker compose up` therefore does not start them (production stack shape
    unchanged); `docker compose --profile dev up` boots the full local stack.
 2. **Backend env vars get local-first defaults** for the datastores, using
-   `:-` interpolation: `DATABASE_URL` → `postgresql://civicpulse:civicpulse@postgres:5432/civicpulse`,
+   `:-` interpolation: `DATABASE_URL` → `postgresql://civicpulse:changeme@postgres:5432/civicpulse`,
    `REDIS_URL` → `redis://redis:6379`, `MONGODB_URI` → `mongodb://mongo:27017`,
    `UPSTASH_REDIS_REST_URL`/`TOKEN` → empty. Explicitly set vars always win,
    so Aiven/Upstash/Atlas deployments are unaffected.

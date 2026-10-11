@@ -13,7 +13,7 @@ services:
       # deployments (Aiven/Upstash/Atlas) are unaffected — see .env.example.
       # ASYNC_DATABASE_URI is deliberately NOT passed: config.py's
       # build_async_uri derives the asyncpg URL from DATABASE_URL.
-      - DATABASE_URL=${DATABASE_URL:-postgresql://civicpulse:civicpulse@postgres:5432/civicpulse}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://civicpulse:changeme@postgres:5432/civicpulse}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL:-}
       - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN:-}
@@ -89,7 +89,10 @@ services:
     profiles: ["dev"]
     environment:
       POSTGRES_USER: civicpulse
-      POSTGRES_PASSWORD: civicpulse
+      # Placeholder on purpose: matches the DATABASE_URL dev default above and
+      # is local-only — real deployments set DATABASE_URL to their own Aiven/
+      # managed Postgres (see docker/.env.example).
+      POSTGRES_PASSWORD: changeme
       POSTGRES_DB: civicpulse
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U civicpulse -d civicpulse"]
