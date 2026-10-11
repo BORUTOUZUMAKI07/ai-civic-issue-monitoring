@@ -160,6 +160,106 @@ jobs:
           cache: true
       - run: pixi run -e default test-integration
 
+  # Performance gate: the existing Locust suite (backend/scripts/loadtest/) run
+  # headless against the REAL app with real Postgres + Redis, then asserted on
+  # P95 and error-rate budgets by scripts/loadtest/run_gate.py (ADR-0006).
+  # This is the regression tripwire that unit tests cannot give: a missing
+  # cache, an unbounded query, or synchronous fan-out per request all show up
+  # as a P95/error breach here. Images only ship when this is green.
+  performance-loadtest:
+    name: Performance Load Test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: civicpulse_user
+          POSTGRES_PASSWORD: civicpulse_password
+          POSTGRES_DB: civicpulse_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://civicpulse_user:civicpulse_password@localhost:5432/civicpulse_db
+      REDIS_URL: redis://localhost:6379
+      SECRET_KEY: test-secret-key-for-ci-only
+      ENVIRONMENT: development
+      # 20 Locust users share one source IP — widen the token buckets so the
+      # run measures the app, not the throttle (rate limiting itself is
+      # covered by unit tests; consume_rate_limit also fails open).
+      RATE_LIMIT_IP_CAPACITY: "100000"
+      RATE_LIMIT_IP_REFILL: "1000"
+      RATE_LIMIT_USER_CAPACITY: "100000"
+      RATE_LIMIT_USER_REFILL: "1000"
+      LOCUST_EMAIL: loadtest@example.com
+      LOCUST_PASSWORD: LoadTest!2026
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: prefix-dev/setup-pixi@v0.8.8
+        with:
+          pixi-version: v0.62.2
+          environments: default loadtest
+          cache: true
+
+      - name: Start the API
+        run: |
+          nohup pixi run -e default python -m uvicorn src.main:app --host 127.0.0.1 --port 8000 > /tmp/uvicorn.log 2>&1 &
+          echo "uvicorn pid: $!"
+
+      - name: Wait for /health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8000/health > /dev/null; then
+              echo "API healthy after ${i} checks"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API never became healthy — uvicorn log:" >&2
+          cat /tmp/uvicorn.log >&2
+          exit 1
+
+      - name: Seed the load-test account
+        run: pixi run -e default python scripts/loadtest/seed_user.py
+
+      - name: Run Locust headless
+        run: >
+          pixi run -e loadtest loadtest
+          --headless -u 20 -r 5 -t 120s
+          --host http://127.0.0.1:8000
+          --csv loadtest_results
+          --html loadtest_report.html
+
+      - name: Assert P95 / error-rate budgets
+        run: pixi run -e loadtest python scripts/loadtest/run_gate.py --csv loadtest_results_stats.csv
+
+      - name: Upload load-test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loadtest-artifacts
+          path: |
+            backend/loadtest_results*.csv
+            backend/loadtest_report.html
+            /tmp/uvicorn.log
+          if-no-files-found: ignore
+
   # ──────────────── Frontend ────────────────
   frontend-lint:
     name: Frontend Lint
@@ -213,7 +313,7 @@ jobs:
   docker-ghcr:
     name: Docker → GHCR
     runs-on: ubuntu-latest
-    needs: [secret-scan, backend-lint, backend-typecheck, backend-test, backend-security, backend-integration, frontend-lint, frontend-test, frontend-build, prefect-test]
+    needs: [secret-scan, backend-lint, backend-typecheck, backend-test, backend-security, backend-integration, performance-loadtest, frontend-lint, frontend-test, frontend-build, prefect-test]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
@@ -255,7 +355,7 @@ jobs:
     name: Docker → DockerHub
     runs-on: ubuntu-latest
     # backend-security (and friends) must pass before a tag ships images.
-    needs: [secret-scan, backend-lint, backend-typecheck, backend-test, backend-security, backend-integration, frontend-lint, frontend-test, frontend-build, prefect-test]
+    needs: [secret-scan, backend-lint, backend-typecheck, backend-test, backend-security, backend-integration, performance-loadtest, frontend-lint, frontend-test, frontend-build, prefect-test]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Free up disk space
