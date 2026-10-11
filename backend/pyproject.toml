@@ -93,14 +93,19 @@ ml = [
     "onnx>=1.16.0",
     "tqdm>=4.66.0",
 ]
-# Layer-1 -> Layer-2 OTLP log export (3-layer New Relic observability). The app
-# itself never holds the New Relic license key -- the Layer-2 OpenTelemetry
-# collector owns it (docker/otel-collector-config.yaml). Kept as an optional
-# extra so a fresh pixi solve stays lean; the runtime image installs it via
-# `pip install ".[ml,observability]"` (backend/Dockerfile).
+# Layer-1 -> Layer-2 OTLP log + trace export (3-layer New Relic observability).
+# The app itself never holds the New Relic license key -- the Layer-2
+# OpenTelemetry collector owns it (docker/otel-collector-config.yaml). Kept as
+# an optional extra so a fresh pixi solve stays lean; the runtime image installs
+# it via `pip install ".[ml,observability]"` (backend/Dockerfile). The
+# instrumentation packages are version-paired with the SDK (SDK 1.x <-> 0.x-b
+# instrumentation) and are registered from src/core/observability.py.
 observability = [
     "opentelemetry-sdk>=1.28.0",
     "opentelemetry-exporter-otlp-proto-http>=1.28.0",
+    "opentelemetry-instrumentation-fastapi>=0.50b0",
+    "opentelemetry-instrumentation-httpx>=0.50b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.50b0",
 ]
 
 [tool.pytest.ini_options]

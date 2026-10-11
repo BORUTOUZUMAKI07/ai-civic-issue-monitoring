@@ -21,9 +21,12 @@ from src.core.config import settings
 
 try:  # the [observability] extras may not be installed (optional extra)
     import opentelemetry  # noqa: F401
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter  # noqa: F401
 
     _OTEL_INSTALLED = True
 except ImportError:
+    # The pixi default env ships the SDK transitively (langsmith/langchain)
+    # but not the exporter — `import opentelemetry` alone is NOT sufficient.
     _OTEL_INSTALLED = False
 
 
@@ -93,3 +96,60 @@ def test_otlp_handler_fails_open_without_extras(monkeypatch, caplog) -> None:
 def test_otlp_shutdown_is_idempotent() -> None:
     observability.shutdown_otlp_log_handler()
     observability.shutdown_otlp_log_handler()  # second call must not raise
+
+
+# ──────────────────────── OTLP trace export gating ──────────────────────────
+
+
+def test_otlp_tracing_disabled_by_default(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "NEW_RELIC_ENABLED", False)
+    assert observability.setup_otlp_tracing(object()) is None
+
+
+def test_otlp_tracing_noop_when_endpoint_unset(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "NEW_RELIC_ENABLED", True)
+    monkeypatch.setattr(settings, "NEW_RELIC_OTLP_ENDPOINT", "")
+    try:
+        assert observability.setup_otlp_tracing(object()) is None
+    finally:
+        observability.shutdown_otlp_tracing()
+
+
+@pytest.mark.skipif(_OTEL_INSTALLED, reason="OTLP extras installed; fail-open path is not exercised")
+def test_otlp_tracing_fails_open_without_extras(monkeypatch, caplog) -> None:
+    monkeypatch.setattr(settings, "NEW_RELIC_ENABLED", True)
+    monkeypatch.setattr(settings, "NEW_RELIC_OTLP_ENDPOINT", "http://localhost:4318")
+    with caplog.at_level(logging.WARNING, logger="civicpulse"):
+        try:
+            provider = observability.setup_otlp_tracing(object())
+        finally:
+            observability.shutdown_otlp_tracing()
+    assert provider is None
+    assert "OTLP trace wiring failed" in caplog.text
+
+
+@pytest.mark.skipif(not _OTEL_INSTALLED, reason="requires the [observability] extras")
+def test_otlp_tracing_wires_provider_when_enabled(monkeypatch) -> None:
+    """Positive path: provider is created and set globally when enabled.
+
+    Runs only where the optional extras are installed (locally on demand), so
+    CI — which installs the default pixi env without them — skips it. The `app`
+    argument is a bare object: individual instrumentors fail open (logged), but
+    the exporter pipeline must still come up.
+    """
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+
+    monkeypatch.setattr(settings, "NEW_RELIC_ENABLED", True)
+    monkeypatch.setattr(settings, "NEW_RELIC_OTLP_ENDPOINT", "http://localhost:4318")
+    try:
+        provider = observability.setup_otlp_tracing(object())
+        assert isinstance(provider, TracerProvider)
+        assert isinstance(trace.get_tracer_provider(), TracerProvider)
+    finally:
+        observability.shutdown_otlp_tracing()
+
+
+def test_otlp_tracing_shutdown_is_idempotent() -> None:
+    observability.shutdown_otlp_tracing()
+    observability.shutdown_otlp_tracing()  # second call must not raise

@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse
 from src.core.config import settings
 from src.core.database import check_db_health, engine, init_db
 from src.core.mongodb import init_mongodb
-from src.core.observability import shutdown_otlp_log_handler
+from src.core.observability import setup_otlp_tracing, shutdown_otlp_log_handler, shutdown_otlp_tracing
 from src.core.redis import check_redis_health, init_redis
 from src.domains.admin.routes import router as admin_router
 from src.domains.auth.routes import router as auth_router
@@ -64,6 +64,13 @@ def create_app(lifespan_override=None):
     # In the 3-layer setup the Layer-2 OpenTelemetry collector scrapes /metrics
     # over the network; when METRICS_TOKEN is set the scrape must be authenticated.
     app.add_middleware(MetricsAuthMiddleware)
+
+    # Layer-1 -> Layer-2 trace export. Wired at build time so the global
+    # TracerProvider exists before the first request; a strict no-op unless
+    # NEW_RELIC_ENABLED is set, and fail-open (a missing [observability] extra
+    # just logs). Added last on purpose: the FastAPI instrumentor's middleware
+    # sits outermost, so request spans capture the whole pipeline.
+    setup_otlp_tracing(app)
 
     # Prometheus scrape endpoint (RED metrics: rate, errors, duration). This is
     # the in-process metric source of truth; the Layer-2 OpenTelemetry collector
@@ -178,6 +185,7 @@ async def lifespan(app: FastAPI):
     await close_mongodb()
     await engine.dispose()
     shutdown_otlp_log_handler()
+    shutdown_otlp_tracing()
     logger.info("Shutdown complete.")
 
 

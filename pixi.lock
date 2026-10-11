@@ -6832,7 +6832,7 @@ packages:
 - pypi: ./backend
   name: civicpulse-backend
   version: 0.1.0
-  sha256: 7e40e143fc083f95382d50a6246e94edd3c03d14a63fc44d2af48be03a58c7fc
+  sha256: 8bd25d0053f0255f8cdd8910e9b37ac6a76c5902d8e261b7cb29d66e0a5470b5
   requires_dist:
   - fastapi>=0.115.0
   - uvicorn>=0.32.0
@@ -6889,6 +6889,9 @@ packages:
   - tqdm>=4.66.0 ; extra == 'ml'
   - opentelemetry-sdk>=1.28.0 ; extra == 'observability'
   - opentelemetry-exporter-otlp-proto-http>=1.28.0 ; extra == 'observability'
+  - opentelemetry-instrumentation-fastapi>=0.50b0 ; extra == 'observability'
+  - opentelemetry-instrumentation-httpx>=0.50b0 ; extra == 'observability'
+  - opentelemetry-instrumentation-sqlalchemy>=0.50b0 ; extra == 'observability'
   requires_python: '>=3.12,<4.0'
 - conda: https://conda.anaconda.org/conda-forge/noarch/click-8.4.2-pyh6dadd2b_0.conda
   sha256: 5b5c96afdd801dd9c3b78ebc2cd9a9f3ce34186257415d394dde1aa8468aa3c0

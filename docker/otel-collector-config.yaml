@@ -3,10 +3,12 @@
 # Data flow (3-layer observability, same pattern as the nexus-ai root project):
 #   Layer 1 (in-process)   backend app only: /metrics Prometheus endpoint
 #                          (optionally Bearer-gated by METRICS_TOKEN) + OTLP
-#                          log export (NEW_RELIC_ENABLED +
-#                          NEW_RELIC_OTLP_ENDPOINT).
-#   Layer 2 (this agent)   receives OTLP logs on :4318, scrapes the app's
-#                          /metrics, batches, and forwards to Layer 3.
+#                          log AND trace export (NEW_RELIC_ENABLED +
+#                          NEW_RELIC_OTLP_ENDPOINT; the FastAPI/httpx/
+#                          SQLAlchemy instrumentors are the span sources).
+#   Layer 2 (this agent)   receives OTLP logs+traces on :4318, scrapes the
+#                          app's /metrics, tail-samples traces, batches, and
+#                          forwards to Layer 3.
 #   Layer 3 (sink)         New Relic (otlphttp exporter). The agent owns
 #                          NEW_RELIC_LICENSE_KEY — the app never holds it.
 #
@@ -58,8 +60,7 @@ processors:
     limit_percentage: 80
     spike_limit_percentage: 25
   # Tail-sampling: keep every error span, ~10% of the rest. The app sends its
-  # full trace stream (OTLP later) so the agent decides what reaches New
-  # Relic's free tier. No traces are exported today; this is the ready slot.
+  # full trace stream, so the agent decides what reaches New Relic's free tier.
   tail_sampling:
     decision_wait: 10s
     num_traces: 10000
@@ -117,7 +118,7 @@ extensions:
 service:
   extensions: [health_check]
   pipelines:
-    # Logs are the app's live OTLP signal today.
+    # Logs are the app's live OTLP log stream.
     logs:
       receivers: [otlp]
       processors: [memory_limiter, batch, resource]
@@ -127,7 +128,8 @@ service:
       receivers: [prometheus]
       processors: [memory_limiter, batch, resource]
       exporters: [otlphttp/newrelic, debug]
-    # Traces: the ready OTLP slot for when the app exports spans directly.
+    # Traces: the app's OTLP span stream, tail-sampled here (keep errors,
+    # ~10% of the rest) before the free tier sees it.
     traces:
       receivers: [otlp]
       processors: [memory_limiter, tail_sampling, batch, resource]
