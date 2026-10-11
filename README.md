@@ -16,7 +16,7 @@ A professional, production-grade system for monitoring and managing civic issues
 | **ML Engine** | PyTorch + LangGraph | Custom trained models for issue classification + agent pipeline. |
 | **Monitoring** | Prefect + statistical drift checks | Scheduled confidence/label drift detection on logged predictions. |
 | **Scheduling** | Prefect Cloud | Automated drift detection, SLA monitoring, reporting, and ML retraining. |
-| **Observability** | NewRelic | APM and distributed tracing. |
+| **Observability** | New Relic (3-layer: OTLP → OpenTelemetry collector → New Relic) | Structured logs over OTLP + Prometheus `/metrics` scraped by a Layer-2 collector that owns the vendor key. |
 | **Containerization** | Docker | Full stack orchestration via Docker Compose. |
 
 **Directory Structure:**
@@ -228,4 +228,4 @@ We use scheduled **drift detection** (confidence/label distribution vs. baseline
 - Docker + Docker Compose
 - Prefect Cloud (scheduling + orchestration)
 - GitHub Actions (CI/CD)
-- NewRelic (observability)
+- New Relic via OpenTelemetry collector (3-layer observability; collector owns the key)
