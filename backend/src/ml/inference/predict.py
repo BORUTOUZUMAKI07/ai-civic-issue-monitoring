@@ -73,6 +73,15 @@ _device: Any = None
 _model_type = None
 _session = None
 
+# Guards the lazy loaders below. Inference runs in worker threads
+# (asyncio.to_thread in the issues routes), so this is a *threading* lock with
+# double-checked locking — NOT asyncio.Lock, which is not thread-safe. Without
+# a lock, N concurrent first requests would all see `None`, all start loading,
+# and spike memory (the thundering-herd race). Loading is idempotent after the
+# first thread finishes, so the double-check makes later arrivals return the
+# already-set global instead of reloading.
+_MODEL_LOAD_LOCK = threading.Lock()
+
 
 def _get_device():
     global _device
@@ -94,20 +103,22 @@ def _get_onnx_session():
     if not ONNX_PATH.exists():
         return None
 
-    try:
-        import onnxruntime as ort
+    with _MODEL_LOAD_LOCK:
+        if _session is not None:
+            return _session
+        try:
+            import onnxruntime as ort
 
-        opts = ort.SessionOptions()
-        opts.inter_op_num_threads = 2
-        opts.intra_op_num_threads = 2
-        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        _session = ort.InferenceSession(str(ONNX_PATH), opts)
-        _model_type = "onnx"
-        logger.info("Loaded ONNX model from %s", ONNX_PATH)
-        return _session
-    except Exception as e:
-        logger.warning("Failed to load ONNX model: %s", e)
-        return None
+            opts = ort.SessionOptions()
+            opts.inter_op_num_threads = 2
+            opts.intra_op_num_threads = 2
+            opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            _session = ort.InferenceSession(str(ONNX_PATH), opts)
+            _model_type = "onnx"
+            logger.info("Loaded ONNX model from %s", ONNX_PATH)
+        except Exception as e:
+            logger.warning("Failed to load ONNX model: %s", e)
+    return _session
 
 
 def _get_torch_model():
@@ -115,37 +126,41 @@ def _get_torch_model():
     if _model is not None:
         return _model
 
-    import torch
+    with _MODEL_LOAD_LOCK:
+        if _model is not None:
+            return _model
 
-    from src.ml.models.build_model import build_model, robust_load_state_dict
+        import torch
 
-    device = _get_device()
+        from src.ml.models.build_model import build_model, robust_load_state_dict
 
-    if ADAPTER_DIR.exists() and any(ADAPTER_DIR.iterdir()):
-        logger.info("Loading PEFT adapter from %s", ADAPTER_DIR)
-        from peft import PeftModel
+        device = _get_device()
 
-        base_model = build_model(len(CLASS_NAMES))
-        peft_model = PeftModel.from_pretrained(base_model, str(ADAPTER_DIR))
-        _model = peft_model.merge_and_unload()
-        _model_type = "peft_merged"
-        logger.info("Loaded PEFT adapter and merged into base model")
+        if ADAPTER_DIR.exists() and any(ADAPTER_DIR.iterdir()):
+            logger.info("Loading PEFT adapter from %s", ADAPTER_DIR)
+            from peft import PeftModel
 
-    elif MODEL_PATH.exists():
-        logger.info("Loading standard model from %s", MODEL_PATH)
-        _model = build_model(len(CLASS_NAMES))
-        state_dict = torch.load(str(MODEL_PATH), map_location=device, weights_only=True)
-        robust_load_state_dict(_model, state_dict)
-        _model_type = "pytorch"
+            base_model = build_model(len(CLASS_NAMES))
+            peft_model = PeftModel.from_pretrained(base_model, str(ADAPTER_DIR))
+            _model = peft_model.merge_and_unload()
+            _model_type = "peft_merged"
+            logger.info("Loaded PEFT adapter and merged into base model")
 
-    else:
-        logger.warning("No model found — using pretrained ImageNet weights")
-        _model = build_model(len(CLASS_NAMES))
-        _model_type = "pretrained"
+        elif MODEL_PATH.exists():
+            logger.info("Loading standard model from %s", MODEL_PATH)
+            _model = build_model(len(CLASS_NAMES))
+            state_dict = torch.load(str(MODEL_PATH), map_location=device, weights_only=True)
+            robust_load_state_dict(_model, state_dict)
+            _model_type = "pytorch"
 
-    _model.to(device)
-    _model.eval()
-    return _model
+        else:
+            logger.warning("No model found — using pretrained ImageNet weights")
+            _model = build_model(len(CLASS_NAMES))
+            _model_type = "pretrained"
+
+        _model.to(device)
+        _model.eval()
+        return _model
 
 
 _transform = None
@@ -320,3 +335,33 @@ def get_model_info() -> dict:
         "num_classes": len(CLASS_NAMES),
         "device": str(_get_device()),
     }
+
+
+def warmup_model() -> None:
+    """Preload the model so the first /issues/upload never pays the load cost
+    (or races another request that is loading).
+
+    Called once at startup from the FastAPI lifespan, in a worker thread (the
+    load is sync/CPU-bound). Fail-open: when no on-disk artifact is present we
+    deliberately *skip* rather than download pretrained ImageNet weights at
+    boot — the lazy path in ``predict_issue`` keeps working unchanged and the
+    pretrained fallback still only happens on a real first request.
+    """
+    if ONNX_PATH.exists():
+        try:
+            if _get_onnx_session() is not None:
+                logger.info("Model warmup complete: onnx:%s", ONNX_PATH.name)
+                return
+        except Exception as e:
+            logger.warning("Model warmup (ONNX) failed: %s", e)
+
+    has_torch_artifact = (ADAPTER_DIR.exists() and any(ADAPTER_DIR.iterdir())) or MODEL_PATH.exists()
+    if has_torch_artifact:
+        try:
+            if _get_torch_model() is not None:
+                logger.info("Model warmup complete: pytorch artifact (%s)", _model_type)
+                return
+        except Exception as e:
+            logger.warning("Model warmup (PyTorch) failed: %s", e)
+
+    logger.info("No loadable model artifact at startup; first request will load it (or use pretrained fallback)")

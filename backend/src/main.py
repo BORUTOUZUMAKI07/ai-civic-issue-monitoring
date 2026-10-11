@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """CivicPulse - AI-Powered Urban Issue Intelligence Platform"""
 
+import asyncio
 import logging
 import os
 import sys
@@ -159,13 +160,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("MongoDB connection failed: %s", e)
 
+    # Preload the ML model before accepting traffic: the first /issues/upload
+    # must never pay the load cost or race another request that is loading.
+    # Runs in a worker thread (the load is sync/CPU-bound); fail-open, so a
+    # missing artifact or a transient failure just defers to the lazy path.
     try:
-        from src.ml.inference.predict import get_model_info
+        from src.ml.inference.predict import warmup_model
 
-        ml_info = get_model_info()
-        logger.info("ML Model loaded: %s (%s MB)", ml_info["model_path"], ml_info["model_size_mb"])
+        await asyncio.to_thread(warmup_model)
     except Exception as e:
-        logger.warning("ML Model loading failed: %s", e)
+        logger.warning("ML model warmup failed (first request will lazy-load): %s", e)
 
     yield
 
