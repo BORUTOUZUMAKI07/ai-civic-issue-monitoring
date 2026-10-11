@@ -21,7 +21,14 @@ services:
       - OPENAI_BASE_URL=https://api.groq.com/openai/v1
       - OPENAI_API_KEY=${OPENAI_API_KEY:?OPENAI_API_KEY must be set}
       - HF_TOKEN=${HF_TOKEN:?HF_TOKEN must be set}
-      - NEW_RELIC_LICENSE_KEY=${NEW_RELIC_LICENSE_KEY:-}
+      # 3-layer New Relic: the app never holds a vendor key — the Layer-2
+      # otel-collector service owns NEW_RELIC_LICENSE_KEY. When NEW_RELIC_ENABLED
+      # is true the app exports OTLP logs to the collector, which also scrapes
+      # /metrics (Bearer-gated by METRICS_TOKEN).
+      - NEW_RELIC_ENABLED=${NEW_RELIC_ENABLED:-false}
+      - NEW_RELIC_OTLP_ENDPOINT=${NEW_RELIC_OTLP_ENDPOINT:-http://otel-collector:4318}
+      - NEW_RELIC_EXPORT_INTERVAL_SECONDS=${NEW_RELIC_EXPORT_INTERVAL_SECONDS:-30}
+      - METRICS_TOKEN=${METRICS_TOKEN:-}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
@@ -38,6 +45,8 @@ services:
     volumes:
       - ../models:/app/models:ro
       - ../backend/uploads:/app/uploads
+    depends_on:
+      - otel-collector
     networks:
       - frontend-net
 
@@ -53,6 +62,32 @@ services:
       - BACKEND_URL=http://backend:8000
     depends_on:
       - backend
+    restart: unless-stopped
+    networks:
+      - frontend-net
+
+  # ── Layer-2: OpenTelemetry Collector (observability transport agent) ──────
+  # Receives the backend's OTLP logs on :4318, batches, and forwards them to
+  # New Relic (Layer-3 sink) using NEW_RELIC_LICENSE_KEY. It also scrapes the
+  # backend's /metrics (Bearer-gated when METRICS_TOKEN is set). The app never
+  # holds the vendor key. See docker/otel-collector-config.yaml for the full
+  # flow. Set before starting (PowerShell):  $env:NEW_RELIC_LICENSE_KEY = "xxxx"
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.121.0
+    container_name: civicpulse_otel_collector
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    environment:
+      - NEW_RELIC_LICENSE_KEY=${NEW_RELIC_LICENSE_KEY:-not-set}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - METRICS_TOKEN=${METRICS_TOKEN:-}
+      - METRICS_SCRAPE_TARGET=${METRICS_SCRAPE_TARGET:-backend:8000}
+    ports:
+      - "4317:4317"   # OTLP/gRPC (optional)
+      - "4318:4318"   # OTLP/HTTP — what the app pushes logs to
+      - "8888:8888"   # collector self-metrics
+      - "13133:13133" # /healthz
     restart: unless-stopped
     networks:
       - frontend-net

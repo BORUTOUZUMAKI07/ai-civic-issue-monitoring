@@ -1,0 +1,140 @@
+# CivicPulse — Layer-2 OpenTelemetry Collector (collection & transport).
+#
+# Data flow (3-layer observability, same pattern as the nexus-ai root project):
+#   Layer 1 (in-process)   backend app only: /metrics Prometheus endpoint
+#                          (optionally Bearer-gated by METRICS_TOKEN) + OTLP
+#                          log export (NEW_RELIC_ENABLED +
+#                          NEW_RELIC_OTLP_ENDPOINT).
+#   Layer 2 (this agent)   receives OTLP logs on :4318, scrapes the app's
+#                          /metrics, batches, and forwards to Layer 3.
+#   Layer 3 (sink)         New Relic (otlphttp exporter). The agent owns
+#                          NEW_RELIC_LICENSE_KEY — the app never holds it.
+#
+# Local:      docker compose -f docker/docker-compose.yml up otel-collector
+#             (the collector scrapes the backend service on the compose network
+#             as `backend:8000`).
+#
+# Required env (compose supplies defaults):
+#   NEW_RELIC_LICENSE_KEY   New Relic ingest key (agent-only secret).
+#   ENVIRONMENT             production / development (resource attribute).
+#   METRICS_TOKEN           Bearer token the app requires for /metrics; empty
+#                           when the app's METRICS_TOKEN is unset (local dev).
+#   METRICS_SCRAPE_TARGET   host:port the agent scrapes, e.g. the Render app
+#                           URL https://your-app.onrender.com (compose default:
+#                           backend:8000). Unset breaks startup — Prometheus
+#                           refuses an empty target on purpose.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+        # SECURITY: on a public (e.g. free-tier Render) service this endpoint
+        # is PUBLIC — anyone could POST junk and burn the New Relic free tier.
+        # To lock it down, replace the two lines under `http:` with:
+        #   http:
+        #     endpoint: 0.0.0.0:4318
+        #     auth:
+        #       authenticator: basicauth/server
+        # and uncomment the basicauth extension below, then set the app's
+        # OTLP log exporter headers to send the matching Authorization header.
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: civicpulse-backend
+          scrape_interval: 30s
+          metrics_path: /metrics
+          authorization:
+            type: Bearer
+            # Empty when the app's METRICS_TOKEN is unset (local dev).
+            credentials: ${env:METRICS_TOKEN}
+          static_configs:
+            - targets: ["${env:METRICS_SCRAPE_TARGET}"]
+
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  # Tail-sampling: keep every error span, ~10% of the rest. The app sends its
+  # full trace stream (OTLP later) so the agent decides what reaches New
+  # Relic's free tier. No traces are exported today; this is the ready slot.
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 10000
+    expected_new_traces_per_sec: 50
+    policies:
+      - name: keep-all-errors
+        type: status_code
+        status_code: {status_codes: [ERROR, UNSET]}
+      - name: sample-rest
+        type: probabilistic
+        probabilistic: {sampling_percentage: 10}
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+  # `action` is REQUIRED on every entry in collector-contrib v0.121: leaving it
+  # out yields an empty action, and the processor refuses to build:
+  #     failed to build pipelines: failed to create "resource" processor, in
+  #     pipeline "logs": error creating AttrProc due to unsupported action ""
+  # which kills the collector at startup (exit 1) before /healthz ever answers.
+  # `upsert` is the intended semantics: set the attribute, or overwrite it if a
+  # sender already set one.
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: ${env:ENVIRONMENT}
+        action: upsert
+      - key: service.name
+        value: civicpulse-backend
+        action: upsert
+
+exporters:
+  otlphttp/newrelic:
+    endpoint: https://otlp.nr-data.net:4318
+    headers:
+      api-key: ${env:NEW_RELIC_LICENSE_KEY}
+    # Free-tier-friendly: drop the payload instead of retrying forever when
+    # the ingest account is over quota (NR 429s).
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 60s
+  debug:
+    verbosity: basic
+    sampling_initial: 5
+    sampling_thereafter: 20
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  # basicauth/server:
+  #   # htpasswd-style inline entry: user "civicpulse", password "civicpulse" (CHANGE ME)
+  #   inline: civicpulse:civicpulse
+
+service:
+  extensions: [health_check]
+  pipelines:
+    # Logs are the app's live OTLP signal today.
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [otlphttp/newrelic, debug]
+    # Metrics: scraped from /metrics (the live path).
+    metrics:
+      receivers: [prometheus]
+      processors: [memory_limiter, batch, resource]
+      exporters: [otlphttp/newrelic, debug]
+    # Traces: the ready OTLP slot for when the app exports spans directly.
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, tail_sampling, batch, resource]
+      exporters: [otlphttp/newrelic, debug]
+    # Uncomment ONLY if the app starts pushing OTLP metrics directly — putting
+    # otlp into `metrics` now would double-count every series with the scrape.
+    # metrics/otlp:
+    #   receivers: [otlp]
+    #   processors: [memory_limiter, batch, resource]
+    #   exporters: [otlphttp/newrelic, debug]
