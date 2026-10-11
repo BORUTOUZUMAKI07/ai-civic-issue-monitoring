@@ -7,24 +7,35 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL must be set}
-      - ASYNC_DATABASE_URI=${DATABASE_URL:?DATABASE_URL must be set}
-      - REDIS_URL=${REDIS_URL:?REDIS_URL must be set}
-      - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL:?UPSTASH_REDIS_REST_URL must be set}
-      - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN:?UPSTASH_REDIS_REST_TOKEN must be set}
-      - MONGODB_URI=${MONGODB_URI:?MONGODB_URI must be set}
+      # Local-first defaults (ADR-0005): `docker compose --profile dev up`
+      # boots the whole stack against the in-compose postgres/redis/mongo
+      # services below. Any explicitly-set var always wins, so production
+      # deployments (Aiven/Upstash/Atlas) are unaffected — see .env.example.
+      # ASYNC_DATABASE_URI is deliberately NOT passed: config.py's
+      # build_async_uri derives the asyncpg URL from DATABASE_URL.
+      - DATABASE_URL=${DATABASE_URL:-postgresql://civicpulse:civicpulse@postgres:5432/civicpulse}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL:-}
+      - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN:-}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongo:27017}
       - MONGODB_DB=civicpulse_analytics
-      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
-      - ENVIRONMENT=${ENVIRONMENT:-production}
+      # DEV-ONLY fallback so the stack boots with no .env at all. Every real
+      # deployment MUST set SECRET_KEY (see docker/.env.example); a default here
+      # that reaches production would be a trivial-signature JWT oracle.
+      - SECRET_KEY=${SECRET_KEY:-dev-only-insecure-secret-change-me}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
       - CORS_ORIGINS=${CORS_ORIGINS:-}
       - OPENAI_BASE_URL=https://api.groq.com/openai/v1
-      - OPENAI_API_KEY=${OPENAI_API_KEY:?OPENAI_API_KEY must be set}
-      - HF_TOKEN=${HF_TOKEN:?HF_TOKEN must be set}
+      # The LLM classifier and embeddings are fail-open (src/core/llm.py,
+      # src/core/embeddings.py), so empty keys keep dev boot working while
+      # prod sets them via .env / the deployment config.
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - HF_TOKEN=${HF_TOKEN:-}
       # 3-layer New Relic: the app never holds a vendor key — the Layer-2
       # otel-collector service owns NEW_RELIC_LICENSE_KEY. When NEW_RELIC_ENABLED
-      # is true the app exports OTLP logs to the collector, which also scrapes
-      # /metrics (Bearer-gated by METRICS_TOKEN).
+      # is true the app exports OTLP logs AND traces to the collector, which also
+      # scrapes /metrics (Bearer-gated by METRICS_TOKEN).
       - NEW_RELIC_ENABLED=${NEW_RELIC_ENABLED:-false}
       - NEW_RELIC_OTLP_ENDPOINT=${NEW_RELIC_OTLP_ENDPOINT:-http://otel-collector:4318}
       - NEW_RELIC_EXPORT_INTERVAL_SECONDS=${NEW_RELIC_EXPORT_INTERVAL_SECONDS:-30}
@@ -66,12 +77,65 @@ services:
     networks:
       - frontend-net
 
+  # ── Local dev datastores (dev profile only, ADR-0005) ─────────────────────
+  # Start the full stack with:  docker compose --profile dev up --build
+  # Plain `docker compose up` never starts these — production keeps external
+  # Postgres/Redis/Mongo (Aiven/Upstash/Atlas) via the env vars above. The
+  # backend self-heals ordering: init_db/init_redis retry with backoff for
+  # ~30s at boot.
+  postgres:
+    image: postgres:16-alpine
+    container_name: civicpulse_postgres
+    profiles: ["dev"]
+    environment:
+      POSTGRES_USER: civicpulse
+      POSTGRES_PASSWORD: civicpulse
+      POSTGRES_DB: civicpulse
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U civicpulse -d civicpulse"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - frontend-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: civicpulse_redis
+    profiles: ["dev"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - redisdata:/data
+    networks:
+      - frontend-net
+
+  mongo:
+    image: mongo:7
+    container_name: civicpulse_mongo
+    profiles: ["dev"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - mongodata:/data/db
+    networks:
+      - frontend-net
+
   # ── Layer-2: OpenTelemetry Collector (observability transport agent) ──────
-  # Receives the backend's OTLP logs on :4318, batches, and forwards them to
-  # New Relic (Layer-3 sink) using NEW_RELIC_LICENSE_KEY. It also scrapes the
-  # backend's /metrics (Bearer-gated when METRICS_TOKEN is set). The app never
-  # holds the vendor key. See docker/otel-collector-config.yaml for the full
-  # flow. Set before starting (PowerShell):  $env:NEW_RELIC_LICENSE_KEY = "xxxx"
+  # Receives the backend's OTLP logs+traces on :4318, tail-samples the trace
+  # stream, batches, and forwards them to New Relic (Layer-3 sink) using
+  # NEW_RELIC_LICENSE_KEY. It also scrapes the backend's /metrics (Bearer-gated
+  # when METRICS_TOKEN is set). The app never holds the vendor key. See
+  # docker/otel-collector-config.yaml for the full flow. Set before starting
+  # (PowerShell):  $env:NEW_RELIC_LICENSE_KEY = "xxxx"
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.121.0
     container_name: civicpulse_otel_collector
@@ -80,12 +144,12 @@ services:
       - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
     environment:
       - NEW_RELIC_LICENSE_KEY=${NEW_RELIC_LICENSE_KEY:-not-set}
-      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
       - METRICS_TOKEN=${METRICS_TOKEN:-}
       - METRICS_SCRAPE_TARGET=${METRICS_SCRAPE_TARGET:-backend:8000}
     ports:
       - "4317:4317"   # OTLP/gRPC (optional)
-      - "4318:4318"   # OTLP/HTTP — what the app pushes logs to
+      - "4318:4318"   # OTLP/HTTP — what the app pushes logs/traces to
       - "8888:8888"   # collector self-metrics
       - "13133:13133" # /healthz
     restart: unless-stopped
@@ -95,3 +159,8 @@ services:
 networks:
   frontend-net:
     driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
+  mongodata:

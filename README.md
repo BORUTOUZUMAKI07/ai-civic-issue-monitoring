@@ -16,7 +16,7 @@ A professional, production-grade system for monitoring and managing civic issues
 | **ML Engine** | PyTorch + LangGraph | Custom trained models for issue classification + agent pipeline. |
 | **Monitoring** | Prefect + statistical drift checks | Scheduled confidence/label drift detection on logged predictions. |
 | **Scheduling** | Prefect Cloud | Automated drift detection, SLA monitoring, reporting, and ML retraining. |
-| **Observability** | New Relic (3-layer: OTLP → OpenTelemetry collector → New Relic) | Structured logs over OTLP + Prometheus `/metrics` scraped by a Layer-2 collector that owns the vendor key. |
+| **Observability** | New Relic (3-layer: OTLP → OpenTelemetry collector → New Relic) | Structured logs + traces over OTLP (FastAPI/httpx/SQLAlchemy instrumentors) and Prometheus `/metrics`, transported by a Layer-2 collector that owns the vendor key. |
 | **Containerization** | Docker | Full stack orchestration via Docker Compose. |
 
 **Directory Structure:**
@@ -105,9 +105,21 @@ pixi run frontend
 
 ### With Docker Compose
 
+The full local stack (backend, frontend, OpenTelemetry collector, and local
+Postgres/Redis/Mongo) boots with one command — no `.env` required. The
+datastores live behind the `dev` profile (see `docs/adr/0005`), so plain
+`docker compose up` keeps the production shape (external datastores only):
+
 ```bash
-docker-compose up -d --build
+# Full local stack
+docker compose -f docker/docker-compose.yml --profile dev up --build
+
+# Production-style smoke (external DATABASE_URL/REDIS_URL/MONGODB_URI or .env)
+docker compose -f docker/docker-compose.yml up --build
 ```
+
+For production-style overrides copy `docker/.env.example` to `docker/.env` and
+edit (never leave the dev-default `SECRET_KEY` in place).
 
 ### Accessing Services
 

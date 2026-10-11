@@ -54,10 +54,30 @@ class UpstashRedisAdapter:
         return await self._client.execute(cmd)
 
 
-redis_client: UpstashRedisAdapter = UpstashRedisAdapter(
-    url=settings.UPSTASH_REDIS_REST_URL or "",
-    token=settings.UPSTASH_REDIS_REST_TOKEN or "",
-)
+def _build_redis_client() -> Any:
+    """Pick the Redis backend from settings, once, at import time.
+
+    The production path is Upstash REST — the app is compose/Render-deployed
+    with UPSTASH_REDIS_REST_URL + _TOKEN set, and the adapter exposes the same
+    method surface the rest of this module needs.
+
+    When Upstash credentials are absent the client falls back to a plain Redis
+    connection from REDIS_URL (see ADR-0005): a local `redis` container or any
+    self-hosted Redis. `redis.asyncio.Redis` already speaks the same verbs
+    (get/set/setex/ping/delete/incr/expire/eval), so the rest of this module is
+    unchanged, and tests keep patching `redis_client` wholesale with fakeredis.
+    """
+    upstash_url = (settings.UPSTASH_REDIS_REST_URL or "").strip()
+    upstash_token = (settings.UPSTASH_REDIS_REST_TOKEN or "").strip()
+    if upstash_url and upstash_token:
+        return UpstashRedisAdapter(url=upstash_url, token=upstash_token)
+
+    from redis.asyncio import Redis as AsyncRedis
+
+    return AsyncRedis.from_url(settings.REDIS_URL, decode_responses=True)
+
+
+redis_client: Any = _build_redis_client()
 
 _RETRY_DELAYS = [1, 2, 4, 8, 16]
 
@@ -66,7 +86,7 @@ async def init_redis():
     for attempt, delay in enumerate(_RETRY_DELAYS):
         try:
             await redis_client.ping()
-            logger.info("Redis (Upstash REST) connected successfully.")
+            logger.info("Redis connected successfully.")
             return redis_client
         except Exception as e:
             logger.warning("Redis ping attempt %d failed: %s", attempt + 1, e)
