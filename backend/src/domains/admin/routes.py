@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.core.deps import get_current_active_user
+from src.core.rbac import role_at_least
 from src.errors import ForbiddenError, NotFoundError
 from src.models.issue import ISSUE_TYPE_MAP, Issue
 from src.models.user import User, UserRole
@@ -22,7 +23,7 @@ class ReviewAction(BaseModel):
 
 
 def _require_admin(user: User) -> None:
-    if user.role not in (UserRole.admin, UserRole.super_admin):
+    if not role_at_least(user.role, UserRole.admin):
         raise ForbiddenError("Admin access required.")
 
 

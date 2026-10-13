@@ -1,36 +1,30 @@
 import logging
-from typing import Iterable
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
+from src.core.rbac import role_at_least
 from src.models.user import UserRole
 
 logger = logging.getLogger("civicpulse")
 
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
-ROLE_HIERARCHY = {
-    UserRole.super_admin: 5,
-    UserRole.admin: 4,
-    UserRole.engineer: 3,
-    UserRole.field_worker: 2,
-    UserRole.viewer: 1,
-}
-
 # Lowest role permitted to perform a write at all. Viewers are read-only by
 # definition, so they never appear here.
 DEFAULT_MIN_ROLE = UserRole.field_worker
 
-# Path prefix -> the set of roles allowed to write there. Anything not listed
-# falls back to DEFAULT_MIN_ROLE. Each entry is an explicit allowlist rather
-# than a blacklist so a newly added route fails closed to the most conservative
-# rule until somebody reasons about it.
-PATH_ROLE_RULES: tuple[tuple[str, frozenset[UserRole]], ...] = (
-    ("/api/v1/admin/", frozenset({UserRole.super_admin, UserRole.admin})),
-    ("/api/v1/engineers/", frozenset({UserRole.super_admin, UserRole.admin})),
-    ("/api/v1/ml/", frozenset({UserRole.super_admin, UserRole.admin})),
+# Path prefix -> the *lowest* tier allowed to write there. Every role at or
+# above the tier passes (hierarchy semantics, see src/core/rbac.py); anything
+# not listed falls back to DEFAULT_MIN_ROLE. Tiers are declared as minimums
+# rather than exact allowlists so that higher roles are always included by
+# construction and a newly added role cannot be silently locked out.
+PATH_MIN_ROLE: tuple[tuple[str, UserRole], ...] = (
+    ("/api/v1/admin/", UserRole.admin),
+    ("/api/v1/engineers/", UserRole.admin),  # roster maintenance is admin work
+    ("/api/v1/ml/", UserRole.admin),
+    ("/api/v1/resolution/", UserRole.engineer),  # resolving issues is engineering work
 )
 
 # Paths that legitimately accept unauthenticated writes. Everything under
@@ -68,11 +62,11 @@ def _code(status_code: int) -> str:
     return "UNAUTHENTICATED" if status_code == 401 else "FORBIDDEN"
 
 
-def _allowed_roles_for(path: str) -> frozenset[UserRole]:
-    for prefix, roles in PATH_ROLE_RULES:
+def _min_role_for(path: str) -> UserRole:
+    for prefix, min_role in PATH_MIN_ROLE:
         if path.startswith(prefix):
-            return roles
-    return frozenset({DEFAULT_MIN_ROLE})
+            return min_role
+    return DEFAULT_MIN_ROLE
 
 
 class RBACMiddleware(BaseHTTPMiddleware):
@@ -121,14 +115,9 @@ class RBACMiddleware(BaseHTTPMiddleware):
             logger.warning("RBAC: token carried an unknown role %r", payload.get("role"))
             return _deny(401, "Invalid or expired credentials.")
 
-        allowed = _allowed_roles_for(path)
-        if role not in allowed:
+        minimum = _min_role_for(path)
+        if not role_at_least(role, minimum):
             logger.info("RBAC: %s denied for role %s on %s", request.method, role.value, path)
             return _deny(403, "Insufficient permissions.")
 
         return await call_next(request)
-
-
-def roles_allowed(*roles: UserRole) -> Iterable[UserRole]:
-    """Small helper for route handlers that need an extra role check inline."""
-    return frozenset(roles)

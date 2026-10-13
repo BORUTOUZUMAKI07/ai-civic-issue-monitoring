@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.core.deps import get_current_active_user
+from src.core.rbac import role_at_least
 from src.domains.engineers.schemas import EngineerResponse
 from src.domains.engineers.service import EngineerService
 from src.errors import BadRequestError, ForbiddenError, NotFoundError
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/engineers", tags=["Engineers"])
 
 
 def _require_admin(user: User) -> None:
-    if user.role not in (UserRole.admin, UserRole.super_admin):
+    if not role_at_least(user.role, UserRole.admin):
         raise ForbiddenError("Admin access required.")
 
 
