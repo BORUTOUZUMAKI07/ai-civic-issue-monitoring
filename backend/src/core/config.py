@@ -1,7 +1,25 @@
 from typing import Optional
 
-from pydantic import field_validator, model_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Placeholder / demo SECRET_KEY values that have appeared in example files,
+# compose defaults, CI, or git history. They are trivially guessable —
+# accepting any of them would let an attacker forge JWTs — so they are
+# rejected in every environment, not just production.
+WEAK_SECRET_KEYS: frozenset[str] = frozenset(
+    {
+        "changeme",
+        "civicpulse-prod-secret-key-change-me",
+        "civicpulse-dev-secret-key-change-in-production",
+        "dev-only-insecure-secret-change-me",
+        "change-me-to-a-random-secret-key",
+        "change-me-to-a-long-random-value",
+        "change-me-generate-with-python-secrets-token-urlsafe-64",
+        "test-secret-key-for-ci-only",
+    }
+)
+SECRET_KEY_MIN_LENGTH: int = 32
 
 
 class Settings(BaseSettings):
@@ -67,16 +85,27 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    # --- Cookie settings ---
-    COOKIE_SECURE: bool = False
-
-    @model_validator(mode="after")
-    def validate_secret_key(self):
-        if not self.SECRET_KEY:
+    @field_validator("SECRET_KEY", mode="after")
+    @classmethod
+    def validate_secret_key(cls, v: str) -> str:
+        if not v:
             raise ValueError(
                 "SECRET_KEY must be set. Generate with: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
             )
-        return self
+        if v in WEAK_SECRET_KEYS:
+            raise ValueError(
+                "SECRET_KEY is a known placeholder value and is trivially guessable. "
+                "Generate a real key with: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
+            )
+        if len(v) < SECRET_KEY_MIN_LENGTH:
+            raise ValueError(
+                f"SECRET_KEY must be at least {SECRET_KEY_MIN_LENGTH} characters to resist brute force. "
+                "Generate with: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
+            )
+        return v
+
+    # --- Cookie settings ---
+    COOKIE_SECURE: bool = False
 
     # --- Observability: 3-layer New Relic via OTLP (Layer 1 -> 2 -> 3) ---
     # The app exports structured logs over OTLP/HTTP to the Layer-2

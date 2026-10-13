@@ -110,7 +110,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://civicpulse_user:civicpulse_password@localhost:5432/civicpulse_db
       REDIS_URL: redis://localhost:6379
-      SECRET_KEY: test-secret-key-for-ci-only
+      SECRET_KEY: test-secret-key-for-ci-32-chars-long
     steps:
       - uses: actions/checkout@v5
       - uses: prefix-dev/setup-pixi@v0.8.8
@@ -195,7 +195,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://civicpulse_user:civicpulse_password@localhost:5432/civicpulse_db
       REDIS_URL: redis://localhost:6379
-      SECRET_KEY: test-secret-key-for-ci-only
+      SECRET_KEY: test-secret-key-for-ci-32-chars-long
       ENVIRONMENT: development
       # 20 Locust users share one source IP — widen the token buckets so the
       # run measures the app, not the throttle (rate limiting itself is

@@ -19,10 +19,12 @@ services:
       - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN:-}
       - MONGODB_URI=${MONGODB_URI:-mongodb://mongo:27017}
       - MONGODB_DB=civicpulse_analytics
-      # DEV-ONLY fallback so the stack boots with no .env at all. Every real
-      # deployment MUST set SECRET_KEY (see docker/.env.example); a default here
-      # that reaches production would be a trivial-signature JWT oracle.
-      - SECRET_KEY=${SECRET_KEY:-dev-only-insecure-secret-change-me}
+      # REQUIRED for every deployment path, dev included: there is deliberately
+      # no fallback default. Never leaving a guessable SECRET_KEY in the compose
+      # file is what stops a trivial-signature JWT oracle if the stack is
+      # deployed as-is. Generate one with
+      #   python -c 'import secrets; print(secrets.token_urlsafe(64))'
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set (see docker/.env.example)}
       - ENVIRONMENT=${ENVIRONMENT:-development}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
       - CORS_ORIGINS=${CORS_ORIGINS:-}

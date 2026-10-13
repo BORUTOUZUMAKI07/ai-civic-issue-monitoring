@@ -106,20 +106,23 @@ pixi run frontend
 ### With Docker Compose
 
 The full local stack (backend, frontend, OpenTelemetry collector, and local
-Postgres/Redis/Mongo) boots with one command — no `.env` required. The
-datastores live behind the `dev` profile (see `docs/adr/0005`), so plain
-`docker compose up` keeps the production shape (external datastores only):
+Postgres/Redis/Mongo) boots with one command once `docker/.env` exists with a
+real `SECRET_KEY`. The datastores live behind the `dev` profile (see
+`docs/adr/0005`), so plain `docker compose up` keeps the production shape
+(external datastores only):
 
 ```bash
-# Full local stack
+# Full local stack (start from docker/.env.example, set SECRET_KEY, then)
 docker compose -f docker/docker-compose.yml --profile dev up --build
 
 # Production-style smoke (external DATABASE_URL/REDIS_URL/MONGODB_URI or .env)
 docker compose -f docker/docker-compose.yml up --build
 ```
 
-For production-style overrides copy `docker/.env.example` to `docker/.env` and
-edit (never leave the dev-default `SECRET_KEY` in place).
+Copy `docker/.env.example` to `docker/.env` and set `SECRET_KEY` — generate one
+with `python -c 'import secrets; print(secrets.token_urlsafe(64))'`. Compose
+refuses to boot without it, in dev or production: there is no dev-default
+`SECRET_KEY` to accidentally deploy.
 
 ### Accessing Services
 

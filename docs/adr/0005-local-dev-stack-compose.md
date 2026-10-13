@@ -46,12 +46,14 @@ exactly this.
    method surface (`get`/`set`/`setex`/`ping`/`delete`/`incr`/`expire`/`eval`)
    matches, so `src/core/redis.py` needs no per-call changes and tests keep
    patching `redis_client` with fakeredis unchanged.
-5. **Keep the real secrets required**: `SECRET_KEY` defaults to a loudly-named
-   dev-only value in compose so the stack boots, while a checked-in
-   `docker/.env.example` documents the production set (`SECRET_KEY`,
-   `OPENAI_API_KEY`, `HF_TOKEN`, `NEW_RELIC_LICENSE_KEY`, Upgrade credentials).
-   `OPENAI_API_KEY`/`HF_TOKEN` default to empty — the app is fail-open on LLM
-   calls — so dev boots without keys.
+5. **Keep the real secrets required**: `SECRET_KEY` has *no* compose default —
+   `${SECRET_KEY:?SECRET_KEY must be set (see docker/.env.example)}` fails fast
+   at interpolation when the var is missing, in dev and production alike. A
+   checked-in `docker/.env.example` documents the production set (`SECRET_KEY`,
+   `OPENAI_API_KEY`, `HF_TOKEN`, `NEW_RELIC_LICENSE_KEY`, Upgrade credentials)
+   and the one-liner for generating a key (`python -c 'import secrets;
+   print(secrets.token_urlsafe(64))'`). `OPENAI_API_KEY`/`HF_TOKEN` default to
+   empty — the app is fail-open on LLM calls — so dev boots without keys.
 6. **README** documents `docker compose --profile dev up --build` as the
    one-command boot (and fixes the `docker-compose` → `docker compose` incantation).
 
@@ -59,8 +61,10 @@ exactly this.
 
 ### Gold
 
-- **`docker compose --profile dev up --build` boots the whole app for real** —
-  the "reproducible environment" claim now holds, no `.env` required.
+- **`docker compose --profile dev up --build` boots the whole app for real
+  from `docker/.env.example`** — the "reproducible environment" claim now holds
+  with one `cp` plus one edit (`SECRET_KEY` is deliberately the one var with no
+  default).
 - Production shape is untouched: without `--profile dev` no local datastore
   runs, and any explicit env var still overrides a default.
 - `REDIS_URL` finally does what its name always implied, and the async-DB-URI
@@ -70,10 +74,11 @@ exactly this.
 
 ### Trade-offs
 
-- A dev-default `SECRET_KEY` is a footgun if someone deploys the compose stack
-  *as-is* for production without setting env vars. Mitigated loudly (comment +
-  `.env.example`) and by the fact that production deploys are env-driven
-  (Render/Aiven), not compose-driven.
+- `SECRET_KEY` now fails compose startup when unset, so the first
+  `cp docker/.env.example .env` must be followed by a real key. That is one
+  extra step for a brand-new dev (previously a weak key booted the stack),
+  accepted because a baked-in weak default was itself a footgun: deploying the
+  stack as-is produced a trivial-signature JWT oracle.
 - Upstash remains the production Redis path; the plain-Redis branch is only
   exercised in dev/CI until someone runs the app against a self-hosted Redis —
   `src/core/redis.py` tests (fakeredis) cover the surface, but not a real
