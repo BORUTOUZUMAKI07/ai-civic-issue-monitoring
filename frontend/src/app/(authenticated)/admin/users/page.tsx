@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuthStore } from "@/store/auth";
-import { useAdminUsers, useUpdateUserRoleMutation } from "@/queries/index";
+import { useAdminUsers, useUpdateUserRoleMutation, useMe } from "@/queries/index";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -115,7 +114,7 @@ function UserRow({
 }
 
 export default function AdminUsersPage() {
-  const currentUser = useAuthStore((s) => s.user);
+  const { data: currentUser } = useMe();
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("");

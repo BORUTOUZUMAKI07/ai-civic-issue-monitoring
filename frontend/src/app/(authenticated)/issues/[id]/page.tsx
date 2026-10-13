@@ -4,8 +4,7 @@ import { use, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useIssue, useEngineers, useAssignIssueMutation, useReassignIssueMutation } from "@/queries/index";
-import { useAuthStore } from "@/store/auth";
+import { useIssue, useEngineers, useAssignIssueMutation, useReassignIssueMutation, useMe } from "@/queries/index";
 import { apiFetch, issues, mediaUrl } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -66,7 +65,7 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
   const issueId = parseInt(id, 10);
   const { data: issue, isLoading } = useIssue(issueId);
   const { data: engineers } = useEngineers();
-  const currentUser = useAuthStore((s) => s.user);
+  const { data: currentUser } = useMe();
   const isAdmin =
     currentUser?.role === "admin" || currentUser?.role === "super_admin";
   const router = useRouter();

@@ -4,11 +4,12 @@ import { QueryClient } from "@tanstack/react-query";
  * The app's single QueryClient.
  *
  * It lives here rather than inside `Providers`' `useState` so that code outside
- * the React tree — most importantly `useAuthStore().logout()` — can reach it.
- * Logging out has to drop every cached query, not just reset the auth store:
- * `me`, issue lists, dashboard stats and the admin/user tables are all keyed by
- * nothing but their query key, so leaving them cached hands the next account
- * that signs in on this browser a render of the previous user's data.
+ * the React tree can reach it (the `useLogoutMutation` in `queries/index.ts`
+ * calls `queryClient.clear()` before the session goes away). Logging out has to
+ * drop every cached query: `me`, issue lists, dashboard stats and the
+ * admin/user tables are all keyed by nothing but their query key, so leaving
+ * them cached hands the next account that signs in on this browser a render of
+ * the previous user's data.
  *
  * A module-level singleton is also stable across remounts of `Providers`, which
  * is what `useState` was there to guarantee.

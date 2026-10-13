@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useReviewQueue, useReviewIssueMutation } from "@/queries/index";
-import { useAuthStore } from "@/store/auth";
+import { useReviewQueue, useReviewIssueMutation, useMe } from "@/queries/index";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -140,7 +139,7 @@ function ReviewRow({
 }
 
 export default function ReviewQueuePage() {
-  const currentUser = useAuthStore((s) => s.user);
+  const { data: currentUser } = useMe();
   const router = useRouter();
   const { data, isLoading, refetch } = useReviewQueue({ limit: 50 });
   const reviewMutation = useReviewIssueMutation();

@@ -12,12 +12,19 @@ export function useMe() {
   });
 }
 
-export function useLoginMutation() {
+export function useLogoutMutation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ email, password }: { email: string; password: string }) =>
-      auth.login(email, password),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["me"] }),
+    mutationFn: async () => {
+      // Drop every cached query *before* the session goes away. `me`, issue
+      // lists, dashboard stats and the admin tables are keyed by their query
+      // key alone, so leaving them cached means the next account to sign in
+      // on this browser first renders the previous user's data — `["me"]`
+      // included, at a 5-minute staleTime, which briefly shows the wrong
+      // identity.
+      qc.clear();
+      await auth.logout().catch(() => {});
+    },
   });
 }
 

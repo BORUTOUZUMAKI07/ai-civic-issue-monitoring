@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { auth, getErrorMessage } from "@/lib/api"
-import { useAuthStore } from "@/store/auth"
+import { useQueryClient } from "@tanstack/react-query"
 import { loginSchema, type LoginFormData } from "@/lib/schemas"
 import { AuthShell } from "@/components/auth/auth-shell"
 import { OAuthButtons } from "@/components/auth/oauth-buttons"
@@ -18,7 +18,7 @@ import { Landmark, ShieldCheck } from "lucide-react"
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const setUser = useAuthStore((s) => s.setUser)
+  const queryClient = useQueryClient()
 
   const [challenge, setChallenge] = useState<string | null>(null)
   const [totpCode, setTotpCode] = useState("")
@@ -42,7 +42,7 @@ function LoginForm() {
         return
       }
       const user = await auth.me()
-      setUser(user)
+      queryClient.setQueryData(["me"], user)
       redirectAfterLogin()
     } catch (err: unknown) {
       setError("root", { message: getErrorMessage(err, "Login failed") })
@@ -57,7 +57,7 @@ function LoginForm() {
     try {
       await auth.twofaVerify(challenge, totpCode)
       const user = await auth.me()
-      setUser(user)
+      queryClient.setQueryData(["me"], user)
       redirectAfterLogin()
     } catch (err: unknown) {
       setTotpError(getErrorMessage(err, "Invalid code"))

@@ -12,8 +12,7 @@ import {
   Settings,
   ShieldCheck,
 } from "lucide-react"
-import { useMe } from "@/queries/index"
-import { useAuthStore } from "@/store/auth"
+import { useMe, useLogoutMutation } from "@/queries/index"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
@@ -38,7 +37,7 @@ export function Header({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
   const pathname = usePathname()
   const router = useRouter()
   const { data: user } = useMe()
-  const logout = useAuthStore((s) => s.logout)
+  const logoutMutation = useLogoutMutation()
 
   const page = PAGE_TITLES[pathname] ?? { title: "CivicPulse", subtitle: "" }
 
@@ -49,7 +48,7 @@ export function Header({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
   }
 
   function handleLogout() {
-    logout()
+    logoutMutation.mutate()
     router.push("/login")
   }
 

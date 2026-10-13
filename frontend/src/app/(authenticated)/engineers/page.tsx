@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useEngineers, useWards, useAdminUsers, useCreateEngineerMutation } from "@/queries/index";
-import { useAuthStore } from "@/store/auth";
+import { useEngineers, useWards, useAdminUsers, useCreateEngineerMutation, useMe } from "@/queries/index";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -61,7 +60,7 @@ function workloadColor(pct: number) {
 export default function EngineersPage() {
   const { data: engineers, isLoading } = useEngineers();
   const { data: wards } = useWards();
-  const currentUser = useAuthStore((s) => s.user);
+  const { data: currentUser } = useMe();
   const isAdmin =
     currentUser?.role === "admin" || currentUser?.role === "super_admin";
   const createMutation = useCreateEngineerMutation();

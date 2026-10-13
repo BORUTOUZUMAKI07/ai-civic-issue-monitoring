@@ -4,8 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { useAuthStore } from "@/store/auth";
-import { useMe } from "@/queries/index";
+import { useMe, useLogoutMutation } from "@/queries/index";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { initials } from "@/lib/format";
 import {
@@ -30,7 +29,7 @@ export function Sidebar({ open, onClose }: SidebarProps = {}) {
   const [internalOpen, setInternalOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
-  const logout = useAuthStore((s) => s.logout);
+  const logoutMutation = useLogoutMutation();
   const { data: user } = useMe();
 
   const isOpen = open ?? internalOpen;
@@ -61,7 +60,7 @@ export function Sidebar({ open, onClose }: SidebarProps = {}) {
   ];
 
   function handleLogout() {
-    logout();
+    logoutMutation.mutate();
     router.push("/login");
   }
 

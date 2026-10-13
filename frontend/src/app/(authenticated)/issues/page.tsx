@@ -4,9 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import exifr from "exifr";
-import { useIssues, useUploadIssueMutation, useWards } from "@/queries/index";
+import { useIssues, useUploadIssueMutation, useWards, useMe } from "@/queries/index";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import { useAuthStore } from "@/store/auth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -144,7 +143,7 @@ function IssueRow({ issue, wardName }: { issue: Issue; wardName: string }) {
 }
 
 export default function IssuesPage() {
-  const currentUser = useAuthStore((s) => s.user);
+  const { data: currentUser } = useMe();
   const { data, isLoading, refetch } = useIssues({ limit: 50 });
   const uploadMutation = useUploadIssueMutation();
   const { data: wards } = useWards();

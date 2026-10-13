@@ -17,7 +17,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-import { useAuthStore } from "@/store/auth";
+import { useMe } from "@/queries/index";
 import { apiFetch, auth, getErrorMessage } from "@/lib/api";
 import type { MlInfo } from "@/lib/api";
 import { toast } from "sonner";
@@ -91,7 +91,7 @@ function ToggleRow({
 }
 
 export default function SettingsPage() {
-  const user = useAuthStore((s) => s.user);
+  const { data: user } = useMe();
   const queryClient = useQueryClient();
   const [webSocket, setWebSocket] = useState(true);
   const [emailNotif, setEmailNotif] = useState(false);
@@ -267,8 +267,7 @@ type TwoFactorState =
   | { step: "disable-confirm" };
 
 function TwoFactorSection() {
-  const user = useAuthStore((s) => s.user);
-  const setUser = useAuthStore((s) => s.setUser);
+  const { data: user } = useMe();
   const queryClient = useQueryClient();
   const [state, setState] = useState<TwoFactorState>({ step: "idle" });
   const [code, setCode] = useState("");
@@ -299,8 +298,7 @@ function TwoFactorSection() {
       const res = await auth.twofaConfirm(code);
       setState({ step: "done", recoveryCodes: res.recovery_codes });
       const fresh = await auth.me();
-      setUser(fresh);
-      queryClient.invalidateQueries({ queryKey: ["me"] });
+      queryClient.setQueryData(["me"], fresh);
       toast.success("Two-factor authentication enabled");
     } catch (err: unknown) {
       setError(getErrorMessage(err, "Invalid code"));
@@ -324,8 +322,7 @@ function TwoFactorSection() {
       await auth.twofaDisable(code);
       setState({ step: "idle" });
       const fresh = await auth.me();
-      setUser(fresh);
-      queryClient.invalidateQueries({ queryKey: ["me"] });
+      queryClient.setQueryData(["me"], fresh);
       toast.success("Two-factor authentication disabled");
     } catch (err: unknown) {
       setError(getErrorMessage(err, "Invalid code"));
