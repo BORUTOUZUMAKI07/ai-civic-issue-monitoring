@@ -1,3 +1,5 @@
+import secrets
+
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -5,7 +7,8 @@ from src.core.config import settings
 from src.core.database import get_db
 from src.core.deps import get_current_active_user, get_current_user
 from src.domains.auth.oauth import (
-    decode_oauth_state,
+    code_challenge,
+    decode_oauth_bundle,
     encode_oauth_state,
     get_provider,
     login_with_provider,
@@ -24,16 +27,10 @@ from src.domains.auth.schemas import (
 )
 from src.domains.auth.service import AuthService
 from src.domains.auth.twofa import TwoFactorService
-from src.errors import OAuthError, OAuthNotConfigured
+from src.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid
 from src.errors.base import AppError
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
-
-
-def _redirect_response(url: str):
-    from fastapi.responses import RedirectResponse
-
-    return RedirectResponse(url=url, status_code=302)
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
@@ -195,15 +192,49 @@ async def oauth_authorize(
     if not oauth.configured:
         raise OAuthNotConfigured(provider)
 
-    state = encode_oauth_state(provider, redirect)
+    state, code_verifier, nonce = encode_oauth_state(provider, redirect)
     redirect_uri = _oauth_callback_uri(provider)
-    uri = oauth.authorize_uri(redirect_uri, state=state)
-    return _redirect_response(uri)
+    uri = oauth.authorize_uri(
+        redirect_uri,
+        state=state,
+        code_challenge=code_challenge(code_verifier),
+    )
+
+    # Bind the flow to this browser before leaving for the provider. A 200 page
+    # (the reliable cookie path through the Next.js proxy — a 302's Set-Cookie
+    # is dropped) stashes the state's nonce in the `oauth_state` cookie and
+    # then navigates to the provider. The callback refuses any state whose
+    # nonce does not match the cookie, which blocks login-CSRF: a state
+    # harvested from an attacker's own authorize can never be replayed into
+    # the victim's browser, which holds no such cookie.
+    escaped = uri.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+    html = (
+        '<!doctype html><html><head><meta charset="utf-8">'
+        '<meta http-equiv="refresh" content="0;url={0}">'
+        '<script>window.location.replace("{0}");</script></head>'
+        '<body><script>window.location.replace("{0}");</script>'
+        "</body></html>"
+    ).format(escaped)
+
+    from fastapi.responses import HTMLResponse
+
+    html_response = HTMLResponse(content=html, status_code=200, headers={"Cache-Control": "no-store"})
+    html_response.set_cookie(
+        "oauth_state",
+        nonce,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        httponly=True,
+        samesite="lax",
+        secure=settings.COOKIE_SECURE,
+        path="/",
+    )
+    return html_response
 
 
 @router.get("/oauth/{provider}/callback")
 async def oauth_callback(
     provider: str,
+    request: Request,
     code: str = Query(default=""),
     state: str = Query(default=""),
     db: AsyncSession = Depends(get_db),
@@ -214,8 +245,24 @@ async def oauth_callback(
     if not code:
         raise OAuthError("OAuth callback missing authorization code.")
 
-    redirect_target = decode_oauth_state(provider, state)
-    profile = await oauth.fetch_user(code, _oauth_callback_uri(provider))
+    bundle = decode_oauth_bundle(provider, state)
+    redirect_target = bundle["redirect"]
+
+    # Login-CSRF guard: the provider echoes `state` back verbatim, so state
+    # alone proves nothing. The state's nonce must also match the oauth_state
+    # cookie set on THIS browser's authorize response — an attacker who began
+    # a flow in their own browser holds a valid state but the victim's browser
+    # holds no matching cookie, so the replay is refused before any provider
+    # token exchange happens.
+    cookie_nonce = request.cookies.get("oauth_state")
+    if not cookie_nonce or not secrets.compare_digest(cookie_nonce, bundle["nonce"]):
+        raise OAuthStateInvalid()
+
+    profile = await oauth.fetch_user(
+        code,
+        _oauth_callback_uri(provider),
+        code_verifier=bundle["code_verifier"],
+    )
 
     _, access_token, refresh_token = await login_with_provider(db, oauth, profile)
 
@@ -238,8 +285,10 @@ async def oauth_callback(
 
     from fastapi.responses import HTMLResponse
 
-    html_response = HTMLResponse(content=html, status_code=200)
+    html_response = HTMLResponse(content=html, status_code=200, headers={"Cache-Control": "no-store"})
     _set_auth_cookies(html_response, access_token, refresh_token)
+    # The flow is complete — burn the one-shot session-binding cookie.
+    html_response.delete_cookie("oauth_state", path="/", httponly=True, samesite="lax", secure=settings.COOKIE_SECURE)
     return html_response
 
 

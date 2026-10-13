@@ -9,13 +9,18 @@ empty the provider is considered "not configured" and its endpoints refuse to
 run (the UI simply hides the button).
 
 Flow:
-    authorize -> 302 to provider consent (state signed, carries redirect)
+    authorize -> 200 page sets a session-binding cookie (state signed, carries
+                 provider, redirect, PKCE verifier) and bounces to provider
     provider  -> 302 to callback?code=...&state=...
-    callback  -> exchange code, fetch profile, upsert user, set JWT cookies
+    callback  -> verify cookie-bound state, exchange code (PKCE verifier),
+                 fetch profile (with provider email-verification flag),
+                 upsert user, set JWT cookies
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import logging
 import secrets
 from urllib.parse import urlencode
@@ -89,7 +94,13 @@ class OAuthProvider:
     def configured(self) -> bool:
         return bool(self.client_id and self.client_secret)
 
-    def authorize_uri(self, redirect_uri: str, state: str) -> str:
+    def authorize_uri(
+        self,
+        redirect_uri: str,
+        state: str,
+        code_challenge: str | None = None,
+        code_challenge_method: str = "S256",
+    ) -> str:
         params = {
             "response_type": "code",
             "client_id": self.client_id,
@@ -97,6 +108,12 @@ class OAuthProvider:
             "scope": self.scope,
             "state": state,
         }
+        if code_challenge:
+            # PKCE (RFC 7636): bind the authorization code to THIS authorize
+            # request so an intercepted or substituted code cannot be redeemed
+            # without the matching verifier. Both providers support S256.
+            params["code_challenge"] = code_challenge
+            params["code_challenge_method"] = code_challenge_method
         if self.client_kwargs:
             # e.g. access_type=offline&prompt=consent for Google
             for kv in self.client_kwargs.split("&"):
@@ -105,8 +122,24 @@ class OAuthProvider:
                     params[k] = v
         return f"{self.authorize_url}?{urlencode(params)}"
 
-    async def fetch_user(self, code: str, redirect_uri: str) -> dict:
-        """Exchange the authorization code and return the normalized profile."""
+    async def fetch_user(self, code: str, redirect_uri: str, code_verifier: str | None = None) -> dict:
+        """Exchange the authorization code and return the normalized profile.
+
+        ``code_verifier`` is the PKCE secret minted on the authorize request;
+        when present it is sent on the token exchange so the provider can
+        prove the code came from that authorize (RFC 7636). The profile also
+        carries ``verified`` — the provider's email-verification flag — which
+        ``login_with_provider`` requires before linking a provider identity
+        into an account that has a local password.
+
+        Google: the OIDC userinfo endpoint returns ``email_verified`` whenever
+        the ``email`` scope is granted (it is: ``openid email profile``).
+        GitHub: ``/user``'s ``email`` is the *public profile* address and
+        GitHub does not require it to be verified or primary, so it is never
+        trusted; ``/user/emails`` is always consulted and a verified address
+        (primary preferred) is required, mirroring our url-shortner and Nexus
+        AI projects.
+        """
         data = {
             "code": code,
             "client_id": self.client_id,
@@ -114,63 +147,51 @@ class OAuthProvider:
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
         }
+        if code_verifier:
+            data["code_verifier"] = code_verifier
+        token_headers = {"Accept": "application/json"} if self.name == "github" else None
         async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(self.token_url, data=data, headers=token_headers)
+            if resp.status_code >= 400:
+                raise OAuthError(f"{self.name} token exchange failed (HTTP {resp.status_code})")
+            token_json = resp.json()
+            access_token = token_json.get("access_token")
+            if not access_token:
+                raise OAuthError(f"{self.name} token exchange failed: {token_json}")
+            user_resp = await client.get(
+                self.userinfo_url,
+                headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+            )
+            if user_resp.status_code >= 400:
+                raise OAuthError(f"{self.name} userinfo failed (HTTP {user_resp.status_code})")
+            user_json = user_resp.json()
             if self.name == "github":
-                resp = await client.post(self.token_url, data=data, headers={"Accept": "application/json"})
-                if resp.status_code >= 400:
-                    raise OAuthError(f"GitHub token exchange failed (HTTP {resp.status_code})")
-                token_json = resp.json()
-                access_token = token_json.get("access_token")
-                if not access_token:
-                    raise OAuthError(f"GitHub token exchange failed: {token_json}")
-                user_resp = await client.get(
-                    self.userinfo_url,
+                emails_resp = await client.get(
+                    "https://api.github.com/user/emails",
                     headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
                 )
-                if user_resp.status_code >= 400:
-                    raise OAuthError(f"GitHub userinfo failed (HTTP {user_resp.status_code})")
-                user_json = user_resp.json()
-                email = user_json.get("email")
-                # GitHub only returns the primary verified email here; the /user
-                # endpoint may still omit it, in which case we fetch emails.
-                if not email:
-                    emails_resp = await client.get(
-                        "https://api.github.com/user/emails",
-                        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
-                    )
-                    if emails_resp.status_code >= 400:
-                        raise OAuthError(f"GitHub emails failed (HTTP {emails_resp.status_code})")
-                    for record in emails_resp.json() or []:
-                        if record.get("primary") and record.get("verified"):
-                            email = record.get("email")
-                            break
+                if emails_resp.status_code >= 400:
+                    raise OAuthError(f"GitHub emails failed (HTTP {emails_resp.status_code})")
+                records = emails_resp.json() or []
+                primary_verified = next(
+                    (r.get("email") for r in records if r.get("primary") and r.get("verified")), None
+                )
+                verified_email = primary_verified or next((r.get("email") for r in records if r.get("verified")), None)
                 return {
                     "provider": "github",
                     "provider_id": str(user_json.get("id")),
-                    "email": (email or "").lower(),
+                    "email": (verified_email or "").lower(),
                     "name": user_json.get("name") or user_json.get("login") or "",
+                    "verified": bool(verified_email),
                 }
-            else:  # google
-                resp = await client.post(self.token_url, data=data)
-                if resp.status_code >= 400:
-                    raise OAuthError(f"Google token exchange failed (HTTP {resp.status_code})")
-                token_json = resp.json()
-                access_token = token_json.get("access_token")
-                if not access_token:
-                    raise OAuthError(f"Google token exchange failed: {token_json}")
-                user_resp = await client.get(
-                    self.userinfo_url,
-                    headers={"Authorization": f"Bearer {access_token}"},
-                )
-                if user_resp.status_code >= 400:
-                    raise OAuthError(f"Google userinfo failed (HTTP {user_resp.status_code})")
-                user_json = user_resp.json()
-                return {
-                    "provider": "google",
-                    "provider_id": str(user_json.get("sub")),
-                    "email": (user_json.get("email") or "").lower(),
-                    "name": user_json.get("name") or user_json.get("email", ""),
-                }
+            # google — OIDC userinfo emits `email_verified` with the email scope.
+            return {
+                "provider": "google",
+                "provider_id": str(user_json.get("sub")),
+                "email": (user_json.get("email") or "").lower(),
+                "name": user_json.get("name") or user_json.get("email", ""),
+                "verified": bool(user_json.get("email_verified", False)),
+            }
 
 
 def get_provider(name: str) -> OAuthProvider:
@@ -199,21 +220,70 @@ def get_provider(name: str) -> OAuthProvider:
     raise OAuthNotConfigured(name)
 
 
-def encode_oauth_state(provider: str, redirect: str) -> str:
-    """Sign a short-lived state token carrying the provider and post-login redirect."""
-    # Wrapped: `python-jose` provides no type information, so `jwt.encode` is
-    # `Any` and would otherwise slip through the `-> str` annotation.
-    return str(
+def encode_oauth_state(provider: str, redirect: str) -> tuple[str, str, str]:
+    """Create a fresh OAuth authorization session.
+
+    Returns ``(state_token, code_verifier, nonce)``:
+
+    * ``state_token`` — signed JWT carrying the provider, the post-login
+      redirect, a fresh random ``nonce`` and the PKCE code verifier. The
+      provider echoes it back verbatim on the callback, so it is the only
+      thing a cross-site caller can influence — and it can be neither forged
+      (signed) nor predicted (fresh high-entropy nonce per initiation).
+    * ``code_verifier`` — a high-entropy PKCE (RFC 7636) secret. Only its
+      S256 challenge (see :func:`code_challenge`) is shown to the provider;
+      the verifier itself is sent on the token exchange, so an intercepted or
+      substituted authorization code cannot be redeemed by whoever stole it.
+    * ``nonce`` — the browser-session binding. The authorize route stores it
+      in an ``oauth_state`` cookie and the callback only accepts a state whose
+      nonce matches that cookie. Without it, an attacker who began a flow for
+      their *own* account could hand the victim a valid state + code and log
+      the victim into the attacker's account (login-CSRF / session fixation).
+    """
+    nonce = secrets.token_urlsafe(32)
+    verifier = secrets.token_urlsafe(64)
+    state = str(
         jwt.encode(
             {
                 "provider": provider,
                 "redirect": redirect or "/dashboard",
+                "nonce": nonce,
+                "cv": verifier,
                 "exp": _now_plus(settings.ACCESS_TOKEN_EXPIRE_MINUTES),
             },
             settings.SECRET_KEY,
             algorithm=settings.ALGORITHM,
         )
     )
+    return state, verifier, nonce
+
+
+def code_challenge(verifier: str) -> str:
+    """RFC 7636 S256 PKCE challenge for ``verifier`` (unpadded base64url)."""
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+def _decode_oauth_payload(provider: str, state: str) -> dict:
+    try:
+        payload = jwt.decode(state, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except Exception:
+        raise OAuthStateInvalid()
+    if payload.get("provider") != provider:
+        raise OAuthStateInvalid()
+    # Fail closed: state tokens without a nonce (pre-fix or hand-built) are
+    # refused so the browser-session binding can never be silently downgraded.
+    if not payload.get("nonce"):
+        raise OAuthStateInvalid()
+    redirect = payload.get("redirect") or "/dashboard"
+    if isinstance(redirect, str) and redirect.startswith("/") and "://" not in redirect:
+        return {
+            "provider": provider,
+            "redirect": redirect,
+            "nonce": payload["nonce"],
+            "code_verifier": payload.get("cv") or "",
+        }
+    raise OAuthStateInvalid()
 
 
 def decode_oauth_state(provider: str, state: str) -> str:
@@ -221,16 +291,13 @@ def decode_oauth_state(provider: str, state: str) -> str:
 
     Raises ``OAuthStateInvalid`` on any mismatch.
     """
-    try:
-        payload = jwt.decode(state, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-    except Exception:
-        raise OAuthStateInvalid()
-    if payload.get("provider") != provider:
-        raise OAuthStateInvalid()
-    redirect = payload.get("redirect") or "/dashboard"
-    if isinstance(redirect, str) and redirect.startswith("/") and "://" not in redirect:
-        return redirect
-    raise OAuthStateInvalid()
+    return str(_decode_oauth_payload(provider, state)["redirect"])
+
+
+def decode_oauth_bundle(provider: str, state: str) -> dict:
+    """Validate the state token and return the full session (``redirect``,
+    ``nonce``, ``code_verifier``) the callback route needs."""
+    return _decode_oauth_payload(provider, state)
 
 
 def _now_plus(minutes: int):
@@ -280,6 +347,22 @@ async def login_with_provider(db, provider: OAuthProvider, profile: dict) -> tup
                     candidate.oauth_provider,
                 )
                 raise OAuthError("This email is already registered with a different sign-in method.")
+            # Rule 4: never link into an account that carries a *local* password
+            # unless the provider has verified the email address. OAuth-created
+            # accounts store an unusable random hash, so an existing binding to
+            # this very provider (oauth_provider set) is exempt — those users are
+            # re-authenticating with the same identity, not taking over an
+            # account protected by a password only the real owner knows.
+            has_local_password = bool(candidate.password_hash) and candidate.oauth_provider is None
+            if has_local_password and not profile.get("verified"):
+                logger.warning(
+                    "oauth: refusing to link unverified %s email %s into password-protected account",
+                    provider_name,
+                    email,
+                )
+                raise OAuthError(
+                    "This email already belongs to a password-protected account. Sign in with that password instead."
+                )
             user = candidate
 
         if user is None:

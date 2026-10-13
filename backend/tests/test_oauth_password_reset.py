@@ -6,24 +6,38 @@ import pytest
 from httpx import AsyncClient
 
 from src.core.config import settings
-from src.domains.auth.oauth import decode_oauth_state, encode_oauth_state, get_provider
+from src.domains.auth.oauth import (
+    code_challenge,
+    decode_oauth_bundle,
+    decode_oauth_state,
+    encode_oauth_state,
+    get_provider,
+)
 from src.domains.auth.password_reset import create_password_reset_token, decode_password_reset_token
-from src.errors import OAuthNotConfigured, OAuthStateInvalid, PasswordResetTokenInvalid
+from src.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid, PasswordResetTokenInvalid
 
 
 def test_oauth_state_round_trip() -> None:
-    state = encode_oauth_state("google", "/issues")
+    state, verifier, nonce = encode_oauth_state("google", "/issues")
     assert decode_oauth_state("google", state) == "/issues"
+    # The flow bundle must carry a per-initiation nonce and a PKCE verifier.
+    assert nonce
+    assert verifier
+    assert len(verifier) >= 43  # RFC 7636 minimum verifier length
+    assert code_challenge(verifier)
+    bundle = decode_oauth_bundle("google", state)
+    assert bundle["nonce"] == nonce
+    assert bundle["code_verifier"] == verifier
 
 
 def test_oauth_state_rejects_foreign_redirect() -> None:
-    state = encode_oauth_state("google", "https://evil.example.com")
+    state, _verifier, _nonce = encode_oauth_state("google", "https://evil.example.com")
     with pytest.raises(OAuthStateInvalid):
         decode_oauth_state("google", state)
 
 
 def test_oauth_state_rejects_provider_mismatch() -> None:
-    state = encode_oauth_state("google", "/dashboard")
+    state, _verifier, _nonce = encode_oauth_state("google", "/dashboard")
     with pytest.raises(OAuthStateInvalid):
         decode_oauth_state("github", state)
 
@@ -33,9 +47,300 @@ def test_oauth_state_rejects_garbage() -> None:
         decode_oauth_state("google", "not-a-token")
 
 
+def test_oauth_state_without_nonce_is_rejected() -> None:
+    """State tokens without a nonce (pre-fix or hand-built) must fail closed so
+    the browser-session binding can never be silently downgraded."""
+    from datetime import datetime, timedelta, timezone
+
+    from jose import jwt as jose_jwt
+
+    legacy = jose_jwt.encode(
+        {
+            "provider": "google",
+            "redirect": "/dashboard",
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=10),
+        },
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
+    )
+    with pytest.raises(OAuthStateInvalid):
+        decode_oauth_state("google", legacy)
+
+
 def test_get_provider_unknown_raises() -> None:
     with pytest.raises(OAuthNotConfigured):
         get_provider("twitter")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OAuth provider profile fetching (email verification)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class _FakeResp:
+    def __init__(self, payload, status_code: int = 200):
+        self.payload = payload
+        self.status_code = status_code
+
+    def json(self):
+        return self.payload
+
+
+class _FakeClient:
+    """Queue-based httpx.AsyncClient stand-in; responses pop in call order."""
+
+    def __init__(self, responses: list[_FakeResp]):
+        self.responses = list(responses)
+        self.calls: list[tuple[str, str, dict]] = []
+
+    async def __aenter__(self) -> "_FakeClient":
+        return self
+
+    async def __aexit__(self, *exc) -> bool:
+        return False
+
+    async def post(self, url: str, **kwargs) -> _FakeResp:
+        self.calls.append(("post", url, kwargs))
+        return self.responses.pop(0)
+
+    async def get(self, url: str, **kwargs) -> _FakeResp:
+        self.calls.append(("get", url, kwargs))
+        return self.responses.pop(0)
+
+
+@pytest.mark.asyncio
+async def test_fetch_user_github_requires_verified_email_from_user_emails() -> None:
+    """/user's public `email` must be ignored; /user/emails (verified, primary
+    preferred) is the only source of truth — mirroring url-shortner / nexus."""
+    fake = _FakeClient(
+        [
+            _FakeResp({"access_token": "tok-1"}),  # token exchange
+            _FakeResp({"id": 42, "login": "octo", "name": "Octo", "email": "public@example.com"}),  # /user
+            _FakeResp(  # /user/emails — always consulted, never a fallback
+                [
+                    {"email": "secondary@example.com", "primary": False, "verified": False},
+                    {"email": "primary@example.com", "primary": True, "verified": True},
+                ]
+            ),
+        ]
+    )
+    with patch("src.domains.auth.oauth.httpx.AsyncClient", return_value=fake):
+        profile = await get_provider("github").fetch_user(
+            "code-1",
+            "http://localhost:3000/api/proxy/auth/oauth/github/callback",
+            code_verifier="cv-1",
+        )
+
+    assert profile["email"] == "primary@example.com"  # the public /user email is ignored
+    assert profile["verified"] is True
+    assert profile["provider_id"] == "42"
+    # The PKCE verifier must be sent on the token exchange…
+    assert fake.calls[0][0] == "post"
+    assert fake.calls[0][2]["data"]["code_verifier"] == "cv-1"
+    # …and /user/emails must be hit unconditionally.
+    assert any(c[0] == "get" and c[1] == "https://api.github.com/user/emails" for c in fake.calls)
+
+
+@pytest.mark.asyncio
+async def test_fetch_user_github_without_verified_email_is_unverified() -> None:
+    fake = _FakeClient(
+        [
+            _FakeResp({"access_token": "tok-1"}),
+            _FakeResp({"id": 7, "login": "anon", "name": "Anon", "email": "fake@example.com"}),
+            _FakeResp([{"email": "unverified@example.com", "primary": True, "verified": False}]),
+        ]
+    )
+    with patch("src.domains.auth.oauth.httpx.AsyncClient", return_value=fake):
+        profile = await get_provider("github").fetch_user(
+            "code-1", "http://localhost:3000/auth/oauth/github/callback"
+        )
+    assert profile["verified"] is False
+    # Never accept an unverified GitHub address as the account email.
+    assert profile["email"] == ""
+
+
+@pytest.mark.asyncio
+async def test_fetch_user_google_surfaces_email_verified() -> None:
+    fake = _FakeClient(
+        [
+            _FakeResp({"access_token": "tok-1"}),
+            _FakeResp({"sub": "sub-99", "email": "g@example.com", "name": "G User", "email_verified": True}),
+        ]
+    )
+    with patch("src.domains.auth.oauth.httpx.AsyncClient", return_value=fake):
+        profile = await get_provider("google").fetch_user(
+            "code-1", "http://localhost:3000/auth/oauth/google/callback", code_verifier="cv-2"
+        )
+    assert profile["verified"] is True
+    assert profile["email"] == "g@example.com"
+    assert fake.calls[0][2]["data"]["code_verifier"] == "cv-2"
+
+
+@pytest.mark.asyncio
+async def test_fetch_user_google_unverified_claim_is_false() -> None:
+    fake = _FakeClient(
+        [
+            _FakeResp({"access_token": "tok-1"}),
+            _FakeResp({"sub": "sub-100", "email": "g2@example.com", "email_verified": False}),
+        ]
+    )
+    with patch("src.domains.auth.oauth.httpx.AsyncClient", return_value=fake):
+        profile = await get_provider("google").fetch_user(
+            "code-1", "http://localhost:3000/auth/oauth/google/callback"
+        )
+    assert profile["verified"] is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# login_with_provider rule 4 — never link into a password-protected account
+# unless the provider has verified the email
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_oauth_unverified_email_not_linked_into_password_account(db_engine) -> None:
+    from src.core.database import AsyncSessionLocal
+    from src.domains.auth.oauth import login_with_provider
+    from src.models.user import User, UserRole
+
+    async with AsyncSessionLocal() as session:
+        session.add(
+            User(
+                id=211,
+                email="pw-protected@civicpulse.com",
+                password_hash="hashed-password",
+                full_name="Pw User",
+                role=UserRole.field_worker,
+                is_active=True,
+            )
+        )
+        await session.commit()
+
+    async with AsyncSessionLocal() as session:
+        with pytest.raises(OAuthError):
+            await login_with_provider(
+                session,
+                get_provider("google"),
+                {
+                    "provider": "google",
+                    "provider_id": "sub-211",
+                    "email": "pw-protected@civicpulse.com",
+                    "name": "Google User",
+                    "verified": False,
+                },
+            )
+
+    # The account must not have been re-bound to the provider identity.
+    async with AsyncSessionLocal() as session:
+        account = await session.get(User, 211)
+        assert account.oauth_provider is None
+        assert account.oauth_sub is None
+
+
+@pytest.mark.asyncio
+async def test_oauth_verified_email_linked_into_password_account(db_engine) -> None:
+    from src.core.database import AsyncSessionLocal
+    from src.domains.auth.oauth import login_with_provider
+    from src.models.user import User, UserRole
+
+    async with AsyncSessionLocal() as session:
+        session.add(
+            User(
+                id=212,
+                email="link-me@civicpulse.com",
+                password_hash="hashed-password",
+                full_name="Link User",
+                role=UserRole.field_worker,
+                is_active=True,
+            )
+        )
+        await session.commit()
+
+    async with AsyncSessionLocal() as session:
+        user, access_token, refresh_token = await login_with_provider(
+            session,
+            get_provider("google"),
+            {
+                "provider": "google",
+                "provider_id": "sub-212",
+                "email": "link-me@civicpulse.com",
+                "name": "Linked",
+                "verified": True,
+            },
+        )
+    assert user.id == 212
+    assert user.oauth_provider == "google"
+    assert user.oauth_sub == "sub-212"
+    assert access_token and refresh_token
+
+
+@pytest.mark.asyncio
+async def test_oauth_same_provider_reauth_not_blocked(db_engine) -> None:
+    """An OAuth-created account (unusable random hash + same-provider binding)
+    re-authenticating must NOT trip rule 4 — that is re-auth, not takeover."""
+    from src.core.database import AsyncSessionLocal
+    from src.domains.auth.oauth import login_with_provider
+    from src.models.user import User, UserRole
+
+    async with AsyncSessionLocal() as session:
+        session.add(
+            User(
+                id=213,
+                email="oauth-existing@civicpulse.com",
+                password_hash="unusable-hash",
+                full_name="OAuth User",
+                role=UserRole.field_worker,
+                is_active=True,
+                oauth_provider="google",
+                oauth_sub="sub-213",
+            )
+        )
+        await session.commit()
+
+    async with AsyncSessionLocal() as session:
+        user, _, _ = await login_with_provider(
+            session,
+            get_provider("google"),
+            {
+                "provider": "google",
+                "provider_id": "sub-213",
+                "email": "oauth-existing@civicpulse.com",
+                "name": "OAuth User",
+                "verified": False,
+            },
+        )
+    assert user.id == 213
+
+
+@pytest.mark.asyncio
+async def test_oauth_new_account_created_without_existing_candidate(db_engine) -> None:
+    from src.core.database import AsyncSessionLocal
+    from src.domains.auth.oauth import login_with_provider
+    from src.models.user import User
+
+    async with AsyncSessionLocal() as session:
+        user, _, _ = await login_with_provider(
+            session,
+            get_provider("google"),
+            {
+                "provider": "google",
+                "provider_id": "sub-214",
+                "email": "brand-new@civicpulse.com",
+                "name": "New User",
+                "verified": False,
+            },
+        )
+    assert user.id is not None
+    assert user.oauth_provider == "google"
+    assert user.oauth_sub == "sub-214"
+    # Fresh accounts keep an unusable random password hash (never a real one):
+    # the stored value is an Argon2 hash of a random secret, not plaintext.
+    assert user.password_hash.startswith("$argon2")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Password reset
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 def test_password_reset_token_round_trip() -> None:
@@ -170,7 +475,7 @@ async def test_oauth_callback_sets_cookies_via_200_html(client: AsyncClient) -> 
     settings.GOOGLE_CLIENT_ID = "client-123"
     settings.GOOGLE_CLIENT_SECRET = "secret-abc"
     settings.FRONTEND_URL = "http://localhost:3000"
-    state = encode_oauth_state("google", "/dashboard")
+    state, _verifier, nonce = encode_oauth_state("google", "/dashboard")
     try:
         with patch(
             "src.domains.auth.oauth.OAuthProvider.fetch_user",
@@ -180,25 +485,69 @@ async def test_oauth_callback_sets_cookies_via_200_html(client: AsyncClient) -> 
                     "provider_id": "12345",
                     "email": "oauth@civicpulse.com",
                     "name": "OAuth User",
+                    "verified": True,
                 }
             ),
         ):
             response = await client.get(
                 f"/api/v1/auth/oauth/google/callback?code=fake&state={state}",
+                cookies={"oauth_state": nonce},
                 follow_redirects=False,
             )
         assert response.status_code == 200
         assert "text/html" in response.headers.get("content-type", "")
+        assert response.headers.get("cache-control") == "no-store"
         body = response.text
         assert "http://localhost:3000/dashboard" in body
         set_cookie = "; ".join(response.headers.get_list("set-cookie", []))
         assert "access_token=" in set_cookie
         assert "refresh_token=" in set_cookie
         assert "session_active=1" in set_cookie
+        # The one-shot session-binding cookie is consumed on success.
+        assert "oauth_state=" in set_cookie and "Max-Age=0" in set_cookie
     finally:
         settings.GOOGLE_CLIENT_ID = old_google_id
         settings.GOOGLE_CLIENT_SECRET = old_google_secret
         settings.FRONTEND_URL = old_frontend
+
+
+@pytest.mark.asyncio
+async def test_oauth_callback_rejects_missing_state_cookie(client: AsyncClient) -> None:
+    """Login-CSRF: a state harvested from an attacker's own authorize must fail
+    in the victim's browser, which holds no oauth_state cookie."""
+    old_google_id = settings.GOOGLE_CLIENT_ID
+    old_google_secret = settings.GOOGLE_CLIENT_SECRET
+    settings.GOOGLE_CLIENT_ID = "client-123"
+    settings.GOOGLE_CLIENT_SECRET = "secret-abc"
+    state, _verifier, _nonce = encode_oauth_state("google", "/dashboard")
+    try:
+        response = await client.get(
+            f"/api/v1/auth/oauth/google/callback?code=attacker-code&state={state}",
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+    finally:
+        settings.GOOGLE_CLIENT_ID = old_google_id
+        settings.GOOGLE_CLIENT_SECRET = old_google_secret
+
+
+@pytest.mark.asyncio
+async def test_oauth_callback_rejects_mismatched_state_cookie(client: AsyncClient) -> None:
+    old_google_id = settings.GOOGLE_CLIENT_ID
+    old_google_secret = settings.GOOGLE_CLIENT_SECRET
+    settings.GOOGLE_CLIENT_ID = "client-123"
+    settings.GOOGLE_CLIENT_SECRET = "secret-abc"
+    state, _verifier, _nonce = encode_oauth_state("google", "/dashboard")
+    try:
+        response = await client.get(
+            f"/api/v1/auth/oauth/google/callback?code=attacker-code&state={state}",
+            cookies={"oauth_state": "attacker-controlled-nonce"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+    finally:
+        settings.GOOGLE_CLIENT_ID = old_google_id
+        settings.GOOGLE_CLIENT_SECRET = old_google_secret
 
 
 @pytest.mark.asyncio
@@ -213,21 +562,32 @@ async def test_oauth_authorize_unconfigured_returns_error(client: AsyncClient) -
 
 
 @pytest.mark.asyncio
-async def test_oauth_authorize_redirects_to_provider(client: AsyncClient) -> None:
+async def test_oauth_authorize_pages_to_provider_and_binds_session(client: AsyncClient) -> None:
+    """The authorize endpoint returns a 200 page (reliable cookie path through
+    the Next.js proxy) that carries the session-binding oauth_state cookie,
+    PKCE challenge and state token before navigating to the provider."""
     old_google_id = settings.GOOGLE_CLIENT_ID
     old_google_secret = settings.GOOGLE_CLIENT_SECRET
     settings.GOOGLE_CLIENT_ID = "client-123"
     settings.GOOGLE_CLIENT_SECRET = "secret-abc"
     try:
         response = await client.get("/api/v1/auth/oauth/google/authorize", follow_redirects=False)
-        assert response.status_code == 302
-        location = response.headers.get("location", "")
-        assert location.startswith("https://accounts.google.com/o/oauth2/v2/auth")
-        assert "client_id=client-123" in location
-        assert "state=" in location
+        assert response.status_code == 200
+        assert "text/html" in response.headers.get("content-type", "")
+        assert response.headers.get("cache-control") == "no-store"
+        body = response.text
+        assert "https://accounts.google.com/o/oauth2/v2/auth" in body
+        assert "client_id=client-123" in body
+        assert "state=" in body
+        # PKCE must be offered to the provider.
+        assert "code_challenge=" in body
+        assert "code_challenge_method=S256" in body
         # Force Google to always show the account chooser AND the consent
         # ("continue") page, even for previously-authorized test users.
-        assert "prompt=select_account+consent" in location
+        assert "prompt=select_account+consent" in body
+        set_cookie = "; ".join(response.headers.get_list("set-cookie", []))
+        assert "oauth_state=" in set_cookie
+        assert "HttpOnly" in set_cookie
     finally:
         settings.GOOGLE_CLIENT_ID = old_google_id
         settings.GOOGLE_CLIENT_SECRET = old_google_secret
