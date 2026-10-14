@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 class LoginRequest(BaseModel):
@@ -30,6 +30,16 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    # Matches the client-side floor in ``frontend/src/lib/schemas.ts``.
+    new_password: str = Field(min_length=6)
+
+
+class WsTicketResponse(BaseModel):
+    ticket: str
 
 
 class UserResponse(BaseModel):

@@ -17,9 +17,18 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useMe } from "@/queries/index";
 import { apiFetch, auth, getErrorMessage } from "@/lib/api";
 import type { MlInfo } from "@/lib/api";
+import { usePreferences, setPreference } from "@/lib/preferences";
 import { toast } from "sonner";
 import {
   AtSign,
@@ -92,9 +101,8 @@ function ToggleRow({
 
 export default function SettingsPage() {
   const { data: user } = useMe();
-  const queryClient = useQueryClient();
-  const [webSocket, setWebSocket] = useState(true);
-  const [emailNotif, setEmailNotif] = useState(false);
+  const { realtimeAlerts, emailNotifications } = usePreferences();
+  const [passwordOpen, setPasswordOpen] = useState(false);
 
   const roleLabel = (user?.role ?? "field_worker").replace("_", " ");
 
@@ -190,9 +198,9 @@ export default function SettingsPage() {
                 icon={Radio}
                 title="Real-time updates"
                 description="Instant WebSocket alerts when an issue is reported or updated."
-                checked={webSocket}
+                checked={realtimeAlerts}
                 onCheckedChange={(v) => {
-                  setWebSocket(v);
+                  setPreference("realtimeAlerts", v);
                   toast.success(v ? "Real-time alerts enabled" : "Real-time alerts paused");
                 }}
               />
@@ -200,9 +208,9 @@ export default function SettingsPage() {
                 icon={Mail}
                 title="Email notifications"
                 description="Receive a summary email for critical issues in your zone."
-                checked={emailNotif}
+                checked={emailNotifications}
                 onCheckedChange={(v) => {
-                  setEmailNotif(v);
+                  setPreference("emailNotifications", v);
                   toast.success(v ? "Email notifications enabled" : "Email notifications disabled");
                 }}
               />
@@ -231,7 +239,7 @@ export default function SettingsPage() {
                     </p>
                   </div>
                 </div>
-                <Button variant="outline" size="sm" disabled>
+                <Button variant="outline" size="sm" onClick={() => setPasswordOpen(true)}>
                   Change
                 </Button>
               </div>
@@ -251,7 +259,97 @@ export default function SettingsPage() {
       <p className="text-center text-xs text-muted-foreground">
         CivicPulse &middot; Vadodara Municipal Corporation &middot; Secure session
       </p>
+
+      <ChangePasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Change password                                                    */
+/* ------------------------------------------------------------------ */
+
+function ChangePasswordDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+
+  const mutation = useMutation({
+    mutationFn: () => auth.changePassword(current, next),
+    onSuccess: () => {
+      toast.success("Password changed. Other sessions were signed out.");
+      setCurrent("");
+      setNext("");
+      setConfirm("");
+      onOpenChange(false);
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
+  });
+
+  const tooShort = next.length > 0 && next.length < 6;
+  const mismatch = confirm.length > 0 && next !== confirm;
+  const canSubmit =
+    current.length > 0 && next.length >= 6 && next === confirm && !mutation.isPending;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Change password</DialogTitle>
+          <DialogDescription>
+            You will stay signed in on this device; other sessions are signed out.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="current-password">Current password</Label>
+            <Input
+              id="current-password"
+              type="password"
+              autoComplete="current-password"
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="new-password">New password</Label>
+            <Input
+              id="new-password"
+              type="password"
+              autoComplete="new-password"
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+            />
+            {tooShort && <p className="text-xs text-destructive">Use at least 6 characters.</p>}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="confirm-password">Confirm new password</Label>
+            <Input
+              id="confirm-password"
+              type="password"
+              autoComplete="new-password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+            />
+            {mismatch && <p className="text-xs text-destructive">Passwords do not match.</p>}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={() => mutation.mutate()} disabled={!canSubmit}>
+            {mutation.isPending ? "Saving..." : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

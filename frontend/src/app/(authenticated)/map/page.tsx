@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useHeatmapData } from "@/queries/index";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { QueryError } from "@/components/shared/query-error";
 import { MapPin } from "lucide-react";
 import { humanize, TYPE_META } from "@/lib/format";
 
@@ -20,7 +21,7 @@ const IssueMap = dynamic(
 );
 
 export default function MapPage() {
-  const { data: points, isLoading } = useHeatmapData();
+  const { data: points, isLoading, isError, error, refetch } = useHeatmapData();
 
   const pointCount = points?.length || 0;
   const categoryCount = Object.keys(TYPE_META).filter(
@@ -33,6 +34,13 @@ export default function MapPage() {
         <div className="relative">
           {isLoading ? (
             <Skeleton className="h-[600px] w-full rounded-none" />
+          ) : isError ? (
+            <QueryError
+              error={error}
+              onRetry={() => refetch()}
+              title="Could not load the map"
+              className="h-[600px] justify-center border-0 bg-transparent"
+            />
           ) : points && pointCount > 0 ? (
             <IssueMap points={points} />
           ) : (

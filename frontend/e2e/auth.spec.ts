@@ -16,13 +16,13 @@ test.describe("Authentication Flow", () => {
 
   test("should navigate to register from login", async ({ page }) => {
     await page.goto("/login");
-    await page.getByRole("link", { name: /create one/i }).click();
+    await page.getByRole("link", { name: /request access/i }).click();
     await expect(page).toHaveURL(/.*register/);
   });
 
   test("should display register page", async ({ page }) => {
     await page.goto("/register");
-    await expect(page.getByRole("heading", { name: /create account/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /create your account/i })).toBeVisible();
   });
 });
 

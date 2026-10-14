@@ -18,6 +18,7 @@ from src.core.security import (
     is_token_blacklisted,
     verify_password_for_login_async,
 )
+from src.domains.auth.password_reset import revoke_all_refresh_sessions
 from src.errors import (
     EmailAlreadyExists,
     InvalidCredentials,
@@ -210,6 +211,25 @@ class AuthService:
         if not user:
             raise UserNotFound()
         return user
+
+    async def change_password(self, user: User, current_password: str, new_password: str) -> None:
+        """Rotate a user's password after proving knowledge of the current one.
+
+        Mirrors the reset flow: the new hash is written, then every refresh
+        session for the account is revoked so a stolen refresh cookie cannot
+        outlive the password change. Argon2 verification and hashing are both
+        offloaded to a thread, as login and reset already do, so a burst of
+        changes cannot stall the event loop.
+        """
+        if not await verify_password_for_login_async(
+            current_password, user.password_hash, oauth_provider=user.oauth_provider
+        ):
+            raise InvalidCredentials()
+
+        user.password_hash = await hash_password_async(new_password)
+        await self.db.commit()
+        await self.db.refresh(user)
+        await revoke_all_refresh_sessions(user.id)
 
 
 async def clear_refresh_family_revocation(user_id: int) -> None:

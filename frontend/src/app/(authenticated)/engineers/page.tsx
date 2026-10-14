@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useEngineers, useWards, useAdminUsers, useCreateEngineerMutation, useMe } from "@/queries/index";
 import { Card, CardContent } from "@/components/ui/card";
+import { QueryError } from "@/components/shared/query-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,7 +59,7 @@ function workloadColor(pct: number) {
 }
 
 export default function EngineersPage() {
-  const { data: engineers, isLoading } = useEngineers();
+  const { data: engineers, isLoading, isError, error, refetch } = useEngineers();
   const { data: wards } = useWards();
   const { data: currentUser } = useMe();
   const isAdmin =
@@ -147,7 +148,9 @@ export default function EngineersPage() {
       </div>
 
       {/* Cards */}
-      {isLoading ? (
+      {isError ? (
+        <QueryError error={error} onRetry={() => refetch()} title="Could not load engineers" />
+      ) : isLoading ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-56 rounded-xl" />

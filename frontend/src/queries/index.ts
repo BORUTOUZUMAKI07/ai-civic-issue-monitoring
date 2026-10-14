@@ -1,7 +1,18 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { auth, issues, wards, engineers, dashboard, admin } from "@/lib/api";
+
+// Any mutation that changes issue data must refresh the list, the affected
+// detail, and the aggregates derived from them. Without this the dashboard and
+// heatmap keep serving their cached copy for the full 30s stale window after a
+// report, review or (re)assignment.
+function invalidateIssueData(qc: QueryClient) {
+  qc.invalidateQueries({ queryKey: ["issues"] });
+  qc.invalidateQueries({ queryKey: ["issue"] });
+  qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+  qc.invalidateQueries({ queryKey: ["heatmap"] });
+}
 
 export function useMe() {
   return useQuery({
@@ -79,7 +90,7 @@ export function useUploadIssueMutation() {
       force_submit?: boolean;
       idempotencyKey?: string;
     }) => issues.upload(file, latitude, longitude, description, force_submit ?? false, idempotencyKey),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["issues"] }),
+    onSuccess: () => invalidateIssueData(qc),
   });
 }
 
@@ -113,7 +124,7 @@ export function useReviewIssueMutation() {
       admin.reviewIssue(id, action, newType),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["review-queue"] });
-      qc.invalidateQueries({ queryKey: ["issues"] });
+      invalidateIssueData(qc);
     },
   });
 }
@@ -149,7 +160,7 @@ export function useAssignIssueMutation() {
     mutationFn: ({ issueId, engineerId }: { issueId: number; engineerId: number }) =>
       issues.assign(issueId, engineerId),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["issues"] });
+      invalidateIssueData(qc);
     },
   });
 }
@@ -160,15 +171,8 @@ export function useReassignIssueMutation() {
     mutationFn: ({ issueId, engineerId }: { issueId: number; engineerId: number }) =>
       issues.reassign(issueId, engineerId),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["issues"] });
+      invalidateIssueData(qc);
     },
-  });
-}
-
-export function useMyAssignments() {
-  return useQuery({
-    queryKey: ["my-assignments"],
-    queryFn: () => engineers.myAssignments(),
   });
 }
 

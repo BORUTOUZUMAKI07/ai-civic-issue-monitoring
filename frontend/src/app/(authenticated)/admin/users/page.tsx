@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAdminUsers, useUpdateUserRoleMutation, useMe } from "@/queries/index";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { QueryError } from "@/components/shared/query-error";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -123,12 +124,19 @@ export default function AdminUsersPage() {
     ...(search && { search }),
     ...(roleFilter && { role: roleFilter }),
   };
-  const { data, isLoading, refetch } = useAdminUsers(params);
+  const { data, isLoading, isError, error, refetch } = useAdminUsers(params);
   const roleMutation = useUpdateUserRoleMutation();
   const [processingId, setProcessingId] = useState<number | null>(null);
 
-  if (currentUser && currentUser.role !== "admin" && currentUser.role !== "super_admin") {
-    router.replace("/dashboard");
+  const isAdmin = currentUser?.role === "admin" || currentUser?.role === "super_admin";
+
+  useEffect(() => {
+    if (currentUser && !isAdmin) {
+      router.replace("/dashboard");
+    }
+  }, [currentUser, isAdmin, router]);
+
+  if (currentUser && !isAdmin) {
     return null;
   }
 
@@ -211,7 +219,14 @@ export default function AdminUsersPage() {
 
       {/* Table */}
       <Card>
-        {isLoading ? (
+        {isError ? (
+          <QueryError
+            error={error}
+            onRetry={() => refetch()}
+            title="Could not load users"
+            className="border-0 bg-transparent"
+          />
+        ) : isLoading ? (
           <div className="space-y-1 p-2">
             {Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="flex items-center gap-4 px-4 py-4">

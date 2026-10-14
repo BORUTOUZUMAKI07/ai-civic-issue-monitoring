@@ -94,50 +94,6 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   return rawFetch<T>(path, options);
 }
 
-export async function apiFetchBlob<T>(path: string, options: RequestInit = {}): Promise<Blob> {
-  const headers: Record<string, string> = {
-    ...(options.headers as Record<string, string>),
-  };
-
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
-
-  if (
-    res.status === 401 &&
-    !path.startsWith("/auth/login") &&
-    !path.startsWith("/auth/register") &&
-    !path.startsWith("/auth/refresh")
-  ) {
-    if (!refreshPromise) {
-      refreshPromise = tryRefresh().finally(() => {
-        refreshPromise = null;
-      });
-    }
-    const refreshed = await refreshPromise;
-    if (refreshed) {
-      const retry = await fetch(`${API_BASE}${path}`, {
-        ...options,
-        headers,
-      });
-      if (retry.ok) return retry.blob();
-    }
-    if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-      window.location.href = "/login";
-    }
-    throw new Error("Session expired. Please login again.");
-  }
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }));
-    const msg = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail || body);
-    throw new Error(msg || "Request failed");
-  }
-
-  return res.blob();
-}
-
 export interface User {
   id: number;
   email: string;
@@ -184,16 +140,6 @@ export interface MlInfo {
   default_threshold?: number;
   review_threshold?: number;
   reject_threshold?: number;
-}
-
-export interface RejectedUpload {
-  id: string;
-  image_url: string;
-  vision_label: string;
-  vision_confidence: number;
-  description: string;
-  action_taken: string;
-  created_at: string;
 }
 
 export interface Ward {
@@ -256,6 +202,12 @@ export const auth = {
       method: "POST",
       body: JSON.stringify({ token, new_password: newPassword }),
     }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    apiFetch<{ detail: string }>("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }),
+  wsTicket: () => apiFetch<{ ticket: string }>("/auth/ws-ticket"),
   oauthAuthorizeUrl: (provider: "google" | "github", redirect?: string) =>
     `${API_BASE}/auth/oauth/${provider}/authorize${redirect ? `?redirect=${encodeURIComponent(redirect)}` : ""}`,
   oauthProviders: () => apiFetch<{ google: boolean; github: boolean }>("/auth/oauth/providers"),
@@ -277,11 +229,6 @@ export const auth = {
     }),
   twofaDisable: (code: string) =>
     apiFetch<{ detail: string }>("/auth/2fa/disable", {
-      method: "POST",
-      body: JSON.stringify({ code }),
-    }),
-  twofaRegenerateRecovery: (code: string) =>
-    apiFetch<{ recovery_codes: string[] }>("/auth/2fa/recovery-codes", {
       method: "POST",
       body: JSON.stringify({ code }),
     }),
@@ -363,14 +310,6 @@ export const admin = {
       `/admin/users/${userId}/role`,
       { method: "POST", body: JSON.stringify({ action: "change_type", new_type: role }) }
     ),
-  rejectedUploads: (params?: { skip?: number; limit?: number }) => {
-    const q = new URLSearchParams();
-    if (params?.skip) q.set("skip", String(params.skip));
-    if (params?.limit) q.set("limit", String(params.limit));
-    return apiFetch<{ items: RejectedUpload[]; total: number }>(
-      `/admin/rejected-uploads?${q}`
-    );
-  },
 };
 
 export const wards = {
@@ -384,39 +323,9 @@ export const engineers = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  myAssignments: () =>
-    apiFetch<{ items: Array<{
-      assignment_id: number;
-      status: string;
-      assigned_at: string;
-      sla_deadline: string;
-      issue_id: number;
-      issue_type: string;
-      severity: number;
-      issue_status: string;
-      latitude: number;
-      longitude: number;
-      description: string | null;
-      image_url: string;
-      ward_id: number;
-      created_at: string;
-    }>; total: number }>("/engineers/me/assignments"),
 };
 
 export const dashboard = {
   stats: () => apiFetch<DashboardStats>("/dashboard/stats"),
   heatmap: () => apiFetch<HeatmapPoint[]>("/dashboard/heatmap"),
-};
-
-export const resolution = {
-  resolve: (issue_id: number, file: File, notes: string = "") => {
-    const form = new FormData();
-    form.append("issue_id", String(issue_id));
-    form.append("file", file);
-    form.append("notes", notes);
-    return apiFetch<{ id: number; issue_id: number; status: string; message: string }>(
-      "/resolution",
-      { method: "POST", body: form, headers: {} }
-    );
-  },
 };

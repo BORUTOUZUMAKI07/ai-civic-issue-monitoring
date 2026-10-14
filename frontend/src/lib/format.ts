@@ -22,6 +22,16 @@ export const STATUS_META: Record<
     dot: "bg-emerald-500",
     pill: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
   },
+  verified: {
+    label: "Verified",
+    dot: "bg-teal-500",
+    pill: "bg-teal-50 text-teal-700 ring-teal-600/20",
+  },
+  rejected: {
+    label: "Rejected",
+    dot: "bg-rose-500",
+    pill: "bg-rose-50 text-rose-700 ring-rose-600/20",
+  },
 }
 
 export function humanize(value: string): string {
@@ -80,7 +90,14 @@ export function severityMeta(severity: number): {
   }
 }
 
-export const STATUS_ORDER = ["reported", "assigned", "in_progress", "resolved"]
+export const STATUS_ORDER = [
+  "reported",
+  "assigned",
+  "in_progress",
+  "resolved",
+  "verified",
+  "rejected",
+]
 
 export const TYPE_META: Record<
   string,

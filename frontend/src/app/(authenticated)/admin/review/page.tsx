@@ -1,14 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useReviewQueue, useReviewIssueMutation, useMe } from "@/queries/index";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { QueryError } from "@/components/shared/query-error";
 import {
   Select,
   SelectContent,
@@ -25,7 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Check, Eye, Inbox, MapPin, Trash2 } from "lucide-react";
+import { Check, Inbox, MapPin, Trash2 } from "lucide-react";
 import {
   formatDate,
   humanize,
@@ -141,13 +140,20 @@ function ReviewRow({
 export default function ReviewQueuePage() {
   const { data: currentUser } = useMe();
   const router = useRouter();
-  const { data, isLoading, refetch } = useReviewQueue({ limit: 50 });
+  const { data, isLoading, isError, error, refetch } = useReviewQueue({ limit: 50 });
   const reviewMutation = useReviewIssueMutation();
   const [processingId, setProcessingId] = useState<number | null>(null);
   const [rejectConfirm, setRejectConfirm] = useState<number | null>(null);
 
-  if (currentUser && currentUser.role !== "admin" && currentUser.role !== "super_admin") {
-    router.replace("/dashboard");
+  const isAdmin = currentUser?.role === "admin" || currentUser?.role === "super_admin";
+
+  useEffect(() => {
+    if (currentUser && !isAdmin) {
+      router.replace("/dashboard");
+    }
+  }, [currentUser, isAdmin, router]);
+
+  if (currentUser && !isAdmin) {
     return null;
   }
 
@@ -205,7 +211,14 @@ export default function ReviewQueuePage() {
       </div>
 
       <Card>
-        {isLoading ? (
+        {isError ? (
+          <QueryError
+            error={error}
+            onRetry={() => refetch()}
+            title="Could not load the review queue"
+            className="border-0 bg-transparent"
+          />
+        ) : isLoading ? (
           <div className="space-y-1 p-2">
             {Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="flex items-center gap-4 px-4 py-4">

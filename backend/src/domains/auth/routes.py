@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.config import settings
 from src.core.database import get_db
 from src.core.deps import get_current_active_user, get_current_user
+from src.core.security import create_ws_ticket
 from src.domains.auth.oauth import (
     code_challenge,
     decode_oauth_bundle,
@@ -15,6 +16,7 @@ from src.domains.auth.oauth import (
 )
 from src.domains.auth.password_reset import reset_password, send_password_reset_email
 from src.domains.auth.schemas import (
+    ChangePasswordRequest,
     ForgotPasswordRequest,
     LoginRequest,
     RegisterRequest,
@@ -24,6 +26,7 @@ from src.domains.auth.schemas import (
     TwoFactorRecoveryCodesResponse,
     TwoFactorVerifyRequest,
     UserResponse,
+    WsTicketResponse,
 )
 from src.domains.auth.service import AuthService
 from src.domains.auth.twofa import TwoFactorService
@@ -315,6 +318,26 @@ async def me(user=Depends(get_current_user)):
         created_at=user.created_at.isoformat(),
         two_factor_enabled=user.two_factor_enabled,
     )
+
+
+@router.post("/change-password")
+async def change_password(
+    body: ChangePasswordRequest,
+    user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await AuthService(db).change_password(user, body.current_password, body.new_password)
+    return {"detail": "Password changed. Other sessions have been signed out."}
+
+
+@router.get("/ws-ticket", response_model=WsTicketResponse)
+async def ws_ticket(user=Depends(get_current_active_user)):
+    """Hand the browser a short-lived ticket for the WebSocket handshake.
+
+    The access token lives in an HttpOnly cookie that client-side JavaScript
+    cannot read, so the real-time feed has no other way to authenticate.
+    """
+    return WsTicketResponse(ticket=create_ws_ticket(user.id))
 
 
 # ---- Two-Factor Authentication ----

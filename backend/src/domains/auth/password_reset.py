@@ -139,7 +139,7 @@ async def reset_password(db, token: str, new_password: str) -> None:
     # reset is usually that the old password (and whatever sessions it minted)
     # are no longer trusted. Every refresh token for this user is revoked, so
     # the next refresh attempt fails and the browser is signed out.
-    await _revoke_all_refresh_sessions(user.id)
+    await revoke_all_refresh_sessions(user.id)
 
 
 async def _consume_reset_jti(jti: str) -> bool:
@@ -161,7 +161,7 @@ async def _consume_reset_jti(jti: str) -> bool:
         return False
 
 
-async def _revoke_all_refresh_sessions(user_id: int) -> None:
+async def revoke_all_refresh_sessions(user_id: int) -> None:
     """Best-effort global sign-out for ``user_id``.
 
     Mirrors the family-revocation flag used by refresh-rotation reuse

@@ -11,11 +11,20 @@ interface WebSocketMessage {
 interface UseWebSocketOptions {
   url: string;
   token?: string;
+  /**
+   * Resolve a fresh credential at connection time. The access token lives in an
+   * HttpOnly cookie the browser cannot read, so callers pass a callback that
+   * fetches a short-lived ticket (see `auth.wsTicket`). Reconnects re-invoke it,
+   * so an expired ticket never blocks a retry.
+   */
+  getToken?: () => Promise<string | null | undefined> | string | null | undefined;
   onMessage?: (message: WebSocketMessage) => void;
   onConnect?: () => void;
   onDisconnect?: () => void;
   reconnectAttempts?: number;
   reconnectInterval?: number;
+  /** When false the hook stays disconnected (e.g. the user turned off alerts). */
+  enabled?: boolean;
 }
 
 interface UseWebSocketReturn {
@@ -29,11 +38,13 @@ interface UseWebSocketReturn {
 export function useWebSocket({
   url,
   token,
+  getToken,
   onMessage,
   onConnect,
   onDisconnect,
   reconnectAttempts = 5,
   reconnectInterval = 3000,
+  enabled = true,
 }: UseWebSocketOptions): UseWebSocketReturn {
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
@@ -41,53 +52,83 @@ export function useWebSocket({
   const reconnectCountRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectRef = useRef<() => void>(() => {});
+  const disconnectRef = useRef<() => void>(() => {});
+  const enabledRef = useRef(enabled);
+  // Distinguishes "we closed it" (unmount/toggle) from a dropped connection
+  // that should be retried.
+  const closedByUsRef = useRef(false);
+  const disposedRef = useRef(false);
 
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    const existing = wsRef.current;
+    if (
+      existing &&
+      (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)
+    ) {
+      return;
+    }
 
-    const wsUrl = token ? `${url}?token=${encodeURIComponent(token)}` : url;
-    const ws = new WebSocket(wsUrl);
+    const open = (resolvedToken?: string | null) => {
+      if (disposedRef.current) return;
+      const credential = resolvedToken ?? token;
+      const wsUrl = credential ? `${url}?token=${encodeURIComponent(credential)}` : url;
+      const ws = new WebSocket(wsUrl);
+      closedByUsRef.current = false;
 
-    ws.onopen = () => {
-      setIsConnected(true);
-      reconnectCountRef.current = 0;
-      onConnect?.();
+      ws.onopen = () => {
+        setIsConnected(true);
+        reconnectCountRef.current = 0;
+        onConnect?.();
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message: WebSocketMessage = JSON.parse(event.data);
+          setLastMessage(message);
+          onMessage?.(message);
+        } catch {
+          console.error("Failed to parse WebSocket message");
+        }
+      };
+
+      ws.onclose = () => {
+        setIsConnected(false);
+        onDisconnect?.();
+
+        if (
+          !closedByUsRef.current &&
+          enabledRef.current &&
+          reconnectCountRef.current < reconnectAttempts
+        ) {
+          reconnectTimerRef.current = setTimeout(() => {
+            reconnectCountRef.current += 1;
+            connectRef.current();
+          }, reconnectInterval);
+        }
+      };
+
+      ws.onerror = () => {
+        ws.close();
+      };
+
+      wsRef.current = ws;
     };
 
-    ws.onmessage = (event) => {
-      try {
-        const message: WebSocketMessage = JSON.parse(event.data);
-        setLastMessage(message);
-        onMessage?.(message);
-      } catch {
-        console.error("Failed to parse WebSocket message");
-      }
-    };
-
-    ws.onclose = () => {
-      setIsConnected(false);
-      onDisconnect?.();
-
-      if (reconnectCountRef.current < reconnectAttempts) {
-        reconnectTimerRef.current = setTimeout(() => {
-          reconnectCountRef.current += 1;
-          connectRef.current();
-        }, reconnectInterval);
-      }
-    };
-
-    ws.onerror = () => {
-      ws.close();
-    };
-
-    wsRef.current = ws;
-  }, [url, token, onMessage, onConnect, onDisconnect, reconnectAttempts, reconnectInterval]);
+    if (getToken) {
+      Promise.resolve(getToken())
+        .then((fresh) => open(fresh))
+        .catch(() => open(null));
+    } else {
+      open(token);
+    }
+  }, [url, token, getToken, onMessage, onConnect, onDisconnect, reconnectAttempts, reconnectInterval]);
 
   useEffect(() => {
     connectRef.current = connect;
   }, [connect]);
 
   const disconnect = useCallback(() => {
+    closedByUsRef.current = true;
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
@@ -98,6 +139,14 @@ export function useWebSocket({
     setIsConnected(false);
   }, [reconnectAttempts]);
 
+  useEffect(() => {
+    disconnectRef.current = disconnect;
+  }, [disconnect]);
+
+  useEffect(() => {
+    enabledRef.current = enabled;
+  }, [enabled]);
+
   const sendMessage = useCallback(
     (type: string, payload: Record<string, unknown>) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -107,11 +156,17 @@ export function useWebSocket({
     []
   );
 
+  // Auto-connect for the lifetime of the hook while `enabled` is true. Keyed on
+  // only `enabled`/`url` so an unmemoized `getToken` does not cause churn.
   useEffect(() => {
+    disposedRef.current = false;
+    if (!enabled || !url) return;
+    connectRef.current();
     return () => {
-      disconnect();
+      disposedRef.current = true;
+      disconnectRef.current();
     };
-  }, [disconnect]);
+  }, [enabled, url]);
 
   return { isConnected, lastMessage, sendMessage, connect, disconnect };
 }

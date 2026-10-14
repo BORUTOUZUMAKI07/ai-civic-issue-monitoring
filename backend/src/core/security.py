@@ -103,6 +103,22 @@ def create_access_token(
     return str(jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM))
 
 
+def create_ws_ticket(user_id: int, *, ttl_seconds: int = 60) -> str:
+    """Mint a short-lived, single-purpose ticket for the WebSocket handshake.
+
+    WebSocket clients cannot attach the HttpOnly access cookie, so the browser
+    has to pass *some* credential in the query string, where it lands in browser
+    history and proxy logs. Handing over a full access token would expose an
+    API-wide bearer credential for its whole lifetime; this ticket instead lives
+    for ``ttl_seconds`` and carries ``type="ws"``, which the WebSocket route
+    accepts and every other route rejects.
+    """
+    to_encode: dict = {"sub": str(user_id)}
+    expire = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+    to_encode.update({"exp": expire, "type": "ws"})
+    return str(jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM))
+
+
 def create_refresh_token(
     data: dict,
     sid: Optional[str] = None,

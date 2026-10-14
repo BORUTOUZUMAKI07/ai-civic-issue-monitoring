@@ -12,5 +12,9 @@ class AgentState(TypedDict, total=False):
     severity: str
     priority: str
     action: str
+    # Opt-in enrichment flag. ``route_issue`` overwrites ``action`` with the
+    # department name, so a request for the analytics branch cannot be signalled
+    # through ``action``; this dedicated field survives routing.
+    run_analytics: bool
     result: dict[str, Any]
     errors: list[str]

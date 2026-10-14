@@ -8,10 +8,15 @@ from src.agents.state import AgentState
 logger = logging.getLogger(__name__)
 
 ESCALATION_MATRIX: dict[str, dict[str, Any]] = {
-    "road": {"contact": "Road & Transport Dept", "sla_hours": 4},
-    "sanitation": {"contact": "Sanitation Dept", "sla_hours": 6},
-    "infrastructure": {"contact": "Infrastructure Dept", "sla_hours": 8},
-    "general": {"contact": "Ward Office", "sla_hours": 24},
+    # Keyed by the department strings ``route_issue`` actually produces (see
+    # ``src.agents.routing.DEPARTMENT_MAP``) plus the ``"General"`` fallback.
+    # The matrix previously used short slugs ("road", "sanitation", ...) that
+    # never matched the department names, so every issue silently fell through
+    # to the generic Ward Office entry and the per-department SLA was inert.
+    "Roads & Infrastructure": {"contact": "Road & Transport Dept", "sla_hours": 4},
+    "Solid Waste Management": {"contact": "Sanitation Dept", "sla_hours": 6},
+    "Town Planning & Enforcement": {"contact": "Town Planning Dept", "sla_hours": 8},
+    "General": {"contact": "Ward Office", "sla_hours": 24},
 }
 
 
@@ -23,7 +28,7 @@ async def escalate_issue(state: AgentState) -> dict[str, Any]:
     from src.agents.routing import DEPARTMENT_MAP
 
     department = DEPARTMENT_MAP.get(category, "General")
-    escalation = ESCALATION_MATRIX.get(department, ESCALATION_MATRIX["general"])
+    escalation = ESCALATION_MATRIX.get(department, ESCALATION_MATRIX["General"])
 
     sla_hours = escalation["sla_hours"]
     if severity >= 5:

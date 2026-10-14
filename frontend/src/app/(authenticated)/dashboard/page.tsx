@@ -15,6 +15,7 @@ import { BentoCard } from "@/components/ui/bento-card"
 import { NumberTicker } from "@/components/ui/number-ticker"
 import { SpotlightCard } from "@/components/ui/spotlight-card"
 import { IssueTypeIcon } from "@/components/shared/issue-icon"
+import { QueryError } from "@/components/shared/query-error"
 import {
   AlertTriangle,
   ArrowRight,
@@ -120,7 +121,7 @@ function ChartTooltip({
 }
 
 export default function DashboardPage() {
-  const { data: stats, isLoading } = useDashboardStats()
+  const { data: stats, isLoading, isError, error, refetch } = useDashboardStats()
   const { data: issuesData } = useIssues({ limit: 6 })
   const { data: wards } = useWards()
   const { data: user } = useMe()
@@ -150,6 +151,10 @@ export default function DashboardPage() {
         </div>
       </div>
     )
+  }
+
+  if (isError) {
+    return <QueryError error={error} onRetry={() => refetch()} title="Could not load dashboard" />
   }
 
   const total = stats?.total_issues ?? 0

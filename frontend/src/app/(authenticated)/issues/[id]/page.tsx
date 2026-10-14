@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { IssueTypeIcon } from "@/components/shared/issue-icon";
+import { QueryError } from "@/components/shared/query-error";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -63,7 +64,7 @@ function DetailRow({ label, value, mono }: { label: string; value: string; mono?
 export default function IssueDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const issueId = parseInt(id, 10);
-  const { data: issue, isLoading } = useIssue(issueId);
+  const { data: issue, isLoading, isError, error, refetch } = useIssue(issueId);
   const { data: engineers } = useEngineers();
   const { data: currentUser } = useMe();
   const isAdmin =
@@ -100,6 +101,10 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
         </div>
       </div>
     );
+  }
+
+  if (isError) {
+    return <QueryError error={error} onRetry={() => refetch()} title="Could not load this issue" />;
   }
 
   if (!issue) {
@@ -365,13 +370,18 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
                   className="w-full gap-2"
                   onClick={async () => {
                     try {
-                      await apiFetch(`/issues/${issueId}/status`, {
-                        method: "PATCH",
-                        body: JSON.stringify({ status: nextAction.next }),
-                      });
-                      window.location.reload();
-                    } catch {
-                      /* status change failed */
+                      await issues.updateStatus(issueId, nextAction.next);
+                      toast.success(`Issue marked ${humanize(nextAction.next)}`);
+                      await Promise.all([
+                        queryClient.invalidateQueries({ queryKey: ["issue", issueId] }),
+                        queryClient.invalidateQueries({ queryKey: ["issues"] }),
+                        queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] }),
+                        queryClient.invalidateQueries({ queryKey: ["heatmap"] }),
+                      ]);
+                    } catch (err: unknown) {
+                      toast.error(
+                        err instanceof Error ? err.message : "Failed to update status"
+                      );
                     }
                   }}
                 >
@@ -399,7 +409,6 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
                           queryClient.invalidateQueries({ queryKey: ["review-queue"] }),
                           queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] }),
                           queryClient.invalidateQueries({ queryKey: ["heatmap"] }),
-                          queryClient.invalidateQueries({ queryKey: ["my-assignments"] }),
                         ]);
                         router.push("/issues");
                       } catch (err: unknown) {

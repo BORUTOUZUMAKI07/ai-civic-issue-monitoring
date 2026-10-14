@@ -85,7 +85,7 @@ class AnalyticsGraph:
 
         if severity >= 4 or priority == "urgent":
             return "escalate"
-        if state.get("action") == "analytics":
+        if state.get("run_analytics"):
             return "analytics"
         return "match"
 
@@ -100,6 +100,7 @@ class AnalyticsGraph:
             "severity": str(input_data.get("severity", "1")),
             "priority": "normal",
             "action": "",
+            "run_analytics": bool(input_data.get("run_analytics", False)),
             "result": {},
             "errors": [],
         }

@@ -15,7 +15,11 @@ async def websocket_issues(websocket: WebSocket, token: str = Query(...)):
 
     try:
         payload = decode_token(token)
-        if payload.get("type") != "access":
+        # ``access`` is accepted so an existing cookie/header token keeps
+        # working (tests, CLI); browsers use the short-lived ``ws`` ticket
+        # minted by ``GET /auth/ws-ticket`` because the HttpOnly access cookie
+        # is unreadable from JavaScript.
+        if payload.get("type") not in ("access", "ws"):
             await websocket.close(code=4001, reason="Invalid token type")
             return
     except Exception:
