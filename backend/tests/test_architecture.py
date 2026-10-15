@@ -75,3 +75,49 @@ def test_main_has_no_src_reexports():
     # Placeholder: main.py legitimately imports everything; kept explicit so
     # the intent is documented and future rules have a home.
     assert (SRC / "main.py").exists()
+
+
+# ── mapper-registration guard ────────────────────────────────────────────────
+#
+# Every ORM model lives in its own domain package and declares string-based
+# relationships (``relationship("Issue")``, ``relationship("Ward")``, …). Those
+# only resolve once *every* model module has been imported. ``src/models/`` is
+# the one module that pulls them all in, and importing any ``src.models.*``
+# submodule runs its ``__init__`` too.
+#
+# Standalone entrypoints (the app factory, the seed scripts, Alembic) are the
+# one place no router import chain guarantees this. A regression here is both
+# invisible to the unit suite (conftest already registers the mappers) and fatal
+# only at runtime — the 2026-10 load-test seed caught exactly that:
+# ``InvalidRequestError: expression 'Issue' failed to locate a name``.
+
+# `scripts/evaluate_ml.py` imports the registry at module top; the two seed
+# scripts import it inside the function that does the ORM work, so the walk is
+# over the whole file rather than just the top level.
+_ENTRYPOINTS = (
+    SRC / "main.py",
+    SRC.parent / "alembic" / "env.py",
+    SRC.parent / "scripts" / "seed_wards.py",
+    SRC.parent / "scripts" / "evaluate_ml.py",
+    SRC.parent / "scripts" / "loadtest" / "seed_user.py",
+)
+
+
+def _imports_registry(path: Path) -> bool:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(a.name == "src.models" or a.name.startswith("src.models.") for a in node.names):
+                return True
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and (node.module == "src.models" or node.module.startswith("src.models.")):
+                return True
+    return False
+
+
+def test_standalone_entrypoints_register_all_models():
+    missing = [str(p.relative_to(SRC.parent)) for p in _ENTRYPOINTS if not _imports_registry(p)]
+    assert missing == [], (
+        "these entrypoints touch the ORM without importing src.models, so string "
+        "relationships will fail to resolve at runtime:\n" + "\n".join(missing)
+    )

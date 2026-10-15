@@ -331,6 +331,7 @@ async def seed_wards() -> None:
         from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
         from sqlalchemy.orm import sessionmaker
 
+        import src.models  # noqa: F401 — register every ORM model on Base.metadata
         from src.domains.wards.models.ward import Ward
         from src.core.config import settings
 
