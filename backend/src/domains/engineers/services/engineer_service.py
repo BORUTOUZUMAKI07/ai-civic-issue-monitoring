@@ -3,19 +3,29 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domains.assignments.repositories.assignment_repository import AssignmentRepository
+from src.domains.assignments.repositories.ports import AssignmentRepositoryPort
 from src.domains.engineers.models.engineer import Engineer
 from src.domains.engineers.repositories.engineer_repository import EngineerRepository
+from src.domains.engineers.repositories.ports import EngineerRepositoryPort
 from src.domains.users.models.user import UserRole
+from src.domains.users.repositories.ports import UserRepositoryPort
 from src.domains.users.repositories.user_repository import UserRepository
 from src.shared.errors import BadRequestError, NotFoundError
 
 
 class EngineerService:
-    def __init__(self, db: AsyncSession):
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        engineer_repo: EngineerRepositoryPort | None = None,
+        user_repo: UserRepositoryPort | None = None,
+        assignment_repo: AssignmentRepositoryPort | None = None,
+    ):
         self.db = db
-        self.engineer_repo = EngineerRepository(db)
-        self.user_repo = UserRepository(db)
-        self.assignment_repo = AssignmentRepository(db)
+        self.engineer_repo: EngineerRepositoryPort = engineer_repo or EngineerRepository(db)
+        self.user_repo: UserRepositoryPort = user_repo or UserRepository(db)
+        self.assignment_repo: AssignmentRepositoryPort = assignment_repo or AssignmentRepository(db)
 
     async def list_engineers(self):
         return await self.engineer_repo.list_all()

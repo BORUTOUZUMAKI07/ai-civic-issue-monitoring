@@ -8,14 +8,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domains.assignments.models.assignment import Assignment, AssignmentStatus
 from src.domains.assignments.repositories.assignment_repository import AssignmentRepository
+from src.domains.assignments.repositories.ports import AssignmentRepositoryPort
 from src.domains.engineers.models.engineer import Engineer
 from src.domains.engineers.repositories.engineer_repository import EngineerRepository
+from src.domains.engineers.repositories.ports import EngineerRepositoryPort
 from src.domains.issues.models.issue import ISSUE_TYPE_MAP, Issue, IssueStatus, IssueType
 from src.domains.issues.repositories.issue_repository import IssueRepository
+from src.domains.issues.repositories.ports import IssueRepositoryPort
 from src.domains.resolution.models.resolution import Resolution
+from src.domains.resolution.repositories.ports import ResolutionRepositoryPort
 from src.domains.resolution.repositories.resolution_repository import ResolutionRepository
+from src.domains.users.repositories.ports import UserRepositoryPort
 from src.domains.users.repositories.user_repository import UserRepository
 from src.domains.wards.geofencing import get_ward_from_coords
+from src.domains.wards.repositories.ports import WardRepositoryPort
 from src.domains.wards.repositories.ward_repository import WardRepository
 from src.shared.errors import (
     CorruptedImageError,
@@ -32,14 +38,24 @@ MAX_FILE_SIZE_MB = 5
 
 
 class IssueService:
-    def __init__(self, db: AsyncSession):
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        issue_repo: IssueRepositoryPort | None = None,
+        ward_repo: WardRepositoryPort | None = None,
+        engineer_repo: EngineerRepositoryPort | None = None,
+        resolution_repo: ResolutionRepositoryPort | None = None,
+        assignment_repo: AssignmentRepositoryPort | None = None,
+        user_repo: UserRepositoryPort | None = None,
+    ):
         self.db = db
-        self.issue_repo = IssueRepository(db)
-        self.ward_repo = WardRepository(db)
-        self.engineer_repo = EngineerRepository(db)
-        self.resolution_repo = ResolutionRepository(db)
-        self.assignment_repo = AssignmentRepository(db)
-        self.user_repo = UserRepository(db)
+        self.issue_repo: IssueRepositoryPort = issue_repo or IssueRepository(db)
+        self.ward_repo: WardRepositoryPort = ward_repo or WardRepository(db)
+        self.engineer_repo: EngineerRepositoryPort = engineer_repo or EngineerRepository(db)
+        self.resolution_repo: ResolutionRepositoryPort = resolution_repo or ResolutionRepository(db)
+        self.assignment_repo: AssignmentRepositoryPort = assignment_repo or AssignmentRepository(db)
+        self.user_repo: UserRepositoryPort = user_repo or UserRepository(db)
 
     def validate_image(self, filename: str, content: bytes) -> None:
         ext = filename.split(".")[-1].lower()

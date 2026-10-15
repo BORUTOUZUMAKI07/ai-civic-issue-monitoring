@@ -269,8 +269,8 @@ app never had a broken intermediate state.
    `admin`, `issues`, `dashboard`, `notifications`, `ml` into services.
 4. **Sequencing note:** Phase 4 was executed *after* Phase 5. Introducing repository
    ports before the repository move would have meant moving them twice, so the
-   structural moves (repos → models → api/services) came first. Ports + DI remain a
-   future refinement.
+   structural moves (repos → models → api/services) came first, followed by the
+   ports + constructor injection refinement.
 
 ---
 
@@ -305,9 +305,18 @@ HTTP shells; the logic lives in services/repositories/schemas:
 - one shared `users.rbac.require_admin` replaces the `_require_admin` copy in three routers
 
 `dashboard`, `notifications` and `ml` routers were already thin pass-throughs, so no change.
-The repository `ports.py` Protocols + constructor-injected services remain a possible
-future refinement; services still construct their repositories from the session.
+
+**Ports + dependency inversion (done):** every domain that owns a repository now exposes
+a `repositories/ports.py` `Protocol` (`IssueRepositoryPort`, `AssignmentRepositoryPort`,
+`EngineerRepositoryPort`, `UserRepositoryPort`, `WardRepositoryPort`,
+`ResolutionRepositoryPort`). The services depend on the Protocol — `IssueService`,
+`UserService`, `EngineerService`, `WardService` accept optional `*_repo=` keyword
+arguments typed with the port and fall back to the concrete repository when omitted, so
+production wiring is unchanged while tests can inject in-memory fakes. New
+`tests/test_domain_services_unit.py` exercises the pure service methods, the response
+mappers and `require_admin` with fakes and no database.
 
 **Verification:** `pixi run lint`, `pixi run typecheck`, and the full pytest suite
-(193 passed / 1 skipped) are green. `pixi.lock` was intentionally excluded from all commits
-(it auto-refreshes when tasks run and is unrelated to this refactor).
+(206 passed / 1 skipped) are green; `security` reports 0 issues and `security-audit`
+exits 0. `pixi.lock` was intentionally excluded from all commits (it auto-refreshes when
+tasks run and is unrelated to this refactor).
