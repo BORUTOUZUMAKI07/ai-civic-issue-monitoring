@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.database import get_db
 from src.core.gate import gate_decision
 from src.domains.issues.schemas import IssueListResponse, IssueResponse, IssueStatusUpdate
-from src.domains.issues.service import IssueService
+from src.domains.issues.services.issue_service import IssueService
 from src.domains.users.deps import get_current_active_user
 from src.domains.users.models.user import User, UserRole
 from src.domains.users.rbac import role_at_least
@@ -397,7 +397,7 @@ async def _execute_upload(
         engineer_name = await svc.get_engineer_name(assigned_to)
 
     try:
-        from src.domains.notifications.routes import broadcast_issue_update
+        from src.domains.notifications.api.routes import broadcast_issue_update
 
         await broadcast_issue_update(
             {
@@ -417,7 +417,7 @@ async def _execute_upload(
     except Exception:  # best-effort agent event, non-fatal  # nosec B110
         pass
 
-    from src.domains.dashboard.routes import invalidate_dashboard_cache
+    from src.domains.dashboard.api.routes import invalidate_dashboard_cache
 
     await invalidate_dashboard_cache()
 
@@ -578,7 +578,7 @@ async def update_issue_status(
 ):
     svc = IssueService(db)
     issue = await svc.update_status(issue_id, body.status)
-    from src.domains.dashboard.routes import invalidate_dashboard_cache
+    from src.domains.dashboard.api.routes import invalidate_dashboard_cache
 
     await invalidate_dashboard_cache()
     a_map = await _load_assignment_map(db, [issue.id])
@@ -596,11 +596,11 @@ async def delete_issue(
     issue = await svc.get_issue(issue_id)
 
     await svc.delete_issue(issue)
-    from src.domains.dashboard.routes import invalidate_dashboard_cache
+    from src.domains.dashboard.api.routes import invalidate_dashboard_cache
 
     await invalidate_dashboard_cache()
     try:
-        from src.domains.notifications.routes import broadcast_issue_update
+        from src.domains.notifications.api.routes import broadcast_issue_update
 
         await broadcast_issue_update(
             {

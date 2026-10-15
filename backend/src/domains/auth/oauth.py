@@ -402,7 +402,7 @@ async def login_with_provider(db, provider: OAuthProvider, profile: dict) -> tup
     access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
     refresh_token = create_refresh_token({"sub": str(user.id)})
 
-    from src.domains.auth.service import clear_refresh_family_revocation, store_refresh_session
+    from src.domains.auth.services.auth_service import clear_refresh_family_revocation, store_refresh_session
 
     # Record the refresh session so rotation + reuse detection apply to OAuth
     # sign-ins as well as password logins. A completed OAuth sign-in is a fresh

@@ -207,8 +207,8 @@ async def review_issue(
         # reported and usually already assigned — and the bare delete hit the
         # `assignments`/`resolutions` foreign keys and returned a 500 instead
         # of deleting anything.
-        from src.domains.dashboard.routes import invalidate_dashboard_cache
-        from src.domains.issues.service import IssueService
+        from src.domains.dashboard.api.routes import invalidate_dashboard_cache
+        from src.domains.issues.services.issue_service import IssueService
 
         await IssueService(db).delete_issue(issue)
         await invalidate_dashboard_cache()
@@ -224,7 +224,7 @@ async def review_issue(
     await db.refresh(issue)
 
     try:
-        from src.domains.notifications.routes import broadcast_issue_update
+        from src.domains.notifications.api.routes import broadcast_issue_update
 
         await broadcast_issue_update(
             {

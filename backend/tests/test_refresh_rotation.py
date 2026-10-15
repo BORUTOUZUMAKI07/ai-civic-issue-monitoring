@@ -7,7 +7,7 @@ import pytest_asyncio
 
 from src.core.database import AsyncSessionLocal
 from src.core.security import create_refresh_token, hash_password
-from src.domains.auth.service import AuthService
+from src.domains.auth.services.auth_service import AuthService
 from src.domains.users.models.user import User, UserRole
 from src.shared.errors import UserNotFound
 
@@ -71,7 +71,7 @@ async def _create_tables():
 @pytest.fixture
 def fake_store(monkeypatch):
     import src.core.redis as redis_mod
-    import src.domains.auth.service as service_mod
+    import src.domains.auth.services.auth_service as service_mod
 
     store = _FakeSessionStore()
     monkeypatch.setattr(redis_mod, "redis_client", store)

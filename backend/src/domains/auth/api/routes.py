@@ -27,7 +27,7 @@ from src.domains.auth.schemas import (
     UserResponse,
     WsTicketResponse,
 )
-from src.domains.auth.service import AuthService
+from src.domains.auth.services.auth_service import AuthService
 from src.domains.auth.twofa import TwoFactorService
 from src.domains.users.deps import get_current_active_user, get_current_user
 from src.shared.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid

@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.database import get_db
 from src.core.redis import delete_cached, get_cached_or_compute
 from src.domains.dashboard.schemas import HeatmapPoint, StatsResponse
-from src.domains.issues.service import IssueService
+from src.domains.issues.services.issue_service import IssueService
 from src.domains.users.deps import get_current_active_user
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])

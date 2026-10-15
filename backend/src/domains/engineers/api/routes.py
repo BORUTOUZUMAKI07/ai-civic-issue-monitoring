@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.database import get_db
 from src.domains.engineers.models.engineer import Engineer
 from src.domains.engineers.schemas import EngineerResponse
-from src.domains.engineers.service import EngineerService
+from src.domains.engineers.services.engineer_service import EngineerService
 from src.domains.users.deps import get_current_active_user
 from src.domains.users.models.user import User, UserRole
 from src.domains.users.rbac import role_at_least

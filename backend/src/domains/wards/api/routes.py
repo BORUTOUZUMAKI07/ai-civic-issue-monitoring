@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.domains.wards.schemas import WardResponse
-from src.domains.wards.service import WardService
+from src.domains.wards.services.ward_service import WardService
 
 router = APIRouter(prefix="/wards", tags=["Wards"])
 

@@ -203,7 +203,7 @@ class TwoFactorService:
             return create_2fa_challenge_token(user.id)
 
         from src.core.security import create_access_token, create_refresh_token
-        from src.domains.auth.service import clear_refresh_family_revocation, store_refresh_session
+        from src.domains.auth.services.auth_service import clear_refresh_family_revocation, store_refresh_session
 
         access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
         refresh_token = create_refresh_token({"sub": str(user.id)})
@@ -263,7 +263,7 @@ class TwoFactorService:
             await self.db.commit()
 
         from src.core.security import create_access_token, create_refresh_token
-        from src.domains.auth.service import clear_refresh_family_revocation, store_refresh_session
+        from src.domains.auth.services.auth_service import clear_refresh_family_revocation, store_refresh_session
 
         access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
         refresh_token = create_refresh_token({"sub": str(user.id)})
