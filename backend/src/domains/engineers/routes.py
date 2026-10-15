@@ -3,10 +3,10 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
-from src.core.deps import get_current_active_user
 from src.core.rbac import role_at_least
 from src.domains.engineers.schemas import EngineerResponse
 from src.domains.engineers.service import EngineerService
+from src.domains.users.deps import get_current_active_user
 from src.models.engineer import Engineer
 from src.models.user import User, UserRole
 from src.shared.errors import BadRequestError, ForbiddenError, NotFoundError
@@ -61,7 +61,7 @@ async def create_engineer(
     if existing:
         raise BadRequestError("This user already has an engineer profile.")
 
-    from src.repositories.user_repository import UserRepository
+    from src.domains.users.repositories.user_repository import UserRepository
 
     user_repo = UserRepository(db)
     target_user = await user_repo.get(body.user_id)

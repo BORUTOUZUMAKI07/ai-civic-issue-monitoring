@@ -10,11 +10,11 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
-from src.core.deps import get_current_active_user
 from src.core.gate import gate_decision
 from src.core.rbac import role_at_least
 from src.domains.issues.schemas import IssueListResponse, IssueResponse, IssueStatusUpdate
 from src.domains.issues.service import IssueService
+from src.domains.users.deps import get_current_active_user
 from src.models.user import User, UserRole
 from src.shared.errors import BadRequestError, ForbiddenError
 

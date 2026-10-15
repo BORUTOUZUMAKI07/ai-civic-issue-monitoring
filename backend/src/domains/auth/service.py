@@ -19,8 +19,8 @@ from src.core.security import (
     verify_password_for_login_async,
 )
 from src.domains.auth.password_reset import revoke_all_refresh_sessions
+from src.domains.users.repositories.user_repository import UserRepository
 from src.models.user import User, UserRole
-from src.repositories.user_repository import UserRepository
 from src.shared.errors import (
     EmailAlreadyExists,
     InvalidCredentials,

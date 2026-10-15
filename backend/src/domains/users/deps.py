@@ -1,3 +1,11 @@
+"""Authentication dependencies — resolve the caller's ``User``.
+
+These live in the ``users`` domain because they load a ``User`` through the
+user repository (a users-domain concern). Other domains depend on this module
+for ``get_current_active_user``; the direction is inner -> outer (domains may
+use ``core``), never ``core`` -> domains.
+"""
+
 from __future__ import annotations
 
 from fastapi import Depends, Request
@@ -5,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.core.security import decode_token, is_token_blacklisted
-from src.repositories.user_repository import UserRepository
+from src.domains.users.repositories.user_repository import UserRepository
 from src.shared.errors import InvalidToken, TokenRevoked, UnauthorizedError, UserNotFound
 
 

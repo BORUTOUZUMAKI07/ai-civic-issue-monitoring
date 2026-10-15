@@ -13,7 +13,7 @@ from src.core.security import (
     create_2fa_challenge_token,
     verify_password_for_login_async,
 )
-from src.repositories.user_repository import UserRepository
+from src.domains.users.repositories.user_repository import UserRepository
 from src.shared.errors import (
     InvalidCredentials,
     InvalidTwoFactorCode,

@@ -5,7 +5,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.database import get_db
-from src.core.deps import get_current_active_user, get_current_user
 from src.core.security import create_ws_ticket
 from src.domains.auth.oauth import (
     code_challenge,
@@ -30,6 +29,7 @@ from src.domains.auth.schemas import (
 )
 from src.domains.auth.service import AuthService
 from src.domains.auth.twofa import TwoFactorService
+from src.domains.users.deps import get_current_active_user, get_current_user
 from src.shared.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid
 from src.shared.errors.base import AppError
 

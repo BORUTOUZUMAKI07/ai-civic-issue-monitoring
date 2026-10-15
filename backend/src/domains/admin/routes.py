@@ -6,8 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
-from src.core.deps import get_current_active_user
 from src.core.rbac import role_at_least
+from src.domains.users.deps import get_current_active_user
 from src.models.issue import ISSUE_TYPE_MAP, Issue
 from src.models.user import User, UserRole
 from src.shared.errors import ForbiddenError, NotFoundError
@@ -145,9 +145,9 @@ async def update_user_role(
     if body.new_type == "admin" and user.role != UserRole.super_admin:
         raise ForbiddenError("Only the super admin can promote to admin.")
 
+    from src.domains.assignments.repositories.assignment_repository import AssignmentRepository
+    from src.domains.engineers.repositories.engineer_repository import EngineerRepository
     from src.models.engineer import Engineer
-    from src.repositories.assignment_repository import AssignmentRepository
-    from src.repositories.engineer_repository import EngineerRepository
 
     engineer_repo = EngineerRepository(db)
     new_role = UserRole(body.new_type)

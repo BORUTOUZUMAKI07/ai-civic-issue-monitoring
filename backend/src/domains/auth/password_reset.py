@@ -17,7 +17,7 @@ from src.core.config import settings
 from src.core.email import send_email
 from src.core.redis import redis_client
 from src.core.security import hash_password_async
-from src.repositories.user_repository import UserRepository
+from src.domains.users.repositories.user_repository import UserRepository
 from src.shared.errors import PasswordResetTokenInvalid
 
 logger = logging.getLogger("civicpulse")

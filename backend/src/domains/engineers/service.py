@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.repositories.engineer_repository import EngineerRepository
+from src.domains.engineers.repositories.engineer_repository import EngineerRepository
 
 
 class EngineerService:

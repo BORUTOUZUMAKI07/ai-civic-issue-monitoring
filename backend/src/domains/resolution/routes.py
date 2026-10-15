@@ -6,10 +6,10 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
-from src.core.deps import get_current_active_user
+from src.domains.engineers.repositories.engineer_repository import EngineerRepository
 from src.domains.issues.service import ALLOWED_EXTENSIONS, IssueService
+from src.domains.users.deps import get_current_active_user
 from src.models.user import User
-from src.repositories.engineer_repository import EngineerRepository
 from src.shared.errors import BadRequestError, InvalidImageError, NotFoundError
 
 router = APIRouter(prefix="/resolution", tags=["Resolution"])

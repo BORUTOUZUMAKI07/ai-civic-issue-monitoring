@@ -202,7 +202,7 @@ module = [
 "src.agents.graph",
     "src.core.config",
     "src.core.database",
-    "src.core.deps",
+    "src.domains.users.deps",
     "src.core.gate",
     "src.core.mongodb",
     "src.core.observability",
@@ -245,7 +245,7 @@ module = [
     "src.models.issue",
     "src.models.ward",
     "src.rag.retrieval",
-    "src.repositories.issue_repository",
+    "src.domains.issues.repositories.issue_repository",
 ]
 disallow_untyped_defs = false
 disallow_incomplete_defs = false

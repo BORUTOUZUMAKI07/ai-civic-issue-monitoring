@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.repositories.ward_repository import WardRepository
+from src.domains.wards.repositories.ward_repository import WardRepository
 
 
 class WardService:
