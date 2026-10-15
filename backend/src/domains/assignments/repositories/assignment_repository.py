@@ -3,7 +3,7 @@ from typing import Any, cast
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.assignment import Assignment, AssignmentStatus
+from src.domains.assignments.models.assignment import Assignment, AssignmentStatus
 
 
 class AssignmentRepository:

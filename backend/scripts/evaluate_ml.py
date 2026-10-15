@@ -151,7 +151,7 @@ async def _retrieval_available() -> tuple[bool, str]:
 
     from src.core.database import AsyncSessionLocal
     from src.core.embeddings import generate_embedding
-    from src.models.issue import Issue
+    from src.domains.issues.models.issue import Issue
 
     try:
         async with AsyncSessionLocal() as db:

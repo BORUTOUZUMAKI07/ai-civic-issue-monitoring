@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.engineer import Engineer
+from src.domains.engineers.models.engineer import Engineer
 
 
 class EngineerRepository:

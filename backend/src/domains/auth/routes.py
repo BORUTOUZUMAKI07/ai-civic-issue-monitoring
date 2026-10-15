@@ -85,7 +85,7 @@ def _clear_auth_cookies(response: Response) -> None:
 
 @router.post("/register", response_model=UserResponse)
 async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    from src.models.user import UserRole as _UserRole
+    from src.domains.users.models.user import UserRole as _UserRole
     from src.shared.errors import ForbiddenError
 
     allowed_roles = {_UserRole.field_worker, _UserRole.viewer}

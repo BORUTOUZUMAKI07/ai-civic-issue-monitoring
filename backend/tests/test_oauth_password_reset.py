@@ -201,7 +201,7 @@ async def test_fetch_user_google_unverified_claim_is_false() -> None:
 async def test_oauth_unverified_email_not_linked_into_password_account(db_engine) -> None:
     from src.core.database import AsyncSessionLocal
     from src.domains.auth.oauth import login_with_provider
-    from src.models.user import User, UserRole
+    from src.domains.users.models.user import User, UserRole
 
     async with AsyncSessionLocal() as session:
         session.add(
@@ -241,7 +241,7 @@ async def test_oauth_unverified_email_not_linked_into_password_account(db_engine
 async def test_oauth_verified_email_linked_into_password_account(db_engine) -> None:
     from src.core.database import AsyncSessionLocal
     from src.domains.auth.oauth import login_with_provider
-    from src.models.user import User, UserRole
+    from src.domains.users.models.user import User, UserRole
 
     async with AsyncSessionLocal() as session:
         session.add(
@@ -280,7 +280,7 @@ async def test_oauth_same_provider_reauth_not_blocked(db_engine) -> None:
     re-authenticating must NOT trip rule 4 — that is re-auth, not takeover."""
     from src.core.database import AsyncSessionLocal
     from src.domains.auth.oauth import login_with_provider
-    from src.models.user import User, UserRole
+    from src.domains.users.models.user import User, UserRole
 
     async with AsyncSessionLocal() as session:
         session.add(
@@ -316,7 +316,7 @@ async def test_oauth_same_provider_reauth_not_blocked(db_engine) -> None:
 async def test_oauth_new_account_created_without_existing_candidate(db_engine) -> None:
     from src.core.database import AsyncSessionLocal
     from src.domains.auth.oauth import login_with_provider
-    from src.models.user import User
+    from src.domains.users.models.user import User
 
     async with AsyncSessionLocal() as session:
         user, _, _ = await login_with_provider(
@@ -399,7 +399,7 @@ async def test_forgot_password_existing_user_smtp_failure(client: AsyncClient) -
 
     from src.core.database import AsyncSessionLocal, engine
     from src.models.base import Base
-    from src.models.user import User, UserRole
+    from src.domains.users.models.user import User, UserRole
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

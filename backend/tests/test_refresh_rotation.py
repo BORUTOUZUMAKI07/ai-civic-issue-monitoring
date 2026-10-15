@@ -8,7 +8,7 @@ import pytest_asyncio
 from src.core.database import AsyncSessionLocal
 from src.core.security import create_refresh_token, hash_password
 from src.domains.auth.service import AuthService
-from src.models.user import User, UserRole
+from src.domains.users.models.user import User, UserRole
 from src.shared.errors import UserNotFound
 
 

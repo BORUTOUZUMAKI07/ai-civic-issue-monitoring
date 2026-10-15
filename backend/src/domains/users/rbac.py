@@ -9,7 +9,7 @@ outranks ``field_worker``, which outranks the read-only ``viewer``.
 
 from __future__ import annotations
 
-from src.models.user import UserRole
+from src.domains.users.models.user import UserRole
 
 ROLE_HIERARCHY: dict[UserRole, int] = {
     UserRole.super_admin: 5,

@@ -1,6 +1,6 @@
 from pydantic import BaseModel, field_validator
 
-from src.models.issue import IssueStatus
+from src.domains.issues.models.issue import IssueStatus
 
 
 class IssueCreate(BaseModel):

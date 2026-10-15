@@ -11,11 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.core.gate import gate_decision
-from src.core.rbac import role_at_least
 from src.domains.issues.schemas import IssueListResponse, IssueResponse, IssueStatusUpdate
 from src.domains.issues.service import IssueService
 from src.domains.users.deps import get_current_active_user
-from src.models.user import User, UserRole
+from src.domains.users.models.user import User, UserRole
+from src.domains.users.rbac import role_at_least
 from src.shared.errors import BadRequestError, ForbiddenError
 
 logger = logging.getLogger(__name__)
@@ -67,9 +67,9 @@ async def _load_assignment_map(db, issue_ids: list[int]) -> dict:
     from sqlalchemy import func
     from sqlalchemy import select as sa_select
 
-    from src.models.assignment import Assignment
-    from src.models.engineer import Engineer
-    from src.models.user import User
+    from src.domains.assignments.models.assignment import Assignment
+    from src.domains.engineers.models.engineer import Engineer
+    from src.domains.users.models.user import User
 
     subq = (
         sa_select(
@@ -268,7 +268,7 @@ async def _idempotent_upload(
         reclaim_failed,
         start_in_progress,
     )
-    from src.models.idempotency import IdempotencyStatus
+    from src.domains.issues.models.idempotency import IdempotencyStatus
 
     key = key.strip()
     if not key or len(key) > MAX_KEY_LENGTH:

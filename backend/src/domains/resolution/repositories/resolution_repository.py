@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.resolution import Resolution
+from src.domains.resolution.models.resolution import Resolution
 
 
 class ResolutionRepository:

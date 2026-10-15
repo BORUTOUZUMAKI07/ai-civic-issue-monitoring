@@ -15,7 +15,7 @@ import pytest
 
 from src.core.database import AsyncSessionLocal
 from src.domains.issues.idempotency import hash_request
-from src.models.idempotency import IdempotencyKey, IdempotencyStatus
+from src.domains.issues.models.idempotency import IdempotencyKey, IdempotencyStatus
 
 UPLOAD_URL = "/api/v1/issues/upload"
 

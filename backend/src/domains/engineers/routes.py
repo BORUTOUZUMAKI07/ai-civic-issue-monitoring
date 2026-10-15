@@ -3,12 +3,12 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
-from src.core.rbac import role_at_least
+from src.domains.engineers.models.engineer import Engineer
 from src.domains.engineers.schemas import EngineerResponse
 from src.domains.engineers.service import EngineerService
 from src.domains.users.deps import get_current_active_user
-from src.models.engineer import Engineer
-from src.models.user import User, UserRole
+from src.domains.users.models.user import User, UserRole
+from src.domains.users.rbac import role_at_least
 from src.shared.errors import BadRequestError, ForbiddenError, NotFoundError
 
 router = APIRouter(prefix="/engineers", tags=["Engineers"])
@@ -134,8 +134,8 @@ async def my_assignments(
 
     from sqlalchemy import select as sa_select
 
-    from src.models.assignment import Assignment
-    from src.models.issue import Issue
+    from src.domains.assignments.models.assignment import Assignment
+    from src.domains.issues.models.issue import Issue
 
     stmt = (
         sa_select(Assignment, Issue)

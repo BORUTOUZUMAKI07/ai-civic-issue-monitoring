@@ -3,8 +3,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.issue import Issue, IssueStatus
-from src.models.ward import Ward
+from src.domains.issues.models.issue import Issue, IssueStatus
+from src.domains.wards.models.ward import Ward
 
 
 class IssueRepository:

@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.ward import Ward
+from src.domains.wards.models.ward import Ward
 
 
 class WardRepository:

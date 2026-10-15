@@ -33,7 +33,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.idempotency import IdempotencyKey, IdempotencyStatus
+from src.domains.issues.models.idempotency import IdempotencyKey, IdempotencyStatus
 
 MAX_KEY_LENGTH = 128
 

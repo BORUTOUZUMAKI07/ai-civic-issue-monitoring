@@ -5,17 +5,17 @@ import pillow_heif
 from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.domains.assignments.models.assignment import Assignment, AssignmentStatus
 from src.domains.assignments.repositories.assignment_repository import AssignmentRepository
+from src.domains.engineers.models.engineer import Engineer
 from src.domains.engineers.repositories.engineer_repository import EngineerRepository
+from src.domains.issues.models.issue import ISSUE_TYPE_MAP, Issue, IssueStatus, IssueType
 from src.domains.issues.repositories.issue_repository import IssueRepository
+from src.domains.resolution.models.resolution import Resolution
 from src.domains.resolution.repositories.resolution_repository import ResolutionRepository
 from src.domains.users.repositories.user_repository import UserRepository
 from src.domains.wards.geofencing import get_ward_from_coords
 from src.domains.wards.repositories.ward_repository import WardRepository
-from src.models.assignment import Assignment, AssignmentStatus
-from src.models.engineer import Engineer
-from src.models.issue import ISSUE_TYPE_MAP, Issue, IssueStatus, IssueType
-from src.models.resolution import Resolution
 from src.shared.errors import CorruptedImageError, ImageTooLargeError, InvalidImageError, IssueNotFound
 
 pillow_heif.register_heif_opener()
@@ -204,7 +204,7 @@ class IssueService:
         """
         from sqlalchemy import delete as sa_delete
 
-        from src.models.resolution import Resolution
+        from src.domains.resolution.models.resolution import Resolution
 
         issue_id = issue.id
         await self.assignment_repo.delete_by_issue(issue_id)

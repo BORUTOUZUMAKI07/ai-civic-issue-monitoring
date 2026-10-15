@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from src.agents.state import AgentState
 from src.core.database import AsyncSessionLocal
-from src.models.issue import Issue, IssueStatus, IssueType
+from src.domains.issues.models.issue import Issue, IssueStatus, IssueType
 
 logger = logging.getLogger(__name__)
 

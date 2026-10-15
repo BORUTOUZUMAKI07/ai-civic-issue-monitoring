@@ -9,7 +9,7 @@ from src.core.database import get_db
 from src.domains.engineers.repositories.engineer_repository import EngineerRepository
 from src.domains.issues.service import ALLOWED_EXTENSIONS, IssueService
 from src.domains.users.deps import get_current_active_user
-from src.models.user import User
+from src.domains.users.models.user import User
 from src.shared.errors import BadRequestError, InvalidImageError, NotFoundError
 
 router = APIRouter(prefix="/resolution", tags=["Resolution"])

@@ -242,8 +242,8 @@ module = [
     "src.ml.registry.model_registry",
     "src.ml.training.clean_data",
     "src.ml.training.train",
-    "src.models.issue",
-    "src.models.ward",
+    "src.domains.issues.models.issue",
+    "src.domains.wards.models.ward",
     "src.rag.retrieval",
     "src.domains.issues.repositories.issue_repository",
 ]
