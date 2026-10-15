@@ -1,7 +1,7 @@
 import math
 from typing import Optional
 
-from src.models.ward import Ward
+from src.domains.wards.models.ward import Ward
 
 
 def _extract_coords(polygon: dict | list) -> list[tuple[float, float]]:

@@ -27,7 +27,7 @@ from src.core.gate import (
     classify_description,
     gate_decision,
 )
-from src.models.issue import ISSUE_TYPE_MAP, IssueType
+from src.domains.issues.models.issue import ISSUE_TYPE_MAP, IssueType
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 CANONICAL = {"pothole", "garbage", "debris"}

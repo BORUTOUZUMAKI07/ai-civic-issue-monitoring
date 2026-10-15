@@ -13,14 +13,14 @@ from src.core.security import (
     create_2fa_challenge_token,
     verify_password_for_login_async,
 )
-from src.errors import (
+from src.domains.users.repositories.user_repository import UserRepository
+from src.shared.errors import (
     InvalidCredentials,
     InvalidTwoFactorCode,
     TwoFactorAlreadyEnabled,
     TwoFactorNotEnabled,
     UserNotFound,
 )
-from src.repositories.user_repository import UserRepository
 
 logger = logging.getLogger("civicpulse")
 
@@ -195,7 +195,7 @@ class TwoFactorService:
         if not await verify_password_for_login_async(password, user.password_hash, oauth_provider=user.oauth_provider):
             raise InvalidCredentials()
         if not user.is_active:
-            from src.errors import UnauthorizedError
+            from src.shared.errors import UnauthorizedError
 
             raise UnauthorizedError(detail="Account is deactivated.")
 
@@ -203,7 +203,7 @@ class TwoFactorService:
             return create_2fa_challenge_token(user.id)
 
         from src.core.security import create_access_token, create_refresh_token
-        from src.domains.auth.service import clear_refresh_family_revocation, store_refresh_session
+        from src.domains.auth.services.auth_service import clear_refresh_family_revocation, store_refresh_session
 
         access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
         refresh_token = create_refresh_token({"sub": str(user.id)})
@@ -263,7 +263,7 @@ class TwoFactorService:
             await self.db.commit()
 
         from src.core.security import create_access_token, create_refresh_token
-        from src.domains.auth.service import clear_refresh_family_revocation, store_refresh_session
+        from src.domains.auth.services.auth_service import clear_refresh_family_revocation, store_refresh_session
 
         access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
         refresh_token = create_refresh_token({"sub": str(user.id)})

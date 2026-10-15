@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.embeddings import generate_embedding
-from src.models.issue import Issue
+from src.domains.issues.models.issue import Issue
 
 logger = logging.getLogger(__name__)
 

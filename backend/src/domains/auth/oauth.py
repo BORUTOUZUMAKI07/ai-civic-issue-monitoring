@@ -35,9 +35,9 @@ from src.core.security import (
     create_refresh_token,
     hash_password_async,
 )
-from src.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid
-from src.models.user import User, UserRole
-from src.repositories.user_repository import UserRepository
+from src.domains.users.models.user import User, UserRole
+from src.domains.users.repositories.user_repository import UserRepository
+from src.shared.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid
 
 logger = logging.getLogger("civicpulse")
 
@@ -395,14 +395,14 @@ async def login_with_provider(db, provider: OAuthProvider, profile: dict) -> tup
             await db.refresh(user)
 
     if not user.is_active:
-        from src.errors import UnauthorizedError
+        from src.shared.errors import UnauthorizedError
 
         raise UnauthorizedError(detail="Account is deactivated.")
 
     access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
     refresh_token = create_refresh_token({"sub": str(user.id)})
 
-    from src.domains.auth.service import clear_refresh_family_revocation, store_refresh_session
+    from src.domains.auth.services.auth_service import clear_refresh_family_revocation, store_refresh_session
 
     # Record the refresh session so rotation + reuse detection apply to OAuth
     # sign-ins as well as password logins. A completed OAuth sign-in is a fresh

@@ -15,23 +15,24 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+import src.models  # noqa: F401 — register every ORM model on Base.metadata
 from src.core.config import settings
 from src.core.database import check_db_health, engine, init_db
 from src.core.mongodb import init_mongodb
 from src.core.observability import setup_otlp_tracing, shutdown_otlp_log_handler, shutdown_otlp_tracing
 from src.core.redis import check_redis_health, init_redis
-from src.domains.admin.routes import router as admin_router
-from src.domains.auth.routes import router as auth_router
-from src.domains.dashboard.routes import router as dashboard_router
-from src.domains.engineers.routes import router as engineers_router
-from src.domains.issues.routes import router as issues_router
-from src.domains.ml.routes import router as ml_router
-from src.domains.notifications.routes import router as notifications_router
-from src.domains.resolution.routes import router as resolution_router
-from src.domains.wards.routes import router as wards_router
-from src.errors.base import AppError
+from src.domains.admin.api.routes import router as admin_router
+from src.domains.auth.api.routes import router as auth_router
+from src.domains.dashboard.api.routes import router as dashboard_router
+from src.domains.engineers.api.routes import router as engineers_router
+from src.domains.issues.api.routes import router as issues_router
+from src.domains.ml.api.routes import router as ml_router
+from src.domains.notifications.api.routes import router as notifications_router
+from src.domains.resolution.api.routes import router as resolution_router
+from src.domains.wards.api.routes import router as wards_router
 from src.log_utils import setup_logging
 from src.middleware import LoggingMiddleware, MetricsAuthMiddleware, RateLimitMiddleware, RBACMiddleware
+from src.shared.errors.base import AppError
 
 logger = logging.getLogger("civicpulse")
 

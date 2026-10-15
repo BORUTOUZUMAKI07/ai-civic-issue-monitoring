@@ -14,7 +14,7 @@ from src.core.security import create_access_token
 
 async def _seed_user(user_id: int, email: str, role: str) -> dict:
     from src.core.database import AsyncSessionLocal
-    from src.models.user import User, UserRole
+    from src.domains.users.models.user import User, UserRole
 
     async with AsyncSessionLocal() as session:
         session.add(
@@ -38,7 +38,7 @@ async def _seed_user(user_id: int, email: str, role: str) -> dict:
 
 async def _seed_engineer(user_id: int, ward_id: int = 1) -> None:
     from src.core.database import AsyncSessionLocal
-    from src.models.engineer import Engineer
+    from src.domains.engineers.models.engineer import Engineer
 
     async with AsyncSessionLocal() as session:
         session.add(

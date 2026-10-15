@@ -40,6 +40,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.ml.evaluation import metrics  # noqa: E402
 
+import src.models  # noqa: E402, F401 — register every ORM model on Base.metadata
+
 EVAL_DIR = PROJECT_ROOT / "data" / "eval"
 CLASSIFIER_GOLDEN = EVAL_DIR / "classifier_golden.json"
 RETRIEVAL_GOLDEN = EVAL_DIR / "retrieval_golden.json"
@@ -151,7 +153,7 @@ async def _retrieval_available() -> tuple[bool, str]:
 
     from src.core.database import AsyncSessionLocal
     from src.core.embeddings import generate_embedding
-    from src.models.issue import Issue
+    from src.domains.issues.models.issue import Issue
 
     try:
         async with AsyncSessionLocal() as db:

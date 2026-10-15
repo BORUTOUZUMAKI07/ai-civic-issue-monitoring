@@ -20,10 +20,10 @@ from datetime import timedelta
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from src.core.rbac import role_at_least
+from src.domains.users.rbac import role_at_least
 from src.core.security import create_access_token, create_refresh_token
 from src.middleware.rbac import RBACMiddleware, _min_role_for
-from src.models.user import UserRole
+from src.domains.users.models.user import UserRole
 
 # ``dispatch`` never touches ``self.app``, so ``app=None`` is safe: the tests
 # call ``dispatch(request, call_next)`` straight away without an ASGI stack.

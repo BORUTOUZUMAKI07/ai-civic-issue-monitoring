@@ -7,8 +7,8 @@ from sqlalchemy import select
 
 from src.agents.state import AgentState
 from src.core.database import AsyncSessionLocal
-from src.models.engineer import Engineer
-from src.models.user import User
+from src.domains.engineers.models.engineer import Engineer
+from src.domains.users.models.user import User
 
 logger = logging.getLogger(__name__)
 

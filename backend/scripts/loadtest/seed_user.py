@@ -35,9 +35,10 @@ async def main() -> int:
 
     from sqlalchemy import select
 
+    import src.models  # noqa: F401 — register every ORM model on Base.metadata
     from src.core.database import AsyncSessionLocal, init_db
     from src.core.security import hash_password_async
-    from src.models.user import User, UserRole
+    from src.domains.users.models.user import User, UserRole
 
     # Creates tables in non-production environments (CI runs with
     # ENVIRONMENT=development). Production deployments use Alembic.

@@ -4,8 +4,8 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
-from src.core.rbac import role_at_least
-from src.models.user import UserRole
+from src.domains.users.models.user import UserRole
+from src.domains.users.rbac import role_at_least
 
 logger = logging.getLogger("civicpulse")
 
