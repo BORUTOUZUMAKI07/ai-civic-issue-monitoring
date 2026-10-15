@@ -29,8 +29,17 @@ function Avatar({ className, size, ...props }: AvatarProps) {
   return <div className={cn(avatarVariants({ size }), className)} {...props} />
 }
 
-function AvatarImage({ className, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
-  return <img className={cn("aspect-square size-full object-cover", className)} {...props} />
+function AvatarImage({ className, alt = "", ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
+  // shadcn-style primitive: `src` may be a data:/blob:/relative URL, which
+  // next/image cannot optimise — keep the raw <img>.
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      alt={alt}
+      className={cn("aspect-square size-full object-cover", className)}
+      {...props}
+    />
+  )
 }
 
 function AvatarFallback({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {

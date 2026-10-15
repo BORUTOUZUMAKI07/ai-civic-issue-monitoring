@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useReviewQueue, useReviewIssueMutation, useMe } from "@/queries/index";
 import { Button } from "@/components/ui/button";
@@ -55,9 +56,12 @@ function ReviewRow({
     <div className="flex items-start gap-4 px-5 py-4 transition-colors hover:bg-muted/40">
       {/* Thumbnail */}
       <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border bg-muted">
-        <img
+        <Image
           src={mediaUrl(issue.image_url)}
           alt=""
+          width={64}
+          height={64}
+          unoptimized
           className="h-full w-full object-cover"
         />
       </div>

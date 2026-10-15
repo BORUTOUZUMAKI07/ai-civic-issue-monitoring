@@ -358,7 +358,26 @@ jobs:
     needs: [secret-scan, backend-lint, backend-typecheck, backend-test, backend-security, backend-integration, performance-loadtest, frontend-lint, frontend-test, frontend-build, prefect-test]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
+      # A job-level `if:` cannot read the `secrets` context, so the credential
+      # probe has to be the first step: every publish step below is gated on
+      # `steps.creds.outputs.enabled`. With no DockerHub secrets configured the
+      # job now goes green as a no-op instead of failing every tagged release
+      # (the previous `exit 1` behaviour).
+      - name: Check DockerHub credentials
+        id: creds
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=DockerHub publish skipped::Set the DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets to publish on release tags (see docs/deployment.md)."
+          fi
+
       - name: Free up disk space
+        if: steps.creds.outputs.enabled == 'true'
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
@@ -366,27 +385,29 @@ jobs:
           df -h
 
       - uses: actions/checkout@v5
+        if: steps.creds.outputs.enabled == 'true'
 
       - name: Prepare Docker Username
         id: prep
+        if: steps.creds.outputs.enabled == 'true'
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          USER_VAL="${{ secrets.DOCKERHUB_USERNAME }}"
-          if [ -z "$USER_VAL" ]; then
-            echo "Error: DOCKERHUB_USERNAME secret is not set" >&2
-            exit 1
-          fi
-          echo "user=$(echo $USER_VAL | xargs)" >> $GITHUB_OUTPUT
+          echo "user=$(echo "$DOCKERHUB_USERNAME" | xargs)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
+        if: steps.creds.outputs.enabled == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Login to DockerHub
+        if: steps.creds.outputs.enabled == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ steps.prep.outputs.user }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push Backend
+        if: steps.creds.outputs.enabled == 'true'
         uses: docker/build-push-action@v5
         with:
           # Context is `./backend`, not the repository root, and the file is
@@ -407,6 +428,7 @@ jobs:
           sbom: false
 
       - name: Build and push Frontend
+        if: steps.creds.outputs.enabled == 'true'
         uses: docker/build-push-action@v5
         with:
           context: ./frontend
