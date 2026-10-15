@@ -6832,7 +6832,7 @@ packages:
 - pypi: ./backend
   name: civicpulse-backend
   version: 0.1.0
-  sha256: 8bd25d0053f0255f8cdd8910e9b37ac6a76c5902d8e261b7cb29d66e0a5470b5
+  sha256: 02cc68de67ae91c178c912cb73ae742502b26a08190708a37caecf44f15e2c33
   requires_dist:
   - fastapi>=0.115.0
   - uvicorn>=0.32.0
