@@ -606,6 +606,7 @@ export default function IssuesPage() {
 
           {previewUrl && (
             <div className="relative overflow-hidden rounded-xl border">
+              {/* eslint-disable-next-line @next/next/no-img-element -- previewUrl is a blob: object URL (URL.createObjectURL); next/image cannot render blob: sources. */}
               <img
                 src={previewUrl}
                 alt="Preview"
@@ -704,6 +705,7 @@ export default function IssuesPage() {
 
           {previewUrl && (
             <div className="relative overflow-hidden rounded-xl border">
+              {/* eslint-disable-next-line @next/next/no-img-element -- previewUrl is a blob: object URL (URL.createObjectURL); next/image cannot render blob: sources. */}
               <img
                 src={previewUrl}
                 alt="Your upload"

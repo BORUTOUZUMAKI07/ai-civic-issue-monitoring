@@ -1,0 +1,139 @@
+name: Deploy
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Deployment workflow for CivicPulse — INERT BY DEFAULT.
+#
+# It only runs on manual dispatch, and the deploy job is gated on the
+# repository variable DEPLOY_ENABLED, so nothing happens until you opt in
+# deliberately. This is a self-hosted / VPS template: it SSHes to the target,
+# checks out the requested ref, rebuilds `docker/docker-compose.yml`, runs the
+# Alembic migration inside the freshly built backend image, and waits for
+# /health before declaring success.
+#
+# Required once you enable it (see docs/deployment.md):
+#   Variable  DEPLOY_ENABLED = true
+#   Secret    DEPLOY_HOST     public hostname / IP of the target
+#   Secret    DEPLOY_USER     SSH user
+#   Secret    DEPLOY_SSH_KEY  private key (PEM) authorised for DEPLOY_HOST
+#   Secret    DEPLOY_PATH     path to this repo's checkout on the target
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment to deploy to."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      ref:
+        description: "Git tag or commit SHA to deploy. Leave empty for the current HEAD of the ref you dispatched from."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+# One deployment per environment at a time; never cancel a half-finished run.
+concurrency:
+  group: deploy-${{ inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve target
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.gate.outputs.enabled }}
+      environment: ${{ steps.gate.outputs.environment }}
+      ref: ${{ steps.gate.outputs.ref }}
+    steps:
+      - name: Gate on DEPLOY_ENABLED and resolve ref
+        id: gate
+        env:
+          DEPLOY_ENABLED: ${{ vars.DEPLOY_ENABLED }}
+          INPUT_ENVIRONMENT: ${{ inputs.environment }}
+          INPUT_REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          REF="${INPUT_REF:-${GITHUB_SHA}}"
+          echo "environment=${INPUT_ENVIRONMENT:-staging}" >> "$GITHUB_OUTPUT"
+          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
+          if [ "${DEPLOY_ENABLED}" = "true" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Deploy disabled::Set the repository variable DEPLOY_ENABLED=true to enable deployments. See docs/deployment.md."
+          fi
+
+  deploy:
+    name: Deploy
+    needs: resolve
+    if: needs.resolve.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    # To require manual approval (e.g. before production), create GitHub
+    # Environments named "staging" / "production" with required reviewers and
+    # uncomment the next line:
+    # environment: ${{ needs.resolve.outputs.environment }}
+    steps:
+      - name: Check deployment secrets
+        id: creds
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          if [ -n "$DEPLOY_HOST" ] && [ -n "$DEPLOY_USER" ] && [ -n "$DEPLOY_SSH_KEY" ] && [ -n "$DEPLOY_PATH" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Deploy skipped::DEPLOY_HOST / DEPLOY_USER / DEPLOY_SSH_KEY / DEPLOY_PATH are not all configured. See docs/deployment.md."
+          fi
+
+      - name: Deploy over SSH
+        if: steps.creds.outputs.enabled == 'true'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_REF: ${{ needs.resolve.outputs.ref }}
+        run: |
+          set -euo pipefail
+          KEY_FILE="${RUNNER_TEMP}/deploy_key"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+          eval "$(ssh-agent -s)" > /dev/null
+          ssh-add "$KEY_FILE"
+
+          # The remote script arrives on stdin, so the repository path and the
+          # ref are expanded here while the private key never leaves the runner.
+          ssh -i "$KEY_FILE" -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=accept-new \
+              "${DEPLOY_USER}@${DEPLOY_HOST}" bash -s <<REMOTE
+          set -euo pipefail
+          cd '${DEPLOY_PATH}'
+          git fetch --prune origin
+          git checkout --detach '${DEPLOY_REF}'
+          docker compose -f docker/docker-compose.yml build
+          docker compose -f docker/docker-compose.yml run --rm backend python -m alembic upgrade head
+          docker compose -f docker/docker-compose.yml up -d
+          echo 'Waiting for the backend to report healthy ...'
+          for i in {1..30}; do
+            if curl -fsS http://localhost:8000/health > /dev/null 2>&1; then
+              echo 'Backend is healthy.'
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Backend did not become healthy within 60s.' >&2
+          docker compose -f docker/docker-compose.yml logs --tail 100 backend
+          exit 1
+          REMOTE
+
+          rm -f "$KEY_FILE"
+          ssh-agent -k > /dev/null || true

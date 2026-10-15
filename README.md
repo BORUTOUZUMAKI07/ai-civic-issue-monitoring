@@ -131,6 +131,13 @@ refuses to boot without it, in dev or production: there is no dev-default
 | **Frontend Dashboard** | [http://localhost:3000](http://localhost:3000) | - |
 | **Backend API Docs** | [http://localhost:8000/docs](http://localhost:8000/docs) | - |
 
+### CI & Deployment
+
+CI builds, tests, scans and publishes container images — it never ships
+anything to a host on its own. Publishing to DockerHub and running the
+(manual, disabled-by-default) Deploy workflow are both opt-in; see
+[`docs/deployment.md`](docs/deployment.md).
+
 ---
 
 ## Development Commands

@@ -69,11 +69,16 @@ export function IssueMap({
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
+  // The map is created exactly once and `center`/`zoom` only seed the initial
+  // view, so capture their first values in refs rather than listing them as
+  // effect dependencies (which would re-run on every new array literal).
+  const initialCenter = useRef(center);
+  const initialZoom = useRef(zoom);
 
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
 
-    const map = L.map(mapRef.current).setView(center, zoom);
+    const map = L.map(mapRef.current).setView(initialCenter.current, initialZoom.current);
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -95,7 +100,7 @@ export function IssueMap({
     markersRef.current.forEach((marker) => marker.remove());
     markersRef.current = [];
 
-    points.forEach((point, idx) => {
+    points.forEach((point) => {
       const icon = createIssueIcon(point.type, point.severity);
       const marker = L.marker([point.lat, point.lng], { icon })
         .addTo(map)
