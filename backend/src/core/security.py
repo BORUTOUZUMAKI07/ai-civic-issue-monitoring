@@ -9,7 +9,7 @@ from jose import ExpiredSignatureError, JWTError, jwt
 from passlib.context import CryptContext
 
 from src.core.config import settings
-from src.errors import InvalidToken, TokenExpired
+from src.shared.errors import InvalidToken, TokenExpired
 
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 

@@ -1,4 +1,4 @@
-from src.errors.common import BadRequestError, NotFoundError
+from src.shared.errors.common import BadRequestError, NotFoundError
 
 
 class IssueNotFound(NotFoundError):

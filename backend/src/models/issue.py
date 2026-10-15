@@ -5,7 +5,7 @@ from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, Stri
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.models.base import Base
+from src.shared.base import Base
 
 
 class IssueType(str, enum.Enum):

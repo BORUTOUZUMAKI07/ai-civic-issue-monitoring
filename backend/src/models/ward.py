@@ -4,7 +4,7 @@ from sqlalchemy import DateTime, Float, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.models.base import Base
+from src.shared.base import Base
 
 
 class Ward(Base):

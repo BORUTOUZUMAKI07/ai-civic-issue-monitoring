@@ -14,7 +14,7 @@ from src.domains.auth.oauth import (
     get_provider,
 )
 from src.domains.auth.password_reset import create_password_reset_token, decode_password_reset_token
-from src.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid, PasswordResetTokenInvalid
+from src.shared.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid, PasswordResetTokenInvalid
 
 
 def test_oauth_state_round_trip() -> None:

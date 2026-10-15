@@ -29,9 +29,9 @@ from src.domains.ml.routes import router as ml_router
 from src.domains.notifications.routes import router as notifications_router
 from src.domains.resolution.routes import router as resolution_router
 from src.domains.wards.routes import router as wards_router
-from src.errors.base import AppError
 from src.log_utils import setup_logging
 from src.middleware import LoggingMiddleware, MetricsAuthMiddleware, RateLimitMiddleware, RBACMiddleware
+from src.shared.errors.base import AppError
 
 logger = logging.getLogger("civicpulse")
 

@@ -1,4 +1,4 @@
-from src.errors.auth import (
+from src.shared.errors.auth import (
     EmailAlreadyExists,
     InvalidCredentials,
     InvalidRecoveryCode,
@@ -16,8 +16,8 @@ from src.errors.auth import (
     TwoFactorRequired,
     UserNotFound,
 )
-from src.errors.base import AppError
-from src.errors.common import (
+from src.shared.errors.base import AppError
+from src.shared.errors.common import (
     BadRequestError,
     ConflictError,
     ForbiddenError,
@@ -26,7 +26,7 @@ from src.errors.common import (
     RateLimitError,
     UnauthorizedError,
 )
-from src.errors.issue import (
+from src.shared.errors.issue import (
     CorruptedImageError,
     ImageTooLargeError,
     InvalidImageError,

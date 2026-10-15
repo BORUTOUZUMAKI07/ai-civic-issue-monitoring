@@ -8,9 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.database import get_db
 from src.core.deps import get_current_active_user
 from src.core.rbac import role_at_least
-from src.errors import ForbiddenError, NotFoundError
 from src.models.issue import ISSUE_TYPE_MAP, Issue
 from src.models.user import User, UserRole
+from src.shared.errors import ForbiddenError, NotFoundError
 
 logger = logging.getLogger(__name__)
 

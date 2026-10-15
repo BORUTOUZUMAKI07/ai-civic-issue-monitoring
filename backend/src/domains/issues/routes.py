@@ -15,8 +15,8 @@ from src.core.gate import gate_decision
 from src.core.rbac import role_at_least
 from src.domains.issues.schemas import IssueListResponse, IssueResponse, IssueStatusUpdate
 from src.domains.issues.service import IssueService
-from src.errors import BadRequestError, ForbiddenError
 from src.models.user import User, UserRole
+from src.shared.errors import BadRequestError, ForbiddenError
 
 logger = logging.getLogger(__name__)
 

@@ -1,14 +1,11 @@
-from sqlalchemy import MetaData
-from sqlalchemy.orm import DeclarativeBase
+"""Compatibility shim.
 
-convention = {
-    "ix": "ix_%(column_0_label)s",
-    "uq": "uq_%(table_name)s_%(column_0_name)s",
-    "ck": "ck_%(table_name)s_%(constraint_name)s",
-    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
-    "pk": "pk_%(table_name)s",
-}
+The canonical SQLAlchemy declarative ``Base`` now lives in
+``src.shared.base``. This module re-exports it so existing imports such as
+``from src.models.base import Base`` keep working (notably the protected
+``tests/conftest.py`` and ``src.models`` registration path).
+"""
 
+from src.shared.base import Base
 
-class Base(DeclarativeBase):
-    metadata = MetaData(naming_convention=convention)
+__all__ = ["Base"]

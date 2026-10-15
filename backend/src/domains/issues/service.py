@@ -6,7 +6,6 @@ from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domains.wards.geofencing import get_ward_from_coords
-from src.errors import CorruptedImageError, ImageTooLargeError, InvalidImageError, IssueNotFound
 from src.models.assignment import Assignment, AssignmentStatus
 from src.models.engineer import Engineer
 from src.models.issue import ISSUE_TYPE_MAP, Issue, IssueStatus, IssueType
@@ -17,6 +16,7 @@ from src.repositories.issue_repository import IssueRepository
 from src.repositories.resolution_repository import ResolutionRepository
 from src.repositories.user_repository import UserRepository
 from src.repositories.ward_repository import WardRepository
+from src.shared.errors import CorruptedImageError, ImageTooLargeError, InvalidImageError, IssueNotFound
 
 pillow_heif.register_heif_opener()
 
@@ -138,15 +138,15 @@ class IssueService:
     async def assign_issue_to_engineer(self, issue: Issue, engineer_id: int) -> Engineer:
         engineer = await self.engineer_repo.get(engineer_id)
         if not engineer:
-            from src.errors import BadRequestError
+            from src.shared.errors import BadRequestError
 
             raise BadRequestError("Engineer not found.")
         if not engineer.is_available:
-            from src.errors import BadRequestError
+            from src.shared.errors import BadRequestError
 
             raise BadRequestError("Engineer is not available.")
         if engineer.current_workload >= engineer.max_workload:
-            from src.errors import BadRequestError
+            from src.shared.errors import BadRequestError
 
             raise BadRequestError("Engineer is at maximum workload.")
 

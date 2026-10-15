@@ -35,9 +35,9 @@ from src.core.security import (
     create_refresh_token,
     hash_password_async,
 )
-from src.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid
 from src.models.user import User, UserRole
 from src.repositories.user_repository import UserRepository
+from src.shared.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid
 
 logger = logging.getLogger("civicpulse")
 
@@ -395,7 +395,7 @@ async def login_with_provider(db, provider: OAuthProvider, profile: dict) -> tup
             await db.refresh(user)
 
     if not user.is_active:
-        from src.errors import UnauthorizedError
+        from src.shared.errors import UnauthorizedError
 
         raise UnauthorizedError(detail="Account is deactivated.")
 

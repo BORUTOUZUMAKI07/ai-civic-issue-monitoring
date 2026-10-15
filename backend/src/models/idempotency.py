@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy import DateTime, Enum, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.models.base import Base
+from src.shared.base import Base
 
 
 class IdempotencyStatus(str, enum.Enum):

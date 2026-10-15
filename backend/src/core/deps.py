@@ -5,8 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.core.security import decode_token, is_token_blacklisted
-from src.errors import InvalidToken, TokenRevoked, UnauthorizedError, UserNotFound
 from src.repositories.user_repository import UserRepository
+from src.shared.errors import InvalidToken, TokenRevoked, UnauthorizedError, UserNotFound
 
 
 def _extract_token(request: Request) -> str | None:

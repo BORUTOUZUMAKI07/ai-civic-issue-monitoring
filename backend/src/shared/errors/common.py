@@ -1,4 +1,4 @@
-from src.errors.base import AppError
+from src.shared.errors.base import AppError
 
 
 class NotFoundError(AppError):

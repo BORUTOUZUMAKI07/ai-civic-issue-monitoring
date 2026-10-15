@@ -230,8 +230,8 @@ module = [
     "src.domains.wards.routes",
     "src.domains.wards.schemas",
     "src.domains.wards.service",
-    "src.errors.auth",
-    "src.errors.issue",
+    "src.shared.errors.auth",
+    "src.shared.errors.issue",
     "src.main",
     "src.middleware.logging",
     "src.middleware.rate_limit",
@@ -255,4 +255,4 @@ disallow_any_generics = false
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["F401"]
 "src/core/config.py" = ["N802"]
-"src/errors/**" = ["N818"]
+"src/shared/errors/**" = ["N818"]

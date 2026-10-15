@@ -61,7 +61,7 @@ async def init_db() -> bool:
         # Auto-create tables only for dev/test convenience. Production uses
         # Alembic migrations as the single source of truth for the schema.
         try:
-            from src.models.base import Base
+            from src.shared.base import Base
 
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)

@@ -7,9 +7,9 @@ from src.core.deps import get_current_active_user
 from src.core.rbac import role_at_least
 from src.domains.engineers.schemas import EngineerResponse
 from src.domains.engineers.service import EngineerService
-from src.errors import BadRequestError, ForbiddenError, NotFoundError
 from src.models.engineer import Engineer
 from src.models.user import User, UserRole
+from src.shared.errors import BadRequestError, ForbiddenError, NotFoundError
 
 router = APIRouter(prefix="/engineers", tags=["Engineers"])
 

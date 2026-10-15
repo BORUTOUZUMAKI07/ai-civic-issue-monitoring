@@ -30,8 +30,8 @@ from src.domains.auth.schemas import (
 )
 from src.domains.auth.service import AuthService
 from src.domains.auth.twofa import TwoFactorService
-from src.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid
-from src.errors.base import AppError
+from src.shared.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid
+from src.shared.errors.base import AppError
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -85,8 +85,8 @@ def _clear_auth_cookies(response: Response) -> None:
 
 @router.post("/register", response_model=UserResponse)
 async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    from src.errors import ForbiddenError
     from src.models.user import UserRole as _UserRole
+    from src.shared.errors import ForbiddenError
 
     allowed_roles = {_UserRole.field_worker, _UserRole.viewer}
     try:
@@ -382,7 +382,7 @@ async def verify_2fa(
 
     payload = _decode_token(body.challenge)
     if payload.get("type") != "2fa_challenge":
-        from src.errors import InvalidToken
+        from src.shared.errors import InvalidToken
 
         raise InvalidToken()
 
@@ -408,7 +408,7 @@ async def _consume_2fa_challenge(jti: str) -> None:
     mode is "do not consume" rather than "deny" — equivalent to the old
     always-replayable behaviour, never worse.
     """
-    from src.errors import InvalidToken
+    from src.shared.errors import InvalidToken
 
     key = f"2fa:used:{jti}"
     try:
