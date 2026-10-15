@@ -1,7 +1,8 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { auth, issues, wards, engineers, dashboard, admin } from "@/lib/api";
+import { auth, issues, wards, engineers, dashboard, admin, resolution } from "@/lib/api";
+import { clearNotifications } from "@/lib/notifications";
 
 // Any mutation that changes issue data must refresh the list, the affected
 // detail, and the aggregates derived from them. Without this the dashboard and
@@ -34,6 +35,7 @@ export function useLogoutMutation() {
       // included, at a 5-minute staleTime, which briefly shows the wrong
       // identity.
       qc.clear();
+      clearNotifications();
       await auth.logout().catch(() => {});
     },
   });
@@ -145,6 +147,15 @@ export function useEngineers() {
   });
 }
 
+export function useMyEngineerProfile() {
+  return useQuery({
+    queryKey: ["engineer-me"],
+    queryFn: () => engineers.myProfile(),
+    staleTime: 2 * 60 * 1000,
+    retry: false,
+  });
+}
+
 export function useCreateEngineerMutation() {
   const qc = useQueryClient();
   return useMutation({
@@ -170,6 +181,17 @@ export function useReassignIssueMutation() {
   return useMutation({
     mutationFn: ({ issueId, engineerId }: { issueId: number; engineerId: number }) =>
       issues.reassign(issueId, engineerId),
+    onSuccess: () => {
+      invalidateIssueData(qc);
+    },
+  });
+}
+
+export function useResolveIssueMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ issueId, file, notes }: { issueId: number; file: File; notes?: string }) =>
+      resolution.resolve(issueId, file, notes ?? ""),
     onSuccess: () => {
       invalidateIssueData(qc);
     },

@@ -318,6 +318,12 @@ export const wards = {
 
 export const engineers = {
   list: () => apiFetch<Engineer[]>("/engineers"),
+  /**
+   * The caller's own engineer profile, or null when they do not have one.
+   * Used to decide whether the engineer-only `/resolution` flow is available
+   * without depending on the (potentially admin-scoped) full engineers list.
+   */
+  myProfile: () => apiFetch<Engineer>("/engineers/me").catch(() => null),
   create: (data: { user_id: number; ward_id: number; specialization?: string; max_workload?: number }) =>
     apiFetch<Engineer>("/engineers", {
       method: "POST",
@@ -328,4 +334,27 @@ export const engineers = {
 export const dashboard = {
   stats: () => apiFetch<DashboardStats>("/dashboard/stats"),
   heatmap: () => apiFetch<HeatmapPoint[]>("/dashboard/heatmap"),
+};
+
+export interface ResolutionResult {
+  id: number;
+  issue_id: number;
+  status: string;
+  message: string;
+  resolved_at: string;
+}
+
+export const resolution = {
+  /**
+   * Close an issue with photographic proof of the fix. FormData is used so the
+   * browser sets the multipart boundary itself; `rawFetch` deliberately omits
+   * the JSON Content-Type for FormData bodies.
+   */
+  resolve: (issueId: number, file: File, notes = "") => {
+    const form = new FormData();
+    form.append("issue_id", String(issueId));
+    form.append("file", file);
+    form.append("notes", notes);
+    return apiFetch<ResolutionResult>("/resolution", { method: "POST", body: form });
+  },
 };

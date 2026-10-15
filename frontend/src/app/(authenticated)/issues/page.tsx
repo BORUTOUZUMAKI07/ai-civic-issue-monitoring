@@ -5,9 +5,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import exifr from "exifr";
 import { useIssues, useUploadIssueMutation, useWards, useMe } from "@/queries/index";
-import { useWebSocket } from "@/hooks/useWebSocket";
-import { auth } from "@/lib/api";
-import { usePreferences } from "@/lib/preferences";
+import { useNotifications } from "@/lib/notifications";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -181,48 +179,10 @@ export default function IssuesPage() {
   // (that is a different request and must not collide with the rejected one).
   const idempotencyRef = useRef<{ key: string; force: boolean } | null>(null);
 
-  const wsBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-  const wsUrl = wsBase.replace(/^http/, "ws") + "/api/v1/ws/issues";
-
-  const { realtimeAlerts } = usePreferences();
-
-  // The access token is an HttpOnly cookie the browser cannot read, so the
-  // socket authenticates with a short-lived ticket fetched at connect time.
-  const getWsToken = useCallback(async () => {
-    try {
-      const { ticket } = await auth.wsTicket();
-      return ticket;
-    } catch {
-      return null;
-    }
-  }, []);
-
-  const onWsMessage = useCallback(
-    (msg: { type: string; payload: Record<string, unknown> }) => {
-      if (
-        msg.type === "issue_created" ||
-        msg.type === "issue_updated" ||
-        msg.type === "issue_deleted"
-      ) {
-        refetch();
-        if (msg.type !== "issue_deleted") {
-          toast.info(
-            `Issue ${msg.type === "issue_created" ? "reported" : "updated"} — real-time update`
-          );
-        }
-      }
-    },
-    [refetch]
-  );
-
-  const { isConnected } = useWebSocket({
-    url: wsUrl,
-    getToken: getWsToken,
-    onMessage: onWsMessage,
-    reconnectAttempts: 3,
-    reconnectInterval: 5000,
-    enabled: realtimeAlerts,
-  });
+  // Live-feed status comes from the single app-wide socket owned by
+  // <IssueStream /> in the shell, so this page no longer opens its own
+  // connection just to know whether updates are flowing.
+  const { connected: isConnected } = useNotifications();
 
   useEffect(() => {
     if (typeof window === "undefined") return;

@@ -1,6 +1,6 @@
 "use client"
 
-import type { FormEvent } from "react"
+import { useState, type FormEvent } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
@@ -10,9 +10,9 @@ import {
   Menu,
   Search,
   Settings,
-  ShieldCheck,
 } from "lucide-react"
 import { useMe, useLogoutMutation } from "@/queries/index"
+import { useNotifications, markAllRead } from "@/lib/notifications"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
@@ -31,13 +31,16 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Badge } from "@/components/ui/badge"
-import { PAGE_TITLES, initials } from "@/lib/format"
+import { PAGE_TITLES, initials, timeAgo } from "@/lib/format"
 
 export function Header({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
   const pathname = usePathname()
   const router = useRouter()
   const { data: user } = useMe()
   const logoutMutation = useLogoutMutation()
+  const { items, connected } = useNotifications()
+  const unread = items.filter((item) => !item.read).length
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
 
   const page = PAGE_TITLES[pathname] ?? { title: "CivicPulse", subtitle: "" }
 
@@ -96,34 +99,91 @@ export function Header({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
 
         <ThemeToggle />
 
-        <Popover>
+        <Popover
+          open={notificationsOpen}
+          onOpenChange={(open) => {
+            setNotificationsOpen(open)
+            if (open) markAllRead()
+          }}
+        >
           <PopoverTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
               className="relative text-muted-foreground"
-              aria-label="Notifications"
+              aria-label={
+                unread > 0 ? `Notifications (${unread} unread)` : "Notifications"
+              }
             >
               <Bell className="h-[18px] w-[18px]" />
-              <span className="absolute right-2 top-2 h-2 w-2 rounded-full border-2 border-background bg-gradient-to-r from-emerald-500 to-teal-500" />
+              {unread > 0 ? (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground">
+                  {unread > 9 ? "9+" : unread}
+                </span>
+              ) : (
+                connected && (
+                  <span className="absolute right-2 top-2 h-2 w-2 rounded-full border-2 border-background bg-gradient-to-r from-emerald-500 to-teal-500" />
+                )
+              )}
             </Button>
           </PopoverTrigger>
           <PopoverContent align="end" className="w-80 p-0">
             <div className="flex items-center justify-between border-b px-4 py-3">
               <p className="text-sm font-semibold">Notifications</p>
-              <Badge variant="secondary" className="text-[10px]">
-                Live
+              <Badge
+                variant={connected ? "secondary" : "outline"}
+                className="gap-1 text-[10px]"
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    connected ? "bg-emerald-500" : "bg-muted-foreground/60"
+                  }`}
+                />
+                {connected ? "Live" : "Offline"}
               </Badge>
             </div>
-            <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
-              <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                <Bell className="h-5 w-5" />
+            {items.length === 0 ? (
+              <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
+                <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                  <Bell className="h-5 w-5" />
+                </div>
+                <p className="mt-3 text-sm font-medium">No new notifications</p>
+                <p className="text-xs text-muted-foreground">
+                  Updates will appear here when issues are reported, reviewed, or
+                  removed.
+                </p>
               </div>
-              <p className="mt-3 text-sm font-medium">No new notifications</p>
-              <p className="text-xs text-muted-foreground">
-                Updates will appear here when issues are reported or reassigned.
-              </p>
-            </div>
+            ) : (
+              <ul className="max-h-80 divide-y divide-border/70 overflow-y-auto">
+                {items.map((item) => (
+                  <li key={item.id}>
+                    <Link
+                      href={item.href ?? "/issues"}
+                      className="flex gap-3 px-4 py-3 transition-colors hover:bg-muted/60"
+                      onClick={() => setNotificationsOpen(false)}
+                    >
+                      <span
+                        className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
+                          item.read ? "bg-muted-foreground/30" : "bg-primary"
+                        }`}
+                        aria-hidden
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">
+                          {item.title}
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                          {item.description}
+                        </span>
+                        <span className="mt-0.5 block text-[11px] text-muted-foreground/80">
+                          {timeAgo(item.createdAt)}
+                        </span>
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
           </PopoverContent>
         </Popover>
 

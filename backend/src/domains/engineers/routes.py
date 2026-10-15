@@ -95,6 +95,33 @@ async def create_engineer(
     )
 
 
+@router.get("/me", response_model=EngineerResponse)
+async def my_engineer_profile(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    """The caller's own engineer profile.
+
+    Lets the client decide whether the engineer-only `/resolution` flow is
+    available without reading the whole engineers list (which may be
+    admin-scoped). 404 conventionally signals "no profile".
+    """
+    svc = EngineerService(db)
+    engineer = await svc.engineer_repo.get_by_user_id(user.id)
+    if not engineer:
+        raise NotFoundError("Engineer profile not found for this user.")
+    return EngineerResponse(
+        id=engineer.id,
+        user_id=engineer.user_id,
+        ward_id=engineer.ward_id,
+        specialization=engineer.specialization,
+        current_workload=engineer.current_workload,
+        max_workload=engineer.max_workload,
+        is_available=engineer.is_available,
+        avg_resolution_hours=engineer.avg_resolution_hours,
+    )
+
+
 @router.get("/me/assignments")
 async def my_assignments(
     db: AsyncSession = Depends(get_db),

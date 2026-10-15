@@ -4,7 +4,7 @@ import { use, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useIssue, useEngineers, useAssignIssueMutation, useReassignIssueMutation, useMe } from "@/queries/index";
+import { useIssue, useEngineers, useMyEngineerProfile, useAssignIssueMutation, useReassignIssueMutation, useMe } from "@/queries/index";
 import { apiFetch, issues, mediaUrl } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,10 +21,12 @@ import {
 } from "@/components/ui/select";
 import { IssueTypeIcon } from "@/components/shared/issue-icon";
 import { QueryError } from "@/components/shared/query-error";
+import { ResolveDialog } from "@/components/issues/resolve-dialog";
 import { toast } from "sonner";
 import {
   ArrowLeft,
   Brain,
+  Camera,
   Crosshair,
   MapPin,
   Radio,
@@ -66,6 +68,7 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
   const issueId = parseInt(id, 10);
   const { data: issue, isLoading, isError, error, refetch } = useIssue(issueId);
   const { data: engineers } = useEngineers();
+  const { data: myEngineerProfile } = useMyEngineerProfile();
   const { data: currentUser } = useMe();
   const isAdmin =
     currentUser?.role === "admin" || currentUser?.role === "super_admin";
@@ -74,6 +77,12 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
   const assignMutation = useAssignIssueMutation();
   const reassignMutation = useReassignIssueMutation();
   const [selectedEngineer, setSelectedEngineer] = useState<string>("");
+  const [resolveOpen, setResolveOpen] = useState(false);
+
+  // The /resolution endpoint is engineer-only (it looks up an Engineer profile
+  // for the caller). We ask the backend directly for *our* profile instead of
+  // scanning the engineers list, which may be admin-scoped in some deployments.
+  const isEngineer = !!myEngineerProfile;
 
   const similarQuery = useQuery<SimilarResponse>({
     queryKey: ["similar-issues", issueId],
@@ -143,6 +152,10 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
           : issue.status === "resolved"
             ? { label: "Verify fix", next: "verified", icon: ShieldAlert }
             : null;
+
+  // Any non-terminal issue can be closed with evidence.
+  const canResolveWithPhoto =
+    isEngineer && !["resolved", "verified", "rejected"].includes(issue.status);
 
   return (
     <div className="space-y-6">
@@ -347,7 +360,8 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
                         await assignMutation.mutateAsync({ issueId, engineerId: Number(selectedEngineer) });
                         toast.success("Issue assigned");
                       }
-                      window.location.reload();
+                      // The mutation already invalidates issue/dashboard/heatmap
+                      // queries, so the page updates reactively — no reload.
                     } catch (err: unknown) {
                       toast.error(err instanceof Error ? err.message : "Failed to assign");
                     }
@@ -365,30 +379,42 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
               <CardHeader>
                 <CardTitle className="text-base">Actions</CardTitle>
               </CardHeader>
-              <CardContent>
-                <Button
-                  className="w-full gap-2"
-                  onClick={async () => {
-                    try {
-                      await issues.updateStatus(issueId, nextAction.next);
-                      toast.success(`Issue marked ${humanize(nextAction.next)}`);
-                      await Promise.all([
-                        queryClient.invalidateQueries({ queryKey: ["issue", issueId] }),
-                        queryClient.invalidateQueries({ queryKey: ["issues"] }),
-                        queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] }),
-                        queryClient.invalidateQueries({ queryKey: ["heatmap"] }),
-                      ]);
-                    } catch (err: unknown) {
-                      toast.error(
-                        err instanceof Error ? err.message : "Failed to update status"
-                      );
-                    }
-                  }}
-                >
-                  <nextAction.icon className="h-4 w-4" />
-                  {nextAction.label}
-                </Button>
-                <Button asChild variant="outline" className="mt-2 w-full gap-2">
+              <CardContent className="space-y-2">
+                {nextAction && !(canResolveWithPhoto && nextAction.next === "resolved") && (
+                  <Button
+                    className="w-full gap-2"
+                    onClick={async () => {
+                      try {
+                        await issues.updateStatus(issueId, nextAction.next);
+                        toast.success(`Issue marked ${humanize(nextAction.next)}`);
+                        await Promise.all([
+                          queryClient.invalidateQueries({ queryKey: ["issue", issueId] }),
+                          queryClient.invalidateQueries({ queryKey: ["issues"] }),
+                          queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] }),
+                          queryClient.invalidateQueries({ queryKey: ["heatmap"] }),
+                        ]);
+                      } catch (err: unknown) {
+                        toast.error(
+                          err instanceof Error ? err.message : "Failed to update status"
+                        );
+                      }
+                    }}
+                  >
+                    <nextAction.icon className="h-4 w-4" />
+                    {nextAction.label}
+                  </Button>
+                )}
+                {canResolveWithPhoto && (
+                  <Button
+                    variant={nextAction.next === "resolved" ? "default" : "outline"}
+                    className="w-full gap-2"
+                    onClick={() => setResolveOpen(true)}
+                  >
+                    <Camera className="h-4 w-4" />
+                    Resolve with photo
+                  </Button>
+                )}
+                <Button asChild variant="outline" className="w-full gap-2">
                   <Link href="/map">
                     <MapPin className="h-4 w-4" />
                     View on map
@@ -397,7 +423,7 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
                 {isAdmin && (
                   <Button
                     variant="outline"
-                    className="mt-2 w-full gap-2 text-red-600 hover:bg-red-50 hover:text-red-700"
+                    className="w-full gap-2 text-red-600 hover:bg-red-50 hover:text-red-700"
                     onClick={async () => {
                       if (!confirm("Delete this issue permanently?")) return;
                       try {
@@ -423,6 +449,12 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
               </CardContent>
             </Card>
           )}
+
+          <ResolveDialog
+            issueId={issueId}
+            open={resolveOpen}
+            onOpenChange={setResolveOpen}
+          />
 
           <Card>
             <CardHeader>
