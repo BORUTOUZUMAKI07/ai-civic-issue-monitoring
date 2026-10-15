@@ -1,4 +1,6 @@
-from sqlalchemy import select
+from typing import Any
+
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domains.users.models.user import User
@@ -27,7 +29,36 @@ class UserRepository:
         return list(result.scalars().all())
 
     async def count(self) -> int:
-        from sqlalchemy import func
-
         result = await self.db.execute(select(func.count(User.id)))
         return result.scalar_one()
+
+    async def list_filtered(
+        self,
+        *,
+        skip: int = 0,
+        limit: int = 50,
+        search: str = "",
+        role: str | None = None,
+    ) -> list[User]:
+        """Page of users matching an optional free-text search and role filter.
+
+        The WHERE clauses are shared with :meth:`count_filtered` so the listed
+        rows and the reported total can never drift apart.
+        """
+        stmt = self._filtered(select(User), search=search, role=role)
+        stmt = stmt.order_by(User.created_at.desc()).offset(skip).limit(limit)
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def count_filtered(self, *, search: str = "", role: str | None = None) -> int:
+        result = await self.db.execute(self._filtered(select(func.count(User.id)), search=search, role=role))
+        return int(result.scalar_one())
+
+    @staticmethod
+    def _filtered(stmt: Select[Any], *, search: str = "", role: str | None = None) -> Select[Any]:
+        if search:
+            pattern = f"%{search}%"
+            stmt = stmt.where(User.email.ilike(pattern) | User.full_name.ilike(pattern))
+        if role:
+            stmt = stmt.where(User.role == role)
+        return stmt

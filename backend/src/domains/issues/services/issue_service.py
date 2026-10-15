@@ -1,5 +1,6 @@
 import io
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import pillow_heif
 from PIL import Image
@@ -16,7 +17,13 @@ from src.domains.resolution.repositories.resolution_repository import Resolution
 from src.domains.users.repositories.user_repository import UserRepository
 from src.domains.wards.geofencing import get_ward_from_coords
 from src.domains.wards.repositories.ward_repository import WardRepository
-from src.shared.errors import CorruptedImageError, ImageTooLargeError, InvalidImageError, IssueNotFound
+from src.shared.errors import (
+    CorruptedImageError,
+    ForbiddenError,
+    ImageTooLargeError,
+    InvalidImageError,
+    IssueNotFound,
+)
 
 pillow_heif.register_heif_opener()
 
@@ -221,6 +228,40 @@ class IssueService:
         issues = await self.issue_repo.list_by_ward(ward_id, skip=skip, limit=limit)
         total = await self.issue_repo.count()
         return issues, total
+
+    async def list_review_queue(self, skip: int = 0, limit: int = 20) -> tuple[list[Issue], int]:
+        issues = await self.issue_repo.list_review_queue(skip=skip, limit=limit)
+        total = await self.issue_repo.count_review_queue()
+        return issues, total
+
+    async def get_assignment_map(self, issue_ids: list[int]) -> dict[int, dict[str, Any]]:
+        """Batch-load the latest assignee (engineer + user) per issue."""
+        return await self.assignment_repo.latest_by_issue_ids(issue_ids)
+
+    async def review_issue(self, issue_id: int, action: str, new_type: str | None) -> Issue | None:
+        """Apply an admin review decision.
+
+        Returns the updated issue, or ``None`` when ``action == "reject"`` — in
+        which case the issue (and its dependents) have been deleted. Type
+        validation lives here so the endpoint stays a thin HTTP shell.
+        """
+        issue = await self.issue_repo.get(issue_id)
+        if not issue:
+            raise IssueNotFound()
+
+        if action == "reject":
+            await self.delete_issue(issue)
+            return None
+
+        if action == "change_type":
+            if not new_type or new_type not in ISSUE_TYPE_MAP:
+                raise ForbiddenError(f"Invalid type. Must be one of: {', '.join(ISSUE_TYPE_MAP.keys())}")
+            issue.issue_type = ISSUE_TYPE_MAP[new_type]
+
+        issue.review_required = False
+        await self.issue_repo.commit()
+        await self.db.refresh(issue)
+        return issue
 
     async def update_status(self, issue_id: int, status: str) -> Issue:
         issue_status = IssueStatus(status)

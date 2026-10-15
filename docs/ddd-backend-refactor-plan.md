@@ -1,6 +1,6 @@
 # Backend DDD Restructure — Migration Plan
 
-Status: **Executed** — structural restructure complete and green on `refactor/ddd-backend`. Route-slimming (Phase 4) deferred to a dedicated follow-up.
+Status: **Executed** — structural restructure and route surgery complete and green on `refactor/ddd-backend`.
 Scope: `backend/src/` only. No frontend, no ML/prefect, no dependency changes.
 
 ---
@@ -269,8 +269,8 @@ app never had a broken intermediate state.
    `admin`, `issues`, `dashboard`, `notifications`, `ml` into services.
 4. **Sequencing note:** Phase 4 was executed *after* Phase 5. Introducing repository
    ports before the repository move would have meant moving them twice, so the
-   structural moves (repos → models → api/services) came first. Ports + DI land with
-   the route-surgery follow-up.
+   structural moves (repos → models → api/services) came first. Ports + DI remain a
+   future refinement.
 
 ---
 
@@ -285,14 +285,28 @@ app never had a broken intermediate state.
 | 2 | `a4e7f2b` | repositories → `domains/*/repositories/`; new `assignments` + `users` domains |
 | 3 | `aa59000` | ORM models → `domains/*/models/`; `src/models/` registry; role hierarchy → `users` |
 | 5 | `17c82d2` | routers → `domains/*/api/routes.py`; services → `domains/*/services/` |
+| 4 | route surgery | thin routers; business logic moved into services/repositories/schemas |
 
 Every domain now has `models/  repositories/  services/  api/  (+ schemas.py)`.
 `core/` and `shared/` are enforced as layering leaves by `tests/test_architecture.py`.
 
-**Deferred to a follow-up (Phase 4):** extract inline SQL/business logic from the fat
-routes — `admin/api/routes.py` (~280 lines) and `issues/api/routes.py` (~561 lines) — into
-services, and add repository `ports.py` Protocols with constructor-injected services.
-No URL or contract change; purely internal.
+**Phase 4 — route surgery (done):** the fat routers are now thin
+HTTP shells; the logic lives in services/repositories/schemas:
+
+- `users/services/user_service.py` — `list_users`, `change_role` (the role-swap rules)
+- `issues/services/issue_service.py` — `list_review_queue`, `get_assignment_map`,
+  `review_issue`
+- `engineers/services/engineer_service.py` — `create_engineer`, `get_my_profile`,
+  `list_my_assignments`
+- `AssignmentRepository.latest_by_issue_ids` / `list_by_engineer_with_issue` and
+  `IssueRepository.list_review_queue` / `count_review_queue` (SQL back in the data layer)
+- `UserRepository.list_filtered` / `count_filtered`
+- `IssueResponse.from_issue`, `EngineerResponse.from_engineer` (response mappers)
+- one shared `users.rbac.require_admin` replaces the `_require_admin` copy in three routers
+
+`dashboard`, `notifications` and `ml` routers were already thin pass-throughs, so no change.
+The repository `ports.py` Protocols + constructor-injected services remain a possible
+future refinement; services still construct their repositories from the session.
 
 **Verification:** `pixi run lint`, `pixi run typecheck`, and the full pytest suite
 (193 passed / 1 skipped) are green. `pixi.lock` was intentionally excluded from all commits

@@ -48,6 +48,20 @@ class IssueRepository:
         result = await self.db.execute(select(Issue).order_by(Issue.created_at.desc()).offset(skip).limit(limit))
         return list(result.scalars().all())
 
+    async def list_review_queue(self, skip: int = 0, limit: int = 20) -> list[Issue]:
+        result = await self.db.execute(
+            select(Issue)
+            .where(Issue.review_required == True)  # noqa: E712
+            .order_by(Issue.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def count_review_queue(self) -> int:
+        result = await self.db.execute(select(func.count(Issue.id)).where(Issue.review_required == True))  # noqa: E712
+        return result.scalar_one()
+
     async def count(self) -> int:
         result = await self.db.execute(select(func.count(Issue.id)))
         return result.scalar_one()

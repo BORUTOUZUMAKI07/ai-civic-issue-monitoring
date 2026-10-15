@@ -66,6 +66,48 @@ class AssignmentRepository:
         await self.db.refresh(assignment)
         return assignment
 
+    async def latest_by_issue_ids(self, issue_ids: list[int]) -> dict[int, dict[str, Any]]:
+        """Return the latest assignment per issue, joined to its engineer's user.
+
+        Maps ``issue_id -> {"user_id": int, "full_name": str}``. Done as a single
+        query (max-id subquery) rather than one-per-issue, so rendering a page of
+        issues does not fan out into N+1 selects.
+        """
+        if not issue_ids:
+            return {}
+        from sqlalchemy import func
+
+        from src.domains.engineers.models.engineer import Engineer
+        from src.domains.users.models.user import User
+
+        latest = (
+            select(Assignment.issue_id, func.max(Assignment.id).label("max_id"))
+            .where(Assignment.issue_id.in_(issue_ids))
+            .group_by(Assignment.issue_id)
+            .subquery()
+        )
+        stmt = (
+            select(Assignment, Engineer.user_id, User.full_name)
+            .join(latest, Assignment.id == latest.c.max_id)
+            .join(Engineer, Assignment.engineer_id == Engineer.id)
+            .join(User, Engineer.user_id == User.id)
+        )
+        result = await self.db.execute(stmt)
+        return {row[0].issue_id: {"user_id": row[1], "full_name": row[2]} for row in result.all()}
+
+    async def list_by_engineer_with_issue(self, engineer_id: int) -> list[tuple[Assignment, Any]]:
+        """Assignments for an engineer joined to their issue, newest first."""
+        from src.domains.issues.models.issue import Issue
+
+        stmt = (
+            select(Assignment, Issue)
+            .join(Issue, Assignment.issue_id == Issue.id)
+            .where(Assignment.engineer_id == engineer_id)
+            .order_by(Assignment.assigned_at.desc())
+        )
+        result = await self.db.execute(stmt)
+        return [(row[0], row[1]) for row in result.all()]
+
     async def update_status(self, assignment_id: int, status: AssignmentStatus) -> Assignment | None:
         assignment = await self.get(assignment_id)
         if not assignment:

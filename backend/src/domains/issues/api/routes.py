@@ -14,81 +14,15 @@ from src.core.gate import gate_decision
 from src.domains.issues.schemas import IssueListResponse, IssueResponse, IssueStatusUpdate
 from src.domains.issues.services.issue_service import IssueService
 from src.domains.users.deps import get_current_active_user
-from src.domains.users.models.user import User, UserRole
-from src.domains.users.rbac import role_at_least
-from src.shared.errors import BadRequestError, ForbiddenError
+from src.domains.users.models.user import User
+from src.domains.users.rbac import require_admin
+from src.shared.errors import BadRequestError
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/issues", tags=["Issues"])
 
 UPLOAD_DIR = Path("uploads/issues")
-
-
-def _require_admin(user: User) -> None:
-    if not role_at_least(user.role, UserRole.admin):
-        raise ForbiddenError("Admin access required.")
-
-
-async def _build_issue_response(svc: IssueService, issue, assignment_map: dict | None = None) -> IssueResponse:
-    assigned_to = None
-    engineer_name = None
-
-    a = (assignment_map or {}).get(issue.id)
-    if a:
-        assigned_to = str(a["user_id"])
-        engineer_name = a["full_name"]
-
-    return IssueResponse(
-        id=issue.id,
-        issue_type=issue.issue_type.value,
-        confidence=issue.confidence,
-        severity=issue.severity,
-        status=issue.status.value,
-        latitude=issue.latitude,
-        longitude=issue.longitude,
-        description=issue.description,
-        image_url=issue.image_url,
-        review_required=issue.review_required,
-        ward_id=issue.ward_id,
-        reporter_id=issue.reporter_id,
-        created_at=issue.created_at.isoformat(),
-        assigned_to=assigned_to,
-        engineer_name=engineer_name,
-        model_used=issue.model_used,
-        probabilities=issue.probabilities,
-    )
-
-
-async def _load_assignment_map(db, issue_ids: list[int]) -> dict:
-    """Batch-load latest assignment+engineer+user for all issues in one query."""
-    if not issue_ids:
-        return {}
-    from sqlalchemy import func
-    from sqlalchemy import select as sa_select
-
-    from src.domains.assignments.models.assignment import Assignment
-    from src.domains.engineers.models.engineer import Engineer
-    from src.domains.users.models.user import User
-
-    subq = (
-        sa_select(
-            Assignment.issue_id,
-            func.max(Assignment.id).label("max_id"),
-        )
-        .where(Assignment.issue_id.in_(issue_ids))
-        .group_by(Assignment.issue_id)
-        .subquery()
-    )
-
-    stmt = (
-        sa_select(Assignment, Engineer.user_id, User.full_name)
-        .join(subq, Assignment.id == subq.c.max_id)
-        .join(Engineer, Assignment.engineer_id == Engineer.id)
-        .join(User, Engineer.user_id == User.id)
-    )
-    result = await db.execute(stmt)
-    return {row[0].issue_id: {"user_id": row[1], "full_name": row[2]} for row in result.all()}
 
 
 def _classify_image(image_bytes: bytes) -> dict | None:
@@ -421,25 +355,8 @@ async def _execute_upload(
 
     await invalidate_dashboard_cache()
 
-    return IssueResponse(
-        id=issue.id,
-        issue_type=issue.issue_type.value,
-        confidence=issue.confidence,
-        severity=issue.severity,
-        status=issue.status.value,
-        latitude=issue.latitude,
-        longitude=issue.longitude,
-        description=issue.description,
-        image_url=issue.image_url,
-        review_required=issue.review_required,
-        ward_id=issue.ward_id,
-        reporter_id=issue.reporter_id,
-        created_at=issue.created_at.isoformat(),
-        assigned_to=str(assigned_to) if assigned_to else None,
-        engineer_name=engineer_name,
-        model_used=issue.model_used,
-        probabilities=issue.probabilities,
-    )
+    assignment = {"user_id": assigned_to, "full_name": engineer_name} if assigned_to else None
+    return IssueResponse.from_issue(issue, assignment)
 
 
 @router.get("/similar/{issue_id}")
@@ -514,9 +431,9 @@ async def list_issues(
 ):
     svc = IssueService(db)
     issues, total = await svc.list_issues(skip=skip, limit=limit)
-    a_map = await _load_assignment_map(db, [i.id for i in issues])
-    items = [_build_issue_response(svc, i, a_map) for i in issues]
-    return IssueListResponse(items=await asyncio.gather(*items), total=total)
+    a_map = await svc.get_assignment_map([i.id for i in issues])
+    items = [IssueResponse.from_issue(i, a_map.get(i.id)) for i in issues]
+    return IssueListResponse(items=items, total=total)
 
 
 @router.get("/{issue_id}", response_model=IssueResponse)
@@ -527,8 +444,8 @@ async def get_issue(
 ):
     svc = IssueService(db)
     issue = await svc.get_issue(issue_id)
-    a_map = await _load_assignment_map(db, [issue.id])
-    return await _build_issue_response(svc, issue, a_map)
+    a_map = await svc.get_assignment_map([issue.id])
+    return IssueResponse.from_issue(issue, a_map.get(issue.id))
 
 
 @router.post("/{issue_id}/assign", response_model=IssueResponse)
@@ -538,7 +455,7 @@ async def assign_issue(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    _require_admin(user)
+    require_admin(user)
     svc = IssueService(db)
     issue = await svc.get_issue(issue_id)
     engineer_id = body.get("engineer_id")
@@ -546,8 +463,8 @@ async def assign_issue(
         raise BadRequestError("engineer_id is required.")
     await svc.assign_issue_to_engineer(issue, int(engineer_id))
     await db.refresh(issue)
-    a_map = await _load_assignment_map(db, [issue.id])
-    return await _build_issue_response(svc, issue, a_map)
+    a_map = await svc.get_assignment_map([issue.id])
+    return IssueResponse.from_issue(issue, a_map.get(issue.id))
 
 
 @router.post("/{issue_id}/reassign", response_model=IssueResponse)
@@ -557,7 +474,7 @@ async def reassign_issue(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    _require_admin(user)
+    require_admin(user)
     svc = IssueService(db)
     issue = await svc.get_issue(issue_id)
     engineer_id = body.get("engineer_id")
@@ -565,8 +482,8 @@ async def reassign_issue(
         raise BadRequestError("engineer_id is required.")
     await svc.assign_issue_to_engineer(issue, int(engineer_id))
     await db.refresh(issue)
-    a_map = await _load_assignment_map(db, [issue.id])
-    return await _build_issue_response(svc, issue, a_map)
+    a_map = await svc.get_assignment_map([issue.id])
+    return IssueResponse.from_issue(issue, a_map.get(issue.id))
 
 
 @router.patch("/{issue_id}/status", response_model=IssueResponse)
@@ -581,8 +498,8 @@ async def update_issue_status(
     from src.domains.dashboard.api.routes import invalidate_dashboard_cache
 
     await invalidate_dashboard_cache()
-    a_map = await _load_assignment_map(db, [issue.id])
-    return await _build_issue_response(svc, issue, a_map)
+    a_map = await svc.get_assignment_map([issue.id])
+    return IssueResponse.from_issue(issue, a_map.get(issue.id))
 
 
 @router.delete("/{issue_id}")
@@ -591,7 +508,7 @@ async def delete_issue(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    _require_admin(user)
+    require_admin(user)
     svc = IssueService(db)
     issue = await svc.get_issue(issue_id)
 
