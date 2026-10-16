@@ -41,6 +41,16 @@ services:
       - NEW_RELIC_ENABLED=${NEW_RELIC_ENABLED:-false}
       - NEW_RELIC_OTLP_ENDPOINT=${NEW_RELIC_OTLP_ENDPOINT:-http://otel-collector:4318}
       - NEW_RELIC_EXPORT_INTERVAL_SECONDS=${NEW_RELIC_EXPORT_INTERVAL_SECONDS:-30}
+      # HTTP basic auth for the collector's OTLP receiver. The SAME pair is set
+      # on otel-collector below, so the app authenticates by default — a
+      # mismatch between the two would show up as a 401 the collector rejects
+      # and a silently empty sink. Placeholder defaults: override BOTH (and the
+      # collector's copy) before any deployment that exposes :4318.
+      - OTLP_AUTH_USER=${OTLP_AUTH_USER:-civicpulse}
+      - OTLP_AUTH_PASSWORD=${OTLP_AUTH_PASSWORD:-civicpulse}
+      # Opt-in error tracking (Sentry). Empty = not configured, no client at all.
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_TRACES_SAMPLE_RATE=${SENTRY_TRACES_SAMPLE_RATE:-0.0}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
@@ -143,9 +153,16 @@ services:
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.121.0
     container_name: civicpulse_otel_collector
+    # The base config is the default and the only thing that runs. To also fan
+    # out into Grafana Cloud (second sink, zero app change), set GRAFANA_* below
+    # and add a second flag to this list:
+    #   - --config=/etc/otelcol-contrib/config.grafana.yaml
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
       - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      # Grafana fan-out overlay (docker/otel-collector-config.grafana.yaml).
+      # Mounted but NOT loaded by default — see the `command` note above.
+      - ./otel-collector-config.grafana.yaml:/etc/otelcol-contrib/config.grafana.yaml:ro
       # Persistent sending-queue buffer (file_storage): telemetry survives a
       # collector restart instead of being lost with the in-memory queue.
       - otelcol-queue:/var/lib/otelcol/queue
@@ -154,8 +171,13 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-development}
       # Stamped onto every signal; keep it in step with the backend's VERSION.
       - SERVICE_VERSION=${SERVICE_VERSION:-unknown}
-      # Optional second sink (Grafana Cloud). Set both + uncomment the
-      # otlphttp/grafana exporter in the collector config to mirror every signal.
+      # Receiver credentials — the SAME pair the backend sends (OTLP_AUTH_* above),
+      # so both halves of the OTLP handshake agree. Placeholder defaults: change
+      # them together, or the app's telemetry is rejected with a 401.
+      - OTLP_AUTH_USER=${OTLP_AUTH_USER:-civicpulse}
+      - OTLP_AUTH_PASSWORD=${OTLP_AUTH_PASSWORD:-civicpulse}
+      # Optional second sink (Grafana Cloud): set BOTH and load the overlay via
+      # the `command` note above to mirror every signal alongside New Relic.
       - GRAFANA_OTLP_ENDPOINT=${GRAFANA_OTLP_ENDPOINT:-}
       - GRAFANA_OTLP_TOKEN=${GRAFANA_OTLP_TOKEN:-}
     ports:

@@ -24,6 +24,7 @@ route as logs and traces.
 
 from __future__ import annotations
 
+import base64
 import logging
 import warnings
 from typing import Any
@@ -38,6 +39,7 @@ _otlp_trace_provider: Any = None
 _otlp_metrics_provider: Any = None
 _http_server_requests: Any = None
 _http_server_duration: Any = None
+_sentry_initialized: bool = False
 
 
 def _otlp_base_endpoint() -> str | None:
@@ -60,13 +62,32 @@ def _otlp_metrics_endpoint() -> str | None:
     return f"{base}/v1/metrics"
 
 
-def _otlp_headers() -> dict[str, str] | None:
-    """Extra headers for every OTLP request, or ``None`` when unset.
+def otlp_auth_headers() -> dict[str, str] | None:
+    """The ``Authorization: Basic`` header for a basicauth-gated receiver.
 
-    Only needed when the collector's OTLP receiver is basicauth-gated; the
-    default (open, network-isolated receiver) sends nothing extra.
+    Returns ``None`` unless *both* ``OTLP_AUTH_USER`` and
+    ``OTLP_AUTH_PASSWORD`` are set: a lone user or a lone password is a
+    half-finished configuration, and sending it would produce a credential the
+    collector is guaranteed to reject. Shared by all three signals so logs,
+    traces and metrics authenticate identically.
     """
-    headers = dict(settings.NEW_RELIC_OTLP_HEADERS)
+    user = (settings.OTLP_AUTH_USER or "").strip()
+    secret = settings.OTLP_AUTH_PASSWORD or ""
+    if not user or not secret:
+        return None
+    token = base64.b64encode(f"{user}:{secret}".encode()).decode("ascii")
+    return {"Authorization": f"Basic {token}"}
+
+
+def _otlp_headers() -> dict[str, str] | None:
+    """Extra headers for every OTLP request, or ``None`` when none apply.
+
+    The derived Basic header (from ``OTLP_AUTH_*``) covers the common case --
+    the collector's receiver is basicauth-gated. ``NEW_RELIC_OTLP_HEADERS`` is
+    a raw escape hatch layered on top and wins on a key collision.
+    """
+    headers: dict[str, str] = dict(otlp_auth_headers() or {})
+    headers.update(settings.NEW_RELIC_OTLP_HEADERS)
     return headers or None
 
 
@@ -346,3 +367,43 @@ def shutdown_otlp_metrics() -> None:
         provider.shutdown()
     except Exception as exc:  # noqa: BLE001 - teardown must never break shutdown
         logger.warning("OTLP metric provider shutdown failed: %s", exc)
+
+
+def setup_sentry() -> bool:
+    """Initialise Sentry error tracking when ``SENTRY_DSN`` is set (opt-in).
+
+    Returns ``True`` once the client is configured and ``False`` otherwise. A
+    strict no-op when the DSN is unset -- the common local/test/CI case pays
+    nothing. Fail-open by construction: if ``sentry-sdk`` is absent (it lives
+    in the optional ``[observability]`` extra) or ``init`` raises, a warning is
+    logged and startup continues. A broken error reporter must never be the
+    reason the service fails to boot.
+
+    Traces are **not** duplicated here: the OTLP path already owns spans, so
+    ``SENTRY_TRACES_SAMPLE_RATE`` defaults to 0 and this hook exists to group
+    and alert on *errors*. ``send_default_pii=False`` keeps request bodies,
+    cookies and user identifiers out of events -- the same posture as
+    :class:`src.log_utils.redaction.SensitiveDataFilter` on the log path.
+    """
+    global _sentry_initialized
+    if _sentry_initialized:
+        return True
+    dsn = (settings.SENTRY_DSN or "").strip()
+    if not dsn:
+        return False
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(
+            dsn=dsn,
+            environment=settings.ENVIRONMENT,
+            release=settings.VERSION,
+            traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
+            send_default_pii=False,
+        )
+        _sentry_initialized = True
+        logger.info("Sentry error tracking wired (env=%s)", settings.ENVIRONMENT)
+        return True
+    except Exception as exc:  # noqa: BLE001 - fail-open seam, never break startup
+        logger.warning("Sentry init failed: %s", exc)
+        return False

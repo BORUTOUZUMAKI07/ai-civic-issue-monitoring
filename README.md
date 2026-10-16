@@ -16,7 +16,7 @@ A professional, production-grade system for monitoring and managing civic issues
 | **ML Engine** | PyTorch + LangGraph | Custom trained models for issue classification + agent pipeline. |
 | **Monitoring** | Prefect + statistical drift checks | Scheduled confidence/label drift detection on logged predictions. |
 | **Scheduling** | Prefect Cloud | Automated drift detection, SLA monitoring, reporting, and ML retraining. |
-| **Observability** | OpenTelemetry (3-layer: OTLP → collector → New Relic / Grafana) | Structured logs, traces and RED metrics all exported over OTLP (FastAPI/httpx/SQLAlchemy instrumentors + HTTP metrics middleware), transported by a Layer-2 collector that owns the vendor key and can fan out to any OTLP sink. |
+| **Observability** | OpenTelemetry (3-layer: OTLP → collector → New Relic / Grafana) | Structured logs, traces and RED metrics all exported over OTLP (FastAPI/httpx/SQLAlchemy instrumentors + HTTP metrics middleware), transported by a Layer-2 collector that owns the vendor key, guards its OTLP receiver with basic auth, and fans out to any OTLP sink via a config-flag-gated overlay. Error tracking (Sentry) is opt-in behind `SENTRY_DSN`. |
 | **Containerization** | Docker | Full stack orchestration via Docker Compose. |
 
 **Directory Structure:**

@@ -6805,7 +6805,7 @@ packages:
 - pypi: ./backend
   name: civicpulse-backend
   version: 0.1.0
-  sha256: 685fd9bb3660d0ae77ecef209734f748db458c62b80cd67ad301ba95552aaaa4
+  sha256: 557eced3e77b9f7fdf09341ecd541dfcf8cc09a9849db1b4ebf9223f2d684776
   requires_dist:
   - fastapi>=0.115.0
   - uvicorn>=0.32.0
@@ -6864,6 +6864,7 @@ packages:
   - opentelemetry-instrumentation-fastapi>=0.50b0 ; extra == 'observability'
   - opentelemetry-instrumentation-httpx>=0.50b0 ; extra == 'observability'
   - opentelemetry-instrumentation-sqlalchemy>=0.50b0 ; extra == 'observability'
+  - sentry-sdk>=2.7.0 ; extra == 'observability'
   requires_python: '>=3.12,<4.0'
 - conda: https://conda.anaconda.org/conda-forge/noarch/click-8.4.2-pyh6dadd2b_0.conda
   sha256: 5b5c96afdd801dd9c3b78ebc2cd9a9f3ce34186257415d394dde1aa8468aa3c0

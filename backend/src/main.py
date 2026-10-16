@@ -22,6 +22,7 @@ from src.core.mongodb import init_mongodb
 from src.core.observability import (
     setup_otlp_metrics,
     setup_otlp_tracing,
+    setup_sentry,
     shutdown_otlp_log_handler,
     shutdown_otlp_metrics,
     shutdown_otlp_tracing,
@@ -41,6 +42,12 @@ from src.middleware import LoggingMiddleware, OTelMetricsMiddleware, RateLimitMi
 from src.shared.errors.base import AppError
 
 logger = logging.getLogger("civicpulse")
+
+# Error tracking is wired as early as possible -- before the app is built and
+# served -- so an exception raised during startup is captured too. A strict
+# no-op unless SENTRY_DSN is set, and fail-open when the optional sentry-sdk
+# (from the [observability] extra) is not installed.
+setup_sentry()
 
 
 async def _collect_health() -> tuple[bool, dict[str, bool]]:
