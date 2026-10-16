@@ -10,7 +10,7 @@ services:
       # Local-first defaults (ADR-0005): `docker compose --profile dev up`
       # boots the whole stack against the in-compose postgres/redis/mongo
       # services below. Any explicitly-set var always wins, so production
-      # deployments (Aiven/Upstash/Atlas) are unaffected — see .env.example.
+      # deployments (Aiven/Upstash/Atlas) are unaffected — see docker/.env.example.
       # ASYNC_DATABASE_URI is deliberately NOT passed: config.py's
       # build_async_uri derives the asyncpg URL from DATABASE_URL.
       - DATABASE_URL=${DATABASE_URL:-postgresql://civicpulse:changeme@postgres:5432/civicpulse}
