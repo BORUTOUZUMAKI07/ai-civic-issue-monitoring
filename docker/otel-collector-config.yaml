@@ -19,31 +19,39 @@
 # Required env (compose supplies defaults):
 #   NEW_RELIC_LICENSE_KEY   New Relic ingest key (agent-only secret).
 #   ENVIRONMENT             production / development (resource attribute).
+#   OTLP_AUTH_USER          HTTP basic-auth user guarding BOTH OTLP protocols.
+#   OTLP_AUTH_PASSWORD      the matching password. These are placeholders by
+#                           default (civicpulse/civicpulse) and MUST be changed
+#                           in production — on a public host an unauthenticated
+#                           receiver would burn the ingest quota for free.
 #
 # Optional env:
 #   SERVICE_VERSION         app version stamped on every signal (default: unknown).
 #   GRAFANA_OTLP_ENDPOINT   e.g. https://otlp-gateway-prod-<region>.grafana.net/otlp
 #   GRAFANA_OTLP_TOKEN      "Basic <base64(instance_id:api_token)>" for the above.
-#                           Setting both and uncommenting otlphttp/grafana below
-#                           mirrors every signal into Grafana — no app change.
+#                           Both are consumed by the OPTIONAL overlay
+#                           otel-collector-config.grafana.yaml, which mirrors every
+#                           signal into Grafana Cloud alongside New Relic — zero
+#                           application change (see that file's header).
+# SECURITY: on a public host both ports below are reachable by anyone, and an
+# open receiver lets a stranger POST junk that burns the ingest quota. Both
+# protocols therefore REQUIRE HTTP basic auth (extensions.basicauth/server),
+# fed by OTLP_AUTH_USER / OTLP_AUTH_PASSWORD. The app sends the matching
+# `Authorization: Basic` header (config.py OTLP_AUTH_*); a wrong pair is a 401
+# the collector logs, not a partial ingest you would never notice. Prefer
+# binding the collector to a private network as well — auth is not a substitute
+# for network placement.
 receivers:
   otlp:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
+        auth:
+          authenticator: basicauth/server
       http:
         endpoint: 0.0.0.0:4318
-        # SECURITY: on a public host this endpoint is PUBLIC — anyone could POST
-        # junk and burn the ingest quota. Prefer binding the collector to a
-        # private network. To gate it instead, replace the two lines under
-        # `http:` with:
-        #   http:
-        #     endpoint: 0.0.0.0:4318
-        #     auth:
-        #       authenticator: basicauth/server
-        # and uncomment the basicauth extension below, then set the app's
-        # NEW_RELIC_OTLP_HEADERS to send the matching Authorization header (see
-        # backend/.env.example) so it is not locked out.
+        auth:
+          authenticator: basicauth/server
 
 processors:
   memory_limiter:
@@ -94,10 +102,15 @@ extensions:
   file_storage:
     directory: /var/lib/otelcol/queue
     create_directory: true
-  # basicauth/server:
-  #   # htpasswd-style inline entry: user "civicpulse", password "civicpulse"
-  #   # (CHANGE ME). Uncomment together with the receiver `auth:` block above.
-  #   inline: civicpulse:civicpulse
+  # HTTP basic auth on the OTLP receiver (both protocols). `inline` is a
+  # `user:password` htpasswd entry; the values come from the environment so the
+  # collector and the app read the SAME pair (compose env OTLP_AUTH_*, mirrored
+  # onto the backend's config.py OTLP_AUTH_*). The default is a placeholder that
+  # MUST be changed in production — never inline a real credential here, it
+  # would land in version control.
+  basicauth/server:
+    htpasswd:
+      inline: "${env:OTLP_AUTH_USER}:${env:OTLP_AUTH_PASSWORD}"
 
 exporters:
   otlphttp/newrelic:
@@ -121,22 +134,19 @@ exporters:
     verbosity: basic
     sampling_initial: 5
     sampling_thereafter: 20
-  # ─── Second sink (no vendor lock-in): uncomment to mirror into Grafana Cloud ───
-  # Set GRAFANA_OTLP_ENDPOINT + GRAFANA_OTLP_TOKEN, define basicauth/client (or
-  # use a bearer token header), then add `otlphttp/grafana` to each pipeline's
-  # exporters list below. Zero application changes.
-  # otlphttp/grafana:
-  #   endpoint: ${env:GRAFANA_OTLP_ENDPOINT}
-  #   headers:
-  #     authorization: ${env:GRAFANA_OTLP_TOKEN}
-  #   sending_queue:
-  #     enabled: true
-  #     storage: file_storage
-  #   retry_on_failure:
-  #     enabled: true
+  # ─── Second sink (no vendor lock-in): Grafana Cloud is an OPT-IN overlay ───
+  # The exporter and the pipelines that use it live in
+  # otel-collector-config.grafana.yaml, loaded as a SECOND config file (the
+  # collector merges them: exporters union, pipelines from the overlay win):
+  #   --config=/etc/otelcol-contrib/config.yaml
+  #   --config=/etc/otelcol-contrib/config.grafana.yaml
+  # It is kept out of this file on purpose: the collector refuses to START when
+  # an otlphttp exporter has an empty endpoint, and the Grafana credentials are
+  # optional. Enabling it is therefore a config/flag change, never an app change
+  # — Layer 2 is the only vendor-aware component in the stack.
 
 service:
-  extensions: [health_check, file_storage]
+  extensions: [health_check, file_storage, basicauth/server]
   pipelines:
     # All three signals arrive on the same OTLP receiver — one transport, one
     # place to add/remove a sink, and no scrape path to keep in sync.

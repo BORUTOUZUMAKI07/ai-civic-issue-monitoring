@@ -131,11 +131,30 @@ class Settings(BaseSettings):
     NEW_RELIC_OTLP_ENDPOINT: str = "http://localhost:4318"
     NEW_RELIC_EXPORT_INTERVAL_SECONDS: int = 30
     NEW_RELIC_APP_NAME: str = "CivicPulse-API"
-    # Extra headers sent on every OTLP request, as a JSON object in the env.
-    # Empty by default; set it only when the collector's OTLP receiver is
-    # basicauth-gated, e.g.
-    #   NEW_RELIC_OTLP_HEADERS={"Authorization": "Basic <base64(user:pass)>"}
+    # HTTP basic auth for the collector's OTLP receiver. The receiver is a
+    # public endpoint on a shared host, so when it is basicauth-gated the app
+    # must send the matching pair or its telemetry is silently rejected.
+    # Empty (the default) means "send no Authorization header" -- correct when
+    # the collector runs unauthenticated on a network-isolated host. A pair is
+    # used only when BOTH values are set: one without the other is treated as a
+    # half-finished configuration and ignored rather than sent as a broken
+    # credential. The collector reads the same names (docker-compose env).
+    OTLP_AUTH_USER: str = ""
+    OTLP_AUTH_PASSWORD: str = ""
+    # Extra headers sent on every OTLP request, as a JSON object in the env. A
+    # raw escape hatch for anything the derived Basic header does not cover
+    # (e.g. a bearer token); when a key collides, this wins. Empty by default.
     NEW_RELIC_OTLP_HEADERS: dict[str, str] = {}
+
+    # --- Error tracking (Sentry, opt-in) ---
+    # Set SENTRY_DSN to group and alert on unhandled exceptions -- without it a
+    # 500 is only a log line nobody reads. A strict no-op when unset, and
+    # fail-open when sentry-sdk is absent (it ships in the optional
+    # ``[observability]`` extra). Traces stay on the OTLP path, so Sentry's
+    # performance sampling defaults to 0: this hook exists for *errors*, not a
+    # second trace pipeline. Personal data is never attached (see setup_sentry).
+    SENTRY_DSN: str = ""
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.0
 
     # --- OAuth (Google / GitHub) ---
     GOOGLE_CLIENT_ID: str = ""

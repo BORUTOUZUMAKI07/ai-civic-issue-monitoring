@@ -15,6 +15,7 @@ recover the trade-offs that a diff no longer shows.
 | [0005](0005-local-dev-stack-compose.md) | Local dev datastores behind a compose `dev` profile | Accepted | 2026-10-11 |
 | [0006](0006-ci-load-test-gate.md) | CI load-test gate on the Locust suite with P95 / error-rate budgets | Accepted | 2026-10-11 |
 | [0007](0007-otel-all-signals-fanout.md) | All three signals over OTLP; drop the Prometheus scrape path | Accepted | 2026-10-16 |
+| [0008](0008-otlp-receiver-auth-and-opt-in-sinks.md) | Authenticate the OTLP receiver; opt-in second sink and error tracking | Accepted | 2026-10-16 |
 
 Statuses: **Accepted** — decided, implemented, and shipped. **Superseded** —
 replaced by a later ADR (see that ADR).
@@ -26,9 +27,11 @@ For someone new to the codebase the highest-signal entries are:
 1. **0004** — explains *why tests use SQLite/fakes and only some tests spin up
    real Postgres/Redis*; it makes the `integration` marker and `conftest.py`
    comprehensible.
-2. **0001 → 0007** — explains the 3-layer observability the README advertises,
-   why the app never holds a New Relic license key, and (in 0007) why every
-   signal — including metrics — now travels OTLP with no Prometheus scrape path.
+2. **0001 → 0007 → 0008** — explains the 3-layer observability the README
+   advertises, why the app never holds a New Relic license key, why every signal
+   — including metrics — now travels OTLP with no Prometheus scrape path, and
+   (in 0008) why the receiver itself requires basic auth while a second sink and
+   error tracking stay strictly opt-in.
 3. **0002** — explains the thread-safety contract around ML model loading, which
    the eager-warmup boot path and `predict.py`'s lock both depend on.
 
