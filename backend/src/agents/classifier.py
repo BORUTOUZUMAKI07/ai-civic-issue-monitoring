@@ -63,16 +63,31 @@ def _keyword_classify(text: str) -> tuple[str, int, float]:
     return category, severity, confidence
 
 
-async def _openai_classify(text: str) -> tuple[str, int, float] | None:
-    """Use OpenAI to classify the issue. Returns (category, severity, confidence) or None on failure."""
+async def _openai_classify(text: str, rag_context: str = "") -> tuple[str, int, float] | None:
+    """Use OpenAI to classify the issue. Returns (category, severity, confidence) or None on failure.
+
+    ``rag_context`` is the rendered block of similar historical issues from the
+    retrieval layer (see ``src/rag/context.py``). When present it is injected into
+    the prompt so the model can lean on recurring local patterns; it never
+    replaces the current report, which remains the primary signal.
+    """
     if not settings.OPENAI_API_KEY:
         return None
 
     try:
+        history_block = ""
+        if rag_context:
+            history_block = (
+                "\nUse the following historical issues from this city as supporting "
+                "evidence for recurring patterns. The current report is still the "
+                "primary signal — do not let history override clear evidence in it.\n\n"
+                f"{rag_context}\n"
+            )
+
         prompt = f"""Classify this civic issue report into exactly one category and severity level.
 
 Issue description: "{text}"
-
+{history_block}
 Categories (choose exactly one):
 - pothole: road potholes, road damage, broken asphalt
 - garbage: waste, trash, litter, overflowing bins
@@ -127,22 +142,45 @@ Respond with ONLY a JSON object:
 async def classify_issue(state: AgentState) -> dict[str, Any]:
     """Classify issue using OpenAI with keyword fallback.
 
-    Priority: OpenAI → keyword matching → default.
+    Priority: OpenAI (optionally RAG-assisted) → keyword matching → default.
+
+    When ``RAG_CLASSIFY_ENABLED`` is on and the intake gate preclassified the
+    report with low confidence, the LLM is consulted *with* the retrieved
+    historical context so it can refine the label. With the flag off (the
+    default) a preclassified category is always trusted, exactly as before.
     """
     description = state.get("description", "")
     existing_category = state.get("category", "")
+    rag_context = state.get("rag_context", "") if settings.RAG_CLASSIFY_ENABLED else ""
+    try:
+        category_confidence = float(state.get("category_confidence", 1.0) or 1.0)
+    except (TypeError, ValueError):
+        category_confidence = 1.0
 
-    if existing_category and existing_category in LABEL_TO_SEVERITY:
+    preclassified = bool(existing_category) and existing_category in LABEL_TO_SEVERITY
+    # Re-consult the LLM only when there is no gate label, or when the gate was
+    # unsure AND we actually have retrieved context to give it.
+    consult_llm = not preclassified or (
+        bool(rag_context) and category_confidence < settings.RAG_CLASSIFY_MIN_CONFIDENCE
+    )
+
+    if preclassified and not consult_llm:
         category = existing_category
         severity = LABEL_TO_SEVERITY[category]
         confidence = 0.8
         source = "preclassified"
     else:
-        openai_result = await _openai_classify(description)
+        openai_result = await _openai_classify(description, rag_context)
 
         if openai_result:
             category, severity, confidence = openai_result
-            source = "openai"
+            source = "openai+rag" if rag_context else "openai"
+        elif preclassified:
+            # LLM unavailable/failed — keep the gate's label rather than guessing.
+            category = existing_category
+            severity = LABEL_TO_SEVERITY[category]
+            confidence = 0.8
+            source = "preclassified"
         else:
             category, severity, confidence = _keyword_classify(description)
             source = "keyword"
@@ -164,6 +202,7 @@ async def classify_issue(state: AgentState) -> dict[str, Any]:
             "category": category,
             "severity": severity,
             "confidence": round(confidence, 3),
+            "rag_context_used": bool(rag_context),
         },
         "messages": state.get("messages", []),
     }

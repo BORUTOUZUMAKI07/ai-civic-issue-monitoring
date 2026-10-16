@@ -14,7 +14,8 @@ Two independent evaluations, either or both per invocation:
   queries through ``find_similar_issues`` and reports MRR / nDCG@k / precision@k
   where a retrieved issue is relevant when its ``issue_type`` matches the probe.
   ``--hybrid`` re-runs with ``RETRIEVAL_HYBRID`` forced on so the two modes can
-  be compared in one command. Skips cleanly (exit 0) when no embeddings exist.
+  be compared in one command, and ``--weighted`` does the same for
+  ``RAG_WEIGHTED_RERANK``. Skips cleanly (exit 0) when no embeddings exist.
 
 The classifier gate fails the process when macro-F1 drops below
 ``--min-macro-f1`` (default 0.9) unless ``--report-only`` is given, so CI turns
@@ -26,6 +27,7 @@ Usage::
     python scripts/evaluate_ml.py                       # classifier only
     python scripts/evaluate_ml.py --mongo               # + real reviewed data
     python scripts/evaluate_ml.py --retrieval --hybrid  # retrieval, both modes
+    python scripts/evaluate_ml.py --retrieval --weighted  # + weighted re-ranking
 """
 from __future__ import annotations
 
@@ -217,8 +219,17 @@ async def run_retrieval(args: argparse.Namespace) -> dict:
 
     reports: dict = {}
     settings.RETRIEVAL_HYBRID = False
+    settings.RAG_WEIGHTED_RERANK = False
     reports["vector"] = await evaluate_retrieval(args.top_k)
     _print_retrieval("vector", reports["vector"])
+
+    if args.weighted:
+        # Same eligible set as plain vector (threshold unchanged); only the
+        # ordering differs, so the two reports are directly comparable.
+        settings.RAG_WEIGHTED_RERANK = True
+        reports["weighted"] = await evaluate_retrieval(args.top_k)
+        _print_retrieval("weighted (sim + recency + severity + resolution)", reports["weighted"])
+        settings.RAG_WEIGHTED_RERANK = False
 
     if args.hybrid:
         settings.RETRIEVAL_HYBRID = True
@@ -235,6 +246,7 @@ def main() -> int:
     parser.add_argument("--retrieval", action="store_true", help="retrieval eval (needs a populated DB)")
     parser.add_argument("--mongo", action="store_true", help="augment classifier ground truth from Mongo")
     parser.add_argument("--hybrid", action="store_true", help="also evaluate hybrid retrieval")
+    parser.add_argument("--weighted", action="store_true", help="also evaluate weighted re-ranking")
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--min-macro-f1", type=float, default=0.9, help="CI gate for the classifier")
     parser.add_argument("--report-only", action="store_true", help="never fail on the classifier threshold")
