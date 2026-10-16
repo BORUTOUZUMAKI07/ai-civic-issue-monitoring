@@ -1,30 +1,31 @@
 # CivicPulse — Layer-2 OpenTelemetry Collector (collection & transport).
 #
-# Data flow (3-layer observability, same pattern as the nexus-ai root project):
-#   Layer 1 (in-process)   backend app only: /metrics Prometheus endpoint
-#                          (optionally Bearer-gated by METRICS_TOKEN) + OTLP
-#                          log AND trace export (NEW_RELIC_ENABLED +
-#                          NEW_RELIC_OTLP_ENDPOINT; the FastAPI/httpx/
-#                          SQLAlchemy instrumentors are the span sources).
-#   Layer 2 (this agent)   receives OTLP logs+traces on :4318, scrapes the
-#                          app's /metrics, tail-samples traces, batches, and
-#                          forwards to Layer 3.
-#   Layer 3 (sink)         New Relic (otlphttp exporter). The agent owns
-#                          NEW_RELIC_LICENSE_KEY — the app never holds it.
+# Data flow (3-layer observability):
+#   Layer 1 (in-process)   the backend app ONLY speaks OTLP: structured logs
+#                          (src/log_utils), spans (FastAPI/httpx/SQLAlchemy
+#                          instrumentors) and RED metrics (OTelMetricsMiddleware).
+#                          Gated by NEW_RELIC_ENABLED + NEW_RELIC_OTLP_ENDPOINT.
+#                          There is no /metrics scrape path and the app holds no
+#                          vendor key.
+#   Layer 2 (this agent)   receives OTLP on :4318, tail-samples traces,
+#                          batches, and forwards all three signals to Layer 3.
+#                          Its exporters are the ONLY vendor-aware part of the
+#                          stack: swapping or adding a sink is a change here.
+#   Layer 3 (sink)         New Relic (otlphttp exporter) — and optionally Grafana
+#                          Cloud, fanned out below.
 #
 # Local:      docker compose -f docker/docker-compose.yml up otel-collector
-#             (the collector scrapes the backend service on the compose network
-#             as `backend:8000`).
 #
 # Required env (compose supplies defaults):
 #   NEW_RELIC_LICENSE_KEY   New Relic ingest key (agent-only secret).
 #   ENVIRONMENT             production / development (resource attribute).
-#   METRICS_TOKEN           Bearer token the app requires for /metrics; empty
-#                           when the app's METRICS_TOKEN is unset (local dev).
-#   METRICS_SCRAPE_TARGET   host:port the agent scrapes, e.g. the Render app
-#                           URL https://your-app.onrender.com (compose default:
-#                           backend:8000). Unset breaks startup — Prometheus
-#                           refuses an empty target on purpose.
+#
+# Optional env:
+#   SERVICE_VERSION         app version stamped on every signal (default: unknown).
+#   GRAFANA_OTLP_ENDPOINT   e.g. https://otlp-gateway-prod-<region>.grafana.net/otlp
+#   GRAFANA_OTLP_TOKEN      "Basic <base64(instance_id:api_token)>" for the above.
+#                           Setting both and uncommenting otlphttp/grafana below
+#                           mirrors every signal into Grafana — no app change.
 receivers:
   otlp:
     protocols:
@@ -32,27 +33,17 @@ receivers:
         endpoint: 0.0.0.0:4317
       http:
         endpoint: 0.0.0.0:4318
-        # SECURITY: on a public (e.g. free-tier Render) service this endpoint
-        # is PUBLIC — anyone could POST junk and burn the New Relic free tier.
-        # To lock it down, replace the two lines under `http:` with:
+        # SECURITY: on a public host this endpoint is PUBLIC — anyone could POST
+        # junk and burn the ingest quota. Prefer binding the collector to a
+        # private network. To gate it instead, replace the two lines under
+        # `http:` with:
         #   http:
         #     endpoint: 0.0.0.0:4318
         #     auth:
         #       authenticator: basicauth/server
         # and uncomment the basicauth extension below, then set the app's
-        # OTLP log exporter headers to send the matching Authorization header.
-  prometheus:
-    config:
-      scrape_configs:
-        - job_name: civicpulse-backend
-          scrape_interval: 30s
-          metrics_path: /metrics
-          authorization:
-            type: Bearer
-            # Empty when the app's METRICS_TOKEN is unset (local dev).
-            credentials: ${env:METRICS_TOKEN}
-          static_configs:
-            - targets: ["${env:METRICS_SCRAPE_TARGET}"]
+        # NEW_RELIC_OTLP_HEADERS to send the matching Authorization header (see
+        # backend/.env.example) so it is not locked out.
 
 processors:
   memory_limiter:
@@ -60,7 +51,7 @@ processors:
     limit_percentage: 80
     spike_limit_percentage: 25
   # Tail-sampling: keep every error span, ~10% of the rest. The app sends its
-  # full trace stream, so the agent decides what reaches New Relic's free tier.
+  # full trace stream, so the agent decides what reaches the free tier.
   tail_sampling:
     decision_wait: 10s
     num_traces: 10000
@@ -90,53 +81,76 @@ processors:
       - key: service.name
         value: civicpulse-backend
         action: upsert
+      - key: service.version
+        value: ${env:SERVICE_VERSION}
+        action: upsert
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  # Persistent on-disk queue so a New Relic outage or restart does not drop
+  # telemetry after the in-memory retry window expires. Bound by `sending_queue`
+  # below; the directory lives on the compose volume (docker-compose.yml).
+  file_storage:
+    directory: /var/lib/otelcol/queue
+    create_directory: true
+  # basicauth/server:
+  #   # htpasswd-style inline entry: user "civicpulse", password "civicpulse"
+  #   # (CHANGE ME). Uncomment together with the receiver `auth:` block above.
+  #   inline: civicpulse:civicpulse
 
 exporters:
   otlphttp/newrelic:
     endpoint: https://otlp.nr-data.net:4318
     headers:
       api-key: ${env:NEW_RELIC_LICENSE_KEY}
-    # Free-tier-friendly: drop the payload instead of retrying forever when
-    # the ingest account is over quota (NR 429s).
+    compression: gzip
+    # Buffer to disk, then retry with backoff: telemetry survives a sink outage
+    # (up to max_elapsed_time) and a collector restart (via file_storage).
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 5000
+      storage: file_storage
     retry_on_failure:
       enabled: true
       initial_interval: 5s
       max_interval: 30s
-      max_elapsed_time: 60s
+      max_elapsed_time: 300s
   debug:
     verbosity: basic
     sampling_initial: 5
     sampling_thereafter: 20
-
-extensions:
-  health_check:
-    endpoint: 0.0.0.0:13133
-  # basicauth/server:
-  #   # htpasswd-style inline entry: user "civicpulse", password "civicpulse" (CHANGE ME)
-  #   inline: civicpulse:civicpulse
+  # ─── Second sink (no vendor lock-in): uncomment to mirror into Grafana Cloud ───
+  # Set GRAFANA_OTLP_ENDPOINT + GRAFANA_OTLP_TOKEN, define basicauth/client (or
+  # use a bearer token header), then add `otlphttp/grafana` to each pipeline's
+  # exporters list below. Zero application changes.
+  # otlphttp/grafana:
+  #   endpoint: ${env:GRAFANA_OTLP_ENDPOINT}
+  #   headers:
+  #     authorization: ${env:GRAFANA_OTLP_TOKEN}
+  #   sending_queue:
+  #     enabled: true
+  #     storage: file_storage
+  #   retry_on_failure:
+  #     enabled: true
 
 service:
-  extensions: [health_check]
+  extensions: [health_check, file_storage]
   pipelines:
-    # Logs are the app's live OTLP log stream.
+    # All three signals arrive on the same OTLP receiver — one transport, one
+    # place to add/remove a sink, and no scrape path to keep in sync.
     logs:
       receivers: [otlp]
       processors: [memory_limiter, batch, resource]
       exporters: [otlphttp/newrelic, debug]
-    # Metrics: scraped from /metrics (the live path).
     metrics:
-      receivers: [prometheus]
+      receivers: [otlp]
       processors: [memory_limiter, batch, resource]
       exporters: [otlphttp/newrelic, debug]
-    # Traces: the app's OTLP span stream, tail-sampled here (keep errors,
-    # ~10% of the rest) before the free tier sees it.
+    # Traces are tail-sampled here (keep errors, ~10% of the rest) before the
+    # free tier sees them.
     traces:
       receivers: [otlp]
       processors: [memory_limiter, tail_sampling, batch, resource]
       exporters: [otlphttp/newrelic, debug]
-    # Uncomment ONLY if the app starts pushing OTLP metrics directly — putting
-    # otlp into `metrics` now would double-count every series with the scrape.
-    # metrics/otlp:
-    #   receivers: [otlp]
-    #   processors: [memory_limiter, batch, resource]
-    #   exporters: [otlphttp/newrelic, debug]

@@ -88,11 +88,6 @@ extras = ["postgres"]
 [pypi-dependencies.tenacity]
 version = ">=9.0.0"
 
-# --- RED metrics endpoint for Prometheus scrapers, independent of New Relic
-#     (see src/main.py; gated by ENABLE_PROMETHEUS). ---
-[pypi-dependencies.prometheus-fastapi-instrumentator]
-version = ">=7.0.0"
-
 # --- Property-based tests (backend/tests/test_hypothesis.py) ---
 [pypi-dependencies.hypothesis]
 version = ">=6.100.0"

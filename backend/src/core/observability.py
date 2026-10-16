@@ -1,10 +1,11 @@
-"""Layer-1 -> Layer-2 OTLP log and trace export for New Relic (env-gated).
+"""Layer-1 -> Layer-2 OTLP export for New Relic (env-gated).
 
-Every line the app logs, and every span the instrumentors record, is forwarded
-to the Layer-2 OpenTelemetry collector over OTLP/HTTP
-(``docker/otel-collector-config.yaml``, the ``otel-collector`` compose
-service). The collector owns the New Relic ingest key and forwards everything
-on, so the app never holds a vendor credential.
+Every line the app logs, every span the instrumentors record, and every RED
+metric the HTTP middleware records is forwarded to the Layer-2 OpenTelemetry
+collector over OTLP/HTTP (``docker/otel-collector-config.yaml``, the
+``otel-collector`` compose service). The collector owns the New Relic ingest
+key and fans the three signals out, so the app never holds a vendor credential
+and never speaks a vendor protocol -- only standard OTLP.
 
 Deliberately fail-open, in keeping with the rest of the stack:
 
@@ -15,8 +16,10 @@ Deliberately fail-open, in keeping with the rest of the stack:
 * Export problems never affect requests or logging -- a broken collector drops
   telemetry, not log lines.
 
-``/metrics`` (Prometheus) remains the in-process metric source of truth and is
-scraped by the collector; this module carries logs and traces.
+This module is the single choke point for "how telemetry escapes the app": all
+three signals share one resource (service.name/version/environment) and one
+endpoint. There is no Prometheus scrape path -- metrics travel the same OTLP
+route as logs and traces.
 """
 
 from __future__ import annotations
@@ -32,6 +35,9 @@ logger = logging.getLogger("civicpulse")
 _otlp_handler: logging.Handler | None = None
 _otlp_provider: Any = None
 _otlp_trace_provider: Any = None
+_otlp_metrics_provider: Any = None
+_http_server_requests: Any = None
+_http_server_duration: Any = None
 
 
 def _otlp_base_endpoint() -> str | None:
@@ -45,6 +51,41 @@ def _otlp_logs_endpoint() -> str | None:
     if base is None:
         return None
     return f"{base}/v1/logs"
+
+
+def _otlp_metrics_endpoint() -> str | None:
+    base = _otlp_base_endpoint()
+    if base is None:
+        return None
+    return f"{base}/v1/metrics"
+
+
+def _otlp_headers() -> dict[str, str] | None:
+    """Extra headers for every OTLP request, or ``None`` when unset.
+
+    Only needed when the collector's OTLP receiver is basicauth-gated; the
+    default (open, network-isolated receiver) sends nothing extra.
+    """
+    headers = dict(settings.NEW_RELIC_OTLP_HEADERS)
+    return headers or None
+
+
+def _service_resource() -> Any:
+    """The shared OTel resource for all three signals.
+
+    One resource keeps logs, traces and metrics correlatable in the sink; the
+    collector's ``resource`` processor ``upsert``s the same two keys, so the
+    values must stay aligned.
+    """
+    from opentelemetry.sdk.resources import Resource
+
+    return Resource.create(
+        {
+            "service.name": settings.NEW_RELIC_APP_NAME or settings.PROJECT_NAME,
+            "service.version": settings.VERSION,
+            "deployment.environment": settings.ENVIRONMENT,
+        }
+    )
 
 
 def setup_otlp_log_handler(log_level: int = logging.INFO) -> logging.Handler | None:
@@ -67,21 +108,13 @@ def setup_otlp_log_handler(log_level: int = logging.INFO) -> logging.Handler | N
         from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
         from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
         from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
-        from opentelemetry.sdk.resources import Resource
 
-        exporter = OTLPLogExporter(endpoint=endpoint, timeout=10)
+        exporter = OTLPLogExporter(endpoint=endpoint, timeout=10, headers=_otlp_headers())
         processor = BatchLogRecordProcessor(
             exporter,
             schedule_delay_millis=settings.NEW_RELIC_EXPORT_INTERVAL_SECONDS * 1000,
         )
-        provider = LoggerProvider(
-            resource=Resource.create(
-                {
-                    "service.name": settings.NEW_RELIC_APP_NAME or settings.PROJECT_NAME,
-                    "deployment.environment": settings.ENVIRONMENT,
-                }
-            )
-        )
+        provider = LoggerProvider(resource=_service_resource())
         provider.add_log_record_processor(processor)
         # The SDK's stdlib handler is deprecated in favour of the
         # opentelemetry-instrumentation-logging package; it is functionally
@@ -151,21 +184,13 @@ def setup_otlp_tracing(app: Any) -> Any | None:
     try:
         from opentelemetry import trace
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-        from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-        provider = TracerProvider(
-            resource=Resource.create(
-                {
-                    "service.name": settings.NEW_RELIC_APP_NAME or settings.PROJECT_NAME,
-                    "deployment.environment": settings.ENVIRONMENT,
-                }
-            )
-        )
+        provider = TracerProvider(resource=_service_resource())
         provider.add_span_processor(
             BatchSpanProcessor(
-                OTLPSpanExporter(endpoint=f"{endpoint}/v1/traces", timeout=10),
+                OTLPSpanExporter(endpoint=f"{endpoint}/v1/traces", timeout=10, headers=_otlp_headers()),
                 schedule_delay_millis=settings.NEW_RELIC_EXPORT_INTERVAL_SECONDS * 1000,
             )
         )
@@ -223,3 +248,101 @@ def shutdown_otlp_tracing() -> None:
         provider.shutdown()
     except Exception as exc:  # noqa: BLE001 - teardown must never break shutdown
         logger.warning("OTLP trace provider shutdown failed: %s", exc)
+
+
+def _wire_http_instruments() -> None:
+    """Create the RED instruments once the meter provider is set.
+
+    ``http.server.request.duration`` / ``http.server.requests`` follow the OTel
+    HTTP semantic conventions. Instrument *names* are stable across restarts so
+    the sink sees one time series per route, not one per process.
+    """
+    global _http_server_requests, _http_server_duration
+    from opentelemetry import metrics as metrics_api
+
+    meter = metrics_api.get_meter("civicpulse.http", version=settings.VERSION)
+    _http_server_requests = meter.create_counter(
+        "http.server.requests",
+        unit="{request}",
+        description="Total inbound HTTP requests handled.",
+    )
+    _http_server_duration = meter.create_histogram(
+        "http.server.request.duration",
+        unit="s",
+        description="Inbound HTTP request duration in seconds.",
+    )
+
+
+def setup_otlp_metrics() -> Any | None:
+    """Wire OTLP metric export (Layer 1 -> Layer 2).
+
+    Env-gated exactly like logs and traces; the app pushes RED metrics on the
+    same OTLP/HTTP path instead of exposing a Prometheus scrape endpoint, so a
+    single vendor-neutral pipeline carries all three signals. Returns the
+    provider, or ``None`` when disabled/unconfigured/missing extras (fail-open).
+    """
+    global _otlp_metrics_provider
+    if _otlp_metrics_provider is not None:
+        return _otlp_metrics_provider
+    if not settings.NEW_RELIC_ENABLED:
+        return None
+    endpoint = _otlp_metrics_endpoint()
+    if endpoint is None:
+        return None
+    try:
+        from opentelemetry import metrics as metrics_api
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+        from opentelemetry.sdk.metrics import MeterProvider
+        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+
+        reader = PeriodicExportingMetricReader(
+            OTLPMetricExporter(endpoint=endpoint, timeout=10, headers=_otlp_headers()),
+            export_interval_millis=settings.NEW_RELIC_EXPORT_INTERVAL_SECONDS * 1000,
+        )
+        provider = MeterProvider(resource=_service_resource(), metric_readers=[reader])
+        metrics_api.set_meter_provider(provider)
+        _otlp_metrics_provider = provider
+        _wire_http_instruments()
+        logger.info("OTLP metric export wired to %s", endpoint)
+        return provider
+    except Exception as exc:  # noqa: BLE001 - fail-open seam
+        logger.warning("OTLP metric wiring failed: %s", exc)
+        return None
+
+
+def record_http_request(method: str, route: str, status_code: int, duration_seconds: float) -> None:
+    """Record one inbound request on the RED instruments.
+
+    A no-op until :func:`setup_otlp_metrics` has run (the OTel API returns a
+    non-recording meter otherwise), so an unconfigured app pays nothing. The
+    ``route`` is the matched route *template* (e.g. ``/api/v1/issues/{issue_id}``)
+    rather than the raw path, so path parameters cannot explode cardinality.
+    """
+    if _http_server_requests is None or _http_server_duration is None:
+        return
+    attributes = {
+        "http.request.method": method,
+        "http.route": route,
+        "http.response.status_code": status_code,
+    }
+    _http_server_requests.add(1, attributes)
+    _http_server_duration.record(duration_seconds, attributes)
+
+
+def shutdown_otlp_metrics() -> None:
+    """Flush/shutdown the OTLP metric provider.
+
+    Idempotent and safe to call when nothing was ever wired.
+    """
+    global _otlp_metrics_provider, _http_server_requests, _http_server_duration
+    provider = _otlp_metrics_provider
+    _otlp_metrics_provider = None
+    _http_server_requests = None
+    _http_server_duration = None
+    if provider is None:
+        return
+    try:
+        provider.force_flush()
+        provider.shutdown()
+    except Exception as exc:  # noqa: BLE001 - teardown must never break shutdown
+        logger.warning("OTLP metric provider shutdown failed: %s", exc)

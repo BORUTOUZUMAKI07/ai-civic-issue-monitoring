@@ -1,14 +1,12 @@
 """Layer-1 -> Layer-2 observability behavior.
 
-Covers the 3-layer New Relic architecture introduced for parity with the
-nexus-ai root project:
+Covers the 3-layer OTLP architecture (ADR-0001, extended by ADR-0007):
 
-* ``/metrics`` stays the in-process metric source of truth, but when
-  ``METRICS_TOKEN`` is set the Layer-2 collector must present it as a Bearer
-  token (an unauthenticated scrape gets ``401``).
-* The OTLP log export (``src/core/observability.py``) is a strict no-op unless
-  ``NEW_RELIC_ENABLED`` is set and fails open when the optional OTLP extras are
-  absent — an unconfigured or broken export must never break logging.
+* All three signals — logs, traces and metrics — are exported over OTLP, gated
+  by ``NEW_RELIC_ENABLED`` and fail-open when the optional ``[observability]``
+  extras are absent. An unconfigured or broken export must never break the app.
+* There is no Prometheus ``/metrics`` scrape path (see
+  ``test_metrics_scrape_endpoint_removed.py``).
 """
 from __future__ import annotations
 
@@ -28,39 +26,6 @@ except ImportError:
     # The pixi default env ships the SDK transitively (langsmith/langchain)
     # but not the exporter — `import opentelemetry` alone is NOT sufficient.
     _OTEL_INSTALLED = False
-
-
-# ─────────────────────────── /metrics bearer gate ───────────────────────────
-
-
-async def test_metrics_open_when_no_token(client) -> None:
-    resp = await client.get("/metrics")
-    assert resp.status_code == 200
-    assert "http_request" in resp.text
-
-
-async def test_metrics_requires_token_when_configured(client, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "METRICS_TOKEN", "sekrit")
-    resp = await client.get("/metrics")
-    assert resp.status_code == 401
-
-    resp = await client.get("/metrics", headers={"Authorization": "Bearer sekrit"})
-    assert resp.status_code == 200
-
-    resp = await client.get("/metrics", headers={"Authorization": "Bearer wrong"})
-    assert resp.status_code == 401
-
-
-async def test_metrics_token_scheme_must_be_bearer(client, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "METRICS_TOKEN", "sekrit")
-    resp = await client.get("/metrics", headers={"Authorization": "Basic c2Vrcml0"})
-    assert resp.status_code == 401
-
-
-async def test_metrics_token_does_not_lock_other_paths(client, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "METRICS_TOKEN", "sekrit")
-    resp = await client.get("/health")
-    assert resp.status_code == 200
 
 
 # ──────────────────────── OTLP log export gating ───────────────────────────
@@ -153,3 +118,58 @@ def test_otlp_tracing_wires_provider_when_enabled(monkeypatch) -> None:
 def test_otlp_tracing_shutdown_is_idempotent() -> None:
     observability.shutdown_otlp_tracing()
     observability.shutdown_otlp_tracing()  # second call must not raise
+
+
+# ─────────────────────── OTLP metric export gating ──────────────────────────
+
+
+def test_otlp_metrics_disabled_by_default(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "NEW_RELIC_ENABLED", False)
+    assert observability.setup_otlp_metrics() is None
+
+
+def test_otlp_metrics_noop_when_endpoint_unset(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "NEW_RELIC_ENABLED", True)
+    monkeypatch.setattr(settings, "NEW_RELIC_OTLP_ENDPOINT", "")
+    try:
+        assert observability.setup_otlp_metrics() is None
+    finally:
+        observability.shutdown_otlp_metrics()
+
+
+@pytest.mark.skipif(_OTEL_INSTALLED, reason="OTLP extras installed; fail-open path is not exercised")
+def test_otlp_metrics_fails_open_without_extras(monkeypatch, caplog) -> None:
+    monkeypatch.setattr(settings, "NEW_RELIC_ENABLED", True)
+    monkeypatch.setattr(settings, "NEW_RELIC_OTLP_ENDPOINT", "http://localhost:4318")
+    with caplog.at_level(logging.WARNING, logger="civicpulse"):
+        try:
+            provider = observability.setup_otlp_metrics()
+        finally:
+            observability.shutdown_otlp_metrics()
+    assert provider is None
+    assert "OTLP metric wiring failed" in caplog.text
+
+
+@pytest.mark.skipif(not _OTEL_INSTALLED, reason="requires the [observability] extras")
+def test_otlp_metrics_wires_provider_when_enabled(monkeypatch) -> None:
+    from opentelemetry.sdk.metrics import MeterProvider
+
+    monkeypatch.setattr(settings, "NEW_RELIC_ENABLED", True)
+    monkeypatch.setattr(settings, "NEW_RELIC_OTLP_ENDPOINT", "http://localhost:4318")
+    try:
+        provider = observability.setup_otlp_metrics()
+        assert isinstance(provider, MeterProvider)
+    finally:
+        observability.shutdown_otlp_metrics()
+
+
+def test_otlp_metrics_shutdown_is_idempotent() -> None:
+    observability.shutdown_otlp_metrics()
+    observability.shutdown_otlp_metrics()  # second call must not raise
+
+
+def test_record_http_request_is_noop_when_unconfigured() -> None:
+    # With no provider wired the OTel instruments are absent; recording must be
+    # a silent no-op, never an exception on the request path.
+    observability.shutdown_otlp_metrics()
+    observability.record_http_request("GET", "/health", 200, 0.0123)

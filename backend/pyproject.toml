@@ -37,8 +37,6 @@ dependencies = [
     # Retries with exponential backoff for outbound LLM + SMTP calls; a single
     # slow/failed upstream should not turn into a slow/failed request.
     "tenacity>=9.0.0",
-    # Prometheus /metrics (RED) independent of New Relic. Lightweight pure-py.
-    "prometheus-fastapi-instrumentator>=7.0.0",
     "pillow>=11.0.0",
     "pillow-heif>=0.19.0",
     # structlog renders the logs; stdlib `logging` still transports them to the
@@ -93,7 +91,7 @@ ml = [
     "onnx>=1.16.0",
     "tqdm>=4.66.0",
 ]
-# Layer-1 -> Layer-2 OTLP log + trace export (3-layer New Relic observability).
+# Layer-1 -> Layer-2 OTLP log + trace + metric export (3-layer observability).
 # The app itself never holds the New Relic license key -- the Layer-2
 # OpenTelemetry collector owns it (docker/otel-collector-config.yaml). Kept as
 # an optional extra so a fresh pixi solve stays lean; the runtime image installs

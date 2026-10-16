@@ -7,10 +7,10 @@ from starlette.responses import JSONResponse, Response
 from src.core.config import settings
 from src.core.redis import RateLimitResult, consume_rate_limit
 
-# Paths that must never be throttled: liveness/health probes and the Prometheus
-# scrape endpoint. A scrape is not "traffic" from a user, and denying it on a
-# busy host would blind monitoring exactly when it is needed most.
-_UNTHROTTLED_PATHS = ("/health", "/favicon.ico", "/metrics")
+# Paths that must never be throttled: liveness/readiness probes and the favicon.
+# A probe denied on a busy host would blind monitoring exactly when it is needed
+# most -- and an orchestrator reads a 429 as "unhealthy".
+_UNTHROTTLED_PATHS = ("/health", "/health/live", "/health/ready", "/favicon.ico")
 
 
 def _rate_limit_headers(result: RateLimitResult) -> dict[str, str]:

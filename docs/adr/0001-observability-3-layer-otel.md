@@ -1,6 +1,8 @@
 # ADR-0001: 3-layer OTLP observability (app → collector → New Relic)
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR-0007](0007-otel-all-signals-fanout.md) (the
+  Prometheus `/metrics` scrape path was removed; all three signals now travel
+  OTLP)
 - **Date**: 2026-10-11
 
 ## Context

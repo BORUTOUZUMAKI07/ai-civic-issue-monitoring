@@ -118,21 +118,24 @@ class Settings(BaseSettings):
     # --- Cookie settings ---
     COOKIE_SECURE: bool = False
 
-    # --- Observability: 3-layer New Relic via OTLP (Layer 1 -> 2 -> 3) ---
-    # The app exports structured logs over OTLP/HTTP to the Layer-2
-    # OpenTelemetry collector (docker/otel-collector-config.yaml, compose
-    # service ``otel-collector``), which owns NEW_RELIC_LICENSE_KEY and
-    # forwards everything to New Relic (Layer 3). The app therefore never
-    # holds the vendor credential. ``/metrics`` stays the in-process metric
-    # source of truth (the collector scrapes it). No-op when disabled, the
-    # endpoint is unset, or the ``[observability]`` extras are not installed.
+    # --- Observability: 3-layer OTLP (Layer 1 -> 2 -> 3) ---
+    # The app exports structured logs, spans AND metrics over OTLP/HTTP to the
+    # Layer-2 OpenTelemetry collector (docker/otel-collector-config.yaml, compose
+    # service ``otel-collector``), which owns NEW_RELIC_LICENSE_KEY and fans the
+    # three signals out to New Relic (Layer 3, the sink). The app therefore never
+    # holds the vendor credential, and every signal travels the same
+    # vendor-neutral OTLP path -- swapping or adding a sink is a collector-config
+    # change, not an app change. No-op when disabled, the endpoint is unset, or
+    # the ``[observability]`` extras are not installed.
     NEW_RELIC_ENABLED: bool = False
     NEW_RELIC_OTLP_ENDPOINT: str = "http://localhost:4318"
     NEW_RELIC_EXPORT_INTERVAL_SECONDS: int = 30
     NEW_RELIC_APP_NAME: str = "CivicPulse-API"
-    # Bearer token the Layer-2 collector must present to scrape /metrics.
-    # Unset (None/"") leaves /metrics open (local dev, tests).
-    METRICS_TOKEN: Optional[str] = None
+    # Extra headers sent on every OTLP request, as a JSON object in the env.
+    # Empty by default; set it only when the collector's OTLP receiver is
+    # basicauth-gated, e.g.
+    #   NEW_RELIC_OTLP_HEADERS={"Authorization": "Basic <base64(user:pass)>"}
+    NEW_RELIC_OTLP_HEADERS: dict[str, str] = {}
 
     # --- OAuth (Google / GitHub) ---
     GOOGLE_CLIENT_ID: str = ""
@@ -192,9 +195,6 @@ class Settings(BaseSettings):
     # and bounded retries, so one slow OpenAI call cannot pin a worker forever.
     OPENAI_TIMEOUT_SECONDS: float = 30.0
     OPENAI_MAX_RETRIES: int = 2
-
-    # --- Prometheus /metrics (RED); additive to New Relic, not a replacement ---
-    ENABLE_PROMETHEUS: bool = True
 
     # --- HuggingFace (embeddings) ---
     HF_TOKEN: Optional[str] = None

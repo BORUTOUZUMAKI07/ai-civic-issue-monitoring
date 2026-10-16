@@ -34,14 +34,13 @@ services:
       # prod sets them via .env / the deployment config.
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - HF_TOKEN=${HF_TOKEN:-}
-      # 3-layer New Relic: the app never holds a vendor key — the Layer-2
+      # 3-layer OTLP: the app never holds a vendor key — the Layer-2
       # otel-collector service owns NEW_RELIC_LICENSE_KEY. When NEW_RELIC_ENABLED
-      # is true the app exports OTLP logs AND traces to the collector, which also
-      # scrapes /metrics (Bearer-gated by METRICS_TOKEN).
+      # is true the app exports OTLP logs, traces AND metrics to the collector;
+      # there is no /metrics scrape path.
       - NEW_RELIC_ENABLED=${NEW_RELIC_ENABLED:-false}
       - NEW_RELIC_OTLP_ENDPOINT=${NEW_RELIC_OTLP_ENDPOINT:-http://otel-collector:4318}
       - NEW_RELIC_EXPORT_INTERVAL_SECONDS=${NEW_RELIC_EXPORT_INTERVAL_SECONDS:-30}
-      - METRICS_TOKEN=${METRICS_TOKEN:-}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
@@ -135,10 +134,10 @@ services:
       - frontend-net
 
   # ── Layer-2: OpenTelemetry Collector (observability transport agent) ──────
-  # Receives the backend's OTLP logs+traces on :4318, tail-samples the trace
-  # stream, batches, and forwards them to New Relic (Layer-3 sink) using
-  # NEW_RELIC_LICENSE_KEY. It also scrapes the backend's /metrics (Bearer-gated
-  # when METRICS_TOKEN is set). The app never holds the vendor key. See
+  # Receives the backend's OTLP logs+traces+metrics on :4318, tail-samples the
+  # trace stream, batches, and forwards all three signals to New Relic (Layer-3
+  # sink) using NEW_RELIC_LICENSE_KEY. This is the only vendor-aware component —
+  # the app never holds the key and speaks plain OTLP. See
   # docker/otel-collector-config.yaml for the full flow. Set before starting
   # (PowerShell):  $env:NEW_RELIC_LICENSE_KEY = "xxxx"
   otel-collector:
@@ -147,14 +146,21 @@ services:
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
       - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      # Persistent sending-queue buffer (file_storage): telemetry survives a
+      # collector restart instead of being lost with the in-memory queue.
+      - otelcol-queue:/var/lib/otelcol/queue
     environment:
       - NEW_RELIC_LICENSE_KEY=${NEW_RELIC_LICENSE_KEY:-not-set}
       - ENVIRONMENT=${ENVIRONMENT:-development}
-      - METRICS_TOKEN=${METRICS_TOKEN:-}
-      - METRICS_SCRAPE_TARGET=${METRICS_SCRAPE_TARGET:-backend:8000}
+      # Stamped onto every signal; keep it in step with the backend's VERSION.
+      - SERVICE_VERSION=${SERVICE_VERSION:-unknown}
+      # Optional second sink (Grafana Cloud). Set both + uncomment the
+      # otlphttp/grafana exporter in the collector config to mirror every signal.
+      - GRAFANA_OTLP_ENDPOINT=${GRAFANA_OTLP_ENDPOINT:-}
+      - GRAFANA_OTLP_TOKEN=${GRAFANA_OTLP_TOKEN:-}
     ports:
       - "4317:4317"   # OTLP/gRPC (optional)
-      - "4318:4318"   # OTLP/HTTP — what the app pushes logs/traces to
+      - "4318:4318"   # OTLP/HTTP — what the app pushes logs/traces/metrics to
       - "8888:8888"   # collector self-metrics
       - "13133:13133" # /healthz
     restart: unless-stopped
@@ -169,3 +175,4 @@ volumes:
   pgdata:
   redisdata:
   mongodata:
+  otelcol-queue:

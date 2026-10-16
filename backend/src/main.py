@@ -19,7 +19,13 @@ import src.models  # noqa: F401 — register every ORM model on Base.metadata
 from src.core.config import settings
 from src.core.database import check_db_health, engine, init_db
 from src.core.mongodb import init_mongodb
-from src.core.observability import setup_otlp_tracing, shutdown_otlp_log_handler, shutdown_otlp_tracing
+from src.core.observability import (
+    setup_otlp_metrics,
+    setup_otlp_tracing,
+    shutdown_otlp_log_handler,
+    shutdown_otlp_metrics,
+    shutdown_otlp_tracing,
+)
 from src.core.redis import check_redis_health, init_redis
 from src.domains.admin.api.routes import router as admin_router
 from src.domains.auth.api.routes import router as auth_router
@@ -31,10 +37,44 @@ from src.domains.notifications.api.routes import router as notifications_router
 from src.domains.resolution.api.routes import router as resolution_router
 from src.domains.wards.api.routes import router as wards_router
 from src.log_utils import setup_logging
-from src.middleware import LoggingMiddleware, MetricsAuthMiddleware, RateLimitMiddleware, RBACMiddleware
+from src.middleware import LoggingMiddleware, OTelMetricsMiddleware, RateLimitMiddleware, RBACMiddleware
 from src.shared.errors.base import AppError
 
 logger = logging.getLogger("civicpulse")
+
+
+async def _collect_health() -> tuple[bool, dict[str, bool]]:
+    """Dependency-aware health snapshot shared by /health and /health/ready.
+
+    ``ready`` is the only value that should gate traffic: it is true when the
+    datastores the request path needs (Postgres, Redis) answer. MongoDB and the
+    ML model are reported but do not gate -- both are optional subsystems that
+    degrade rather than fail a request.
+    """
+    db_ok = await check_db_health()
+    redis_ok = await check_redis_health()
+    mongo_ok = False
+    ml_ok = False
+    try:
+        from src.core.mongodb import mongodb_initialized
+
+        mongo_ok = bool(mongodb_initialized)
+    except Exception:  # optional subsystem absent -> reported as down  # nosec B110
+        pass
+    try:
+        from src.ml.inference.predict import get_model_info
+
+        ml_info = get_model_info()
+        ml_ok = bool(ml_info.get("model_exists", False))
+    except Exception:  # optional subsystem absent -> reported as down  # nosec B110
+        pass
+    ready = db_ok and redis_ok
+    return ready, {
+        "database": db_ok,
+        "redis": redis_ok,
+        "mongodb": mongo_ok,
+        "ml_model": ml_ok,
+    }
 
 
 def create_app(lifespan_override=None):
@@ -62,29 +102,21 @@ def create_app(lifespan_override=None):
     app.add_middleware(LoggingMiddleware)
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(RBACMiddleware)
-    # In the 3-layer setup the Layer-2 OpenTelemetry collector scrapes /metrics
-    # over the network; when METRICS_TOKEN is set the scrape must be authenticated.
-    app.add_middleware(MetricsAuthMiddleware)
+    # Added after the app's own middleware, so it wraps the rate-limit and RBAC
+    # layers and the router: RED metrics then cover throttled (429) and rejected
+    # (401/403) requests too, not just the ones that reach a handler. (The trace
+    # instrumentor wired below is added even later, so it stays outermost.)
+    # Recording is a no-op until setup_otlp_metrics() wires a provider, so an
+    # unconfigured app pays nothing.
+    app.add_middleware(OTelMetricsMiddleware)
 
-    # Layer-1 -> Layer-2 trace export. Wired at build time so the global
-    # TracerProvider exists before the first request; a strict no-op unless
-    # NEW_RELIC_ENABLED is set, and fail-open (a missing [observability] extra
-    # just logs). Added last on purpose: the FastAPI instrumentor's middleware
-    # sits outermost, so request spans capture the whole pipeline.
+    # Layer-1 -> Layer-2 export. Wired at build time so the global providers
+    # exist before the first request; a strict no-op unless NEW_RELIC_ENABLED is
+    # set, and fail-open (a missing [observability] extra just logs). All three
+    # signals share one OTLP pipeline -- logs (src/log_utils), traces (the
+    # FastAPI/httpx/SQLAlchemy instrumentors) and metrics (OTelMetricsMiddleware).
     setup_otlp_tracing(app)
-
-    # Prometheus scrape endpoint (RED metrics: rate, errors, duration). This is
-    # the in-process metric source of truth; the Layer-2 OpenTelemetry collector
-    # scrapes it and forwards to New Relic (Layer 3), which also receives the
-    # OTLP log stream wired in src/log_utils. Gated by ENABLE_PROMETHEUS.
-    if settings.ENABLE_PROMETHEUS:
-        try:
-            from prometheus_fastapi_instrumentator import Instrumentator
-
-            Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
-            logger.info("Prometheus metrics exposed at /metrics")
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("Prometheus instrumentation failed to load: %s", exc)
+    setup_otlp_metrics()
 
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError):
@@ -93,35 +125,35 @@ def create_app(lifespan_override=None):
             content={"detail": exc.detail, "error_code": exc.error_code},
         )
 
+    @app.get("/health/live")
+    async def health_live():
+        # Liveness: is the process up? Deliberately does NOT touch a datastore,
+        # so a transient dependency blip cannot make an orchestrator kill a
+        # healthy worker -- the mistake that turns a slow dependency into an
+        # outage by restart-looping the whole fleet.
+        return JSONResponse(status_code=200, content={"status": "alive"})
+
+    @app.get("/health/ready")
+    async def health_ready():
+        # Readiness: should this instance take traffic? Reflects dependency
+        # health, so a not-yet-connected instance is pulled from rotation
+        # without being restarted.
+        ready, components = await _collect_health()
+        return JSONResponse(
+            status_code=200 if ready else 503,
+            content={"status": "ready" if ready else "not_ready", **components},
+        )
+
     @app.get("/health")
     async def health():
-        db_ok = await check_db_health()
-        redis_ok = await check_redis_health()
-        mongo_ok = False
-        ml_ok = False
-        try:
-            from src.core.mongodb import mongodb_initialized
-
-            mongo_ok = mongodb_initialized
-        except Exception:  # optional subsystem absent -> health reports 503  # nosec B110
-            pass
-        try:
-            from src.ml.inference.predict import get_model_info
-
-            ml_info = get_model_info()
-            ml_ok = ml_info.get("model_exists", False)
-        except Exception:  # optional subsystem absent -> health reports 503  # nosec B110
-            pass
-        status_code = 200 if db_ok and redis_ok else 503
+        # Kept as the detailed, dependency-aware probe that the Docker
+        # HEALTHCHECK, the deploy workflow and existing clients already call.
+        # `/health/live` and `/health/ready` are the split probes for platform
+        # orchestrators; `/health` stays the union of the two for back-compat.
+        ready, components = await _collect_health()
         return JSONResponse(
-            status_code=status_code,
-            content={
-                "status": "healthy" if status_code == 200 else "unhealthy",
-                "database": db_ok,
-                "redis": redis_ok,
-                "mongodb": mongo_ok,
-                "ml_model": ml_ok,
-            },
+            status_code=200 if ready else 503,
+            content={"status": "healthy" if ready else "unhealthy", **components},
         )
 
     app.include_router(auth_router, prefix="/api/v1")
@@ -187,6 +219,7 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
     shutdown_otlp_log_handler()
     shutdown_otlp_tracing()
+    shutdown_otlp_metrics()
     logger.info("Shutdown complete.")
 
 
