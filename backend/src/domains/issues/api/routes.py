@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, Header, Query, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.config import settings
 from src.core.database import get_db
 from src.core.gate import gate_decision
 from src.domains.issues.schemas import IssueListResponse, IssueResponse, IssueStatusUpdate
@@ -98,10 +99,41 @@ async def _generate_embedding_async(text: str) -> Optional[str]:
         return None
 
 
-async def _run_agent_pipeline(issue_id: int, description: str, category: str, ward_id: str) -> dict:
+async def _build_rag_context(description: str) -> str:
+    """Retrieve similar past issues and render them for the classifier prompt.
+
+    Best-effort: any failure (unreachable DB, no embedder, no issues) returns an
+    empty string so classification proceeds exactly as it would without RAG.
+    """
+    try:
+        from src.core.database import AsyncSessionLocal
+        from src.rag.context import build_rag_context
+        from src.rag.retrieval import find_similar_issues
+
+        async with AsyncSessionLocal() as session:
+            similar = await find_similar_issues(session, description)
+        return build_rag_context({"description": description}, similar)
+    except Exception as e:
+        logger.warning("RAG context build failed, classifying without it: %s", e)
+        return ""
+
+
+async def _run_agent_pipeline(
+    issue_id: int,
+    description: str,
+    category: str,
+    ward_id: str,
+    category_confidence: float = 1.0,
+) -> dict:
     """Run the LangGraph agent pipeline and return results."""
     try:
         from src.agents.graph import AnalyticsGraph
+
+        # Retrieval context is only built when the feature is enabled, so the
+        # default upload path opens no extra DB session and pays no latency.
+        rag_context = ""
+        if settings.RAG_CLASSIFY_ENABLED and description:
+            rag_context = await _build_rag_context(description)
 
         graph = AnalyticsGraph()
         result = await graph.run(
@@ -110,6 +142,8 @@ async def _run_agent_pipeline(issue_id: int, description: str, category: str, wa
                 "description": description,
                 "category": category,
                 "ward_id": ward_id,
+                "category_confidence": category_confidence,
+                "rag_context": rag_context,
             }
         )
         # `result.get` is untyped; wrap so the declared `dict` return is honest
@@ -307,7 +341,13 @@ async def _execute_upload(
 
     embedding_task = asyncio.create_task(_generate_embedding_async(description or classification["label"]))
     agent_task = asyncio.create_task(
-        _run_agent_pipeline(issue.id, description, classification["label"], str(issue.ward_id))
+        _run_agent_pipeline(
+            issue.id,
+            description,
+            classification["label"],
+            str(issue.ward_id),
+            float(classification["confidence"]),
+        )
     )
 
     embedding_json, agent_result = await asyncio.gather(embedding_task, agent_task)

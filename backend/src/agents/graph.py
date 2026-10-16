@@ -101,6 +101,8 @@ class AnalyticsGraph:
             "priority": "normal",
             "action": "",
             "run_analytics": bool(input_data.get("run_analytics", False)),
+            "rag_context": input_data.get("rag_context", "") or "",
+            "category_confidence": float(input_data.get("category_confidence", 1.0) or 1.0),
             "result": {},
             "errors": [],
         }

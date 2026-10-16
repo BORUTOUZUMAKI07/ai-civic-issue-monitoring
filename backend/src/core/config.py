@@ -202,6 +202,28 @@ class Settings(BaseSettings):
     # --- RAG ---
     RAG_SIMILARITY_THRESHOLD: float = 0.75
     RAG_TOP_K: int = 5
+    # How many retrieved issues `build_rag_context` renders into the LLM prompt.
+    RAG_MAX_CONTEXT_ISSUES: int = 5
+    # Opt-in weighted re-ranking: order the candidates that already pass the
+    # similarity threshold by a blend of vector similarity, recency, severity and
+    # resolution status instead of raw cosine. Off by default so retrieval
+    # behaviour is unchanged until `scripts/evaluate_ml.py --retrieval --weighted`
+    # shows it helps. Weights are normalized by their sum at use, so they need not
+    # add up to exactly 1.0 (a single non-zero weight is fine).
+    RAG_WEIGHTED_RERANK: bool = False
+    RAG_SIMILARITY_WEIGHT: float = 0.3
+    RAG_RECENCY_WEIGHT: float = 0.2
+    RAG_SEVERITY_WEIGHT: float = 0.25
+    RAG_RESOLUTION_WEIGHT: float = 0.25
+    # Recency half-life for the weighted re-ranker: a 30-day-old issue scores
+    # half as high on the recency component as a brand-new one.
+    RAG_RECENCY_HALF_LIFE_DAYS: float = 30.0
+    # Opt-in: build retrieval context for an incoming report and feed it to the
+    # LLM classifier, and consult that LLM (with the context) when the intake gate
+    # is unsure (preclassified confidence below RAG_CLASSIFY_MIN_CONFIDENCE). Off
+    # by default so classification is byte-for-byte unchanged unless enabled.
+    RAG_CLASSIFY_ENABLED: bool = False
+    RAG_CLASSIFY_MIN_CONFIDENCE: float = 0.60
     # Opt-in hybrid retrieval: fuse the dense vector ranking with BM25 lexical
     # ranking via Reciprocal Rank Fusion. Off by default so retrieval behaviour
     # is unchanged until `scripts/evaluate_ml.py --retrieval` shows it helps.
