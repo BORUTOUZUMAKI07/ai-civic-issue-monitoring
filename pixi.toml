@@ -110,6 +110,17 @@ mlflow = ">=2.20.0"
 civicpulse-backend = {path = "./backend", editable = true, extras = ["ml"]}
 dvc-s3 = ">=3.3.0, <4"
 
+# Full observability stack for LOCAL runs — mirrors backend/pyproject.toml's
+# `[observability]` extra (OTLP SDK + http exporter + instrumentors +
+# sentry-sdk) so the app can actually export telemetry and track errors
+# outside Docker.
+# The default env deliberately omits it (fail-open coverage lives there; see
+# the extra's comment in backend/pyproject.toml), so the REAL-exporter half
+# of test_observability_3layer.py only runs here:
+#   pixi run -e observability python -m pytest tests/test_observability_3layer.py -v
+[feature.observability.pypi-dependencies]
+civicpulse-backend = {path = "./backend", editable = true, extras = ["observability"]}
+
 # Load testing with Locust against a real deployment
 # (backend/scripts/loadtest/locustfile.py). Deliberately NOT in the default
 # env: locust pulls gevent/msgpack/pyzmq, which would bloat the CI solve and
@@ -183,3 +194,7 @@ ml = { features = ["ml"], solve-group = "default" }
 ci = { features = ["dev"], solve-group = "default" }
 prefect = { features = ["prefect"], solve-group = "default" }
 loadtest = { features = ["loadtest"], solve-group = "default" }
+# Own solve-group on purpose: joining "default" would force a re-solve of the
+# CI-critical group and drift its pins; this keeps the default solve
+# byte-identical and confines any new resolution to this env.
+observability = { features = ["dev", "observability"], solve-group = "observability" }

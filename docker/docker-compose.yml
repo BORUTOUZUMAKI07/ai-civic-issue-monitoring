@@ -151,7 +151,14 @@ services:
   # docker/otel-collector-config.yaml for the full flow. Set before starting
   # (PowerShell):  $env:NEW_RELIC_LICENSE_KEY = "xxxx"
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.121.0
+    # Built from this repo's image (not the bare upstream pull): it pre-creates
+    # the file_storage queue directory owned by the collector uid (10001), so a
+    # fresh named volume inherits a writable ownership instead of root's.
+    # See docker/otel-collector.Dockerfile for the failure this prevents.
+    build:
+      context: .
+      dockerfile: otel-collector.Dockerfile
+    image: civicpulse-otel-collector:local
     container_name: civicpulse_otel_collector
     # The base config is the default and the only thing that runs. To also fan
     # out into Grafana Cloud (second sink, zero app change), set GRAFANA_* below
@@ -164,7 +171,11 @@ services:
       # Mounted but NOT loaded by default — see the `command` note above.
       - ./otel-collector-config.grafana.yaml:/etc/otelcol-contrib/config.grafana.yaml:ro
       # Persistent sending-queue buffer (file_storage): telemetry survives a
-      # collector restart instead of being lost with the in-memory queue.
+      # collector restart instead of being lost with the in-memory queue. The
+      # directory is pre-created by docker/otel-collector.Dockerfile, owned by
+      # the collector uid (10001) — a fresh named volume inherits that, while
+      # against the bare upstream image it would be root-owned and the
+      # collector would exit at startup with `permission denied`.
       - otelcol-queue:/var/lib/otelcol/queue
     environment:
       - NEW_RELIC_LICENSE_KEY=${NEW_RELIC_LICENSE_KEY:-not-set}

@@ -96,3 +96,10 @@ an open receiver on a private network is the sane default for local dev.
 - **`file_storage` is a new operational surface**: the queue directory must be
   volume-backed and bounded (`queue_size`), or a long outage can fill the disk.
   The compose service mounts `otelcol-queue` and caps the queue at 5000 batches.
+  It must also be **writable by the collector uid (10001)**: a fresh named
+  volume inherits the *image's* ownership at the mount path, so compose builds
+  `docker/otel-collector.Dockerfile`, which pre-creates the directory with
+  that owner. Against the bare upstream image the directory is root-owned and
+  the collector exits at startup with `open ...: permission denied` — no
+  `/healthz`, and the only symptom is a quietly empty sink (the trap Nexus
+  documented in its compose comments).

@@ -20,7 +20,9 @@ What is pinned:
   handed the *same* pair (the app half is asserted in
   ``test_observability_3layer.py``);
 * one OTLP receiver for all three signals, no Prometheus scrape path, and the
-  file-backed queue that survives a sink outage;
+  file-backed queue that survives a sink outage — including the image that
+  pre-creates the queue directory for the collector uid, so a fresh volume
+  cannot kill the collector at startup;
 * the Grafana fan-out is an opt-in overlay, absent from the default config, so
   enabling it can never be a prerequisite for starting up.
 """
@@ -34,7 +36,11 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COLLECTOR_CONFIG = REPO_ROOT / "docker" / "otel-collector-config.yaml"
 GRAFANA_OVERLAY = REPO_ROOT / "docker" / "otel-collector-config.grafana.yaml"
+COLLECTOR_DOCKERFILE = REPO_ROOT / "docker" / "otel-collector.Dockerfile"
 COMPOSE_FILE = REPO_ROOT / "docker" / "docker-compose.yml"
+
+# The collector image runs as this uid; the queue dir must be owned by it.
+COLLECTOR_UID = "10001:10001"
 
 # The one line the collector actually runs by default (docker-compose command).
 DEFAULT_CONFIG_FLAG = "--config=/etc/otelcol-contrib/config.yaml"
@@ -147,6 +153,62 @@ def test_primary_sink_queues_to_disk_and_retries() -> None:
     assert exporter["sending_queue"]["storage"] == "file_storage"
     assert exporter["retry_on_failure"]["enabled"] is True
     assert "file_storage" in config["service"]["extensions"]
+
+
+def test_collector_image_precreates_the_queue_dir_for_its_uid() -> None:
+    """The startup trap Nexus documented, guarded statically.
+
+    ``file_storage`` writes to ``/var/lib/otelcol/queue``, but the collector
+    image is distroless (no shell) and ``create_directory: true`` cannot mkdir
+    under an unwritable ``/var/lib``. A fresh named volume inherits the
+    *image's* ownership at that path: root-owned means the collector (uid
+    10001) exits at startup with ``open .../exporter_otlphttp_newrelic_*:
+    permission denied`` — no ``/healthz``, and the only downstream symptom is
+    a quietly empty sink. The fix is a builder stage that pre-creates the
+    directory with the collector's uid.
+    """
+    dockerfile = COLLECTOR_DOCKERFILE.read_text(encoding="utf-8")
+    assert "busybox:stable AS queuedir" in dockerfile, (
+        "the queue directory must be created in a shell-ful builder stage: "
+        "the collector image itself has no shell to mkdir with"
+    )
+    assert "RUN mkdir -p /var/lib/otelcol/queue" in dockerfile
+    copy_line = (
+        f"COPY --from=queuedir --chown={COLLECTOR_UID} /var/lib/otelcol /var/lib/otelcol"
+    )
+    assert copy_line in dockerfile, (
+        "the queue dir must ship owned by the collector uid so a fresh named "
+        "volume inherits a writable ownership"
+    )
+
+
+def test_compose_builds_the_collector_image_and_mounts_the_queue() -> None:
+    """Wiring: an orphaned Dockerfile protects nothing.
+
+    Compose must *build* the repo image (pulling the bare upstream one
+    re-opens the permission-denied startup failure), and the volume must land
+    exactly on ``file_storage.directory`` — a mismatched target would mount
+    the queue somewhere the pre-created ownership never applies.
+    """
+    compose = _load(COMPOSE_FILE)
+    collector = compose["services"]["otel-collector"]
+
+    build = collector.get("build") or {}
+    assert build.get("dockerfile") == "otel-collector.Dockerfile", (
+        "compose must build the repo's collector image, which pre-creates the "
+        "queue directory; the bare upstream image leaves it root-owned and "
+        "the collector exits at startup"
+    )
+    assert str(collector.get("image", "")).endswith("civicpulse-otel-collector:local"), (
+        "the built image must be tagged as the local one compose runs"
+    )
+
+    queue_dir = _load(COLLECTOR_CONFIG)["extensions"]["file_storage"]["directory"]
+    targets = [str(entry).partition(":")[2].split(":")[0] for entry in collector["volumes"]]
+    assert queue_dir in targets, (
+        f"the otelcol-queue volume must mount at {queue_dir} — the directory "
+        "the Dockerfile pre-creates and file_storage writes to"
+    )
 
 
 def test_grafana_fan_out_is_opt_in_and_complete() -> None:
