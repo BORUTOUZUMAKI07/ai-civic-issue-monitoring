@@ -156,6 +156,9 @@ format = { cmd = "ruff format src/", cwd = "backend" }
 migrate = { cmd = "python -m alembic upgrade head", cwd = "backend" }
 migrate-create = { cmd = "python -m alembic revision --autogenerate", cwd = "backend" }
 seed = { cmd = "python scripts/seed_wards.py", cwd = "backend" }
+# Bootstrap the first admin (the public API cannot create one). Env-driven:
+#   ADMIN_EMAIL=... ADMIN_PASSWORD=... [ADMIN_ROLE=super_admin] pixi run create-admin
+create-admin = { cmd = "python scripts/create_admin.py", cwd = "backend" }
 train = { cmd = "python -u backend/src/ml/training/train.py", env = { PYTHONPATH = "backend", PYTHONIOENCODING = "utf-8" } }
 dvc-pull = { cmd = "dvc pull -r origin --jobs 4" }
 dvc-status = { cmd = "dvc status" }

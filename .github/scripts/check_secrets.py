@@ -156,7 +156,7 @@ def main() -> int:
 
     if findings:
         print("::error::Credential-looking content found in tracked files.\n")
-        print("Move the value into a gitignored `.env` (see `.env.example` for")
+        print("Move the value into a gitignored `.env` (see `backend/.env.example` for")
         print("the expected key names), commit only the placeholder, and rotate")
         print("the exposed credential if it was ever real.\n")
         for finding in findings:

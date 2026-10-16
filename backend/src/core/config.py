@@ -1,7 +1,18 @@
+from pathlib import Path
 from typing import Optional
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# The backend's own env file, resolved relative to *this package* rather than the
+# current working directory. The previous ``env_file=".env"`` silently loaded a
+# different file depending on where the app was started from (repo root vs
+# ``backend/``), so a config that worked via ``pixi run dev`` could vanish under a
+# bare ``uvicorn``/pytest invocation and vice-versa. Anchoring to ``backend/.env``
+# makes the source of truth deterministic. Real environment variables still take
+# precedence (pydantic-settings resolves OS env before the dotenv file), so CI,
+# Docker (compose injects vars) and the test suite are unaffected.
+_BACKEND_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 # Placeholder / demo SECRET_KEY values that have appeared in example files,
 # compose defaults, CI, or git history. They are trivially guessable —
@@ -172,8 +183,11 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     OPENAI_MODEL: str = "llama-3.1-8b-instant"
-    EMBEDDING_MODEL: str = "text-embedding-3-small"
-    EMBEDDING_DIMS: int = 1536
+    # NOTE: embeddings are produced by the HuggingFace Inference API with a fixed
+    # model (see src/core/embeddings.py: ``sentence-transformers/all-MiniLM-L6-v2``,
+    # 384-dim). There is deliberately no EMBEDDING_MODEL/EMBEDDING_DIMS setting:
+    # the old, unused fields implied a configurable OpenAI embedding model the
+    # code never read and a dimension (1536) that did not match the actual vectors.
     # Outbound LLM resilience: a shared client with a hard per-request timeout
     # and bounded retries, so one slow OpenAI call cannot pin a worker forever.
     OPENAI_TIMEOUT_SECONDS: float = 30.0
@@ -200,7 +214,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_BACKEND_ENV_FILE,
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",

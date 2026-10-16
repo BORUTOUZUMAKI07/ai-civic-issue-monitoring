@@ -83,11 +83,18 @@ The `pixi.toml` declares:
 
 ### 3. Environment Variables
 
-Copy the example env file and fill in your values:
+The backend reads **`backend/.env`** (anchored to the package in
+`src/core/config.py`, so the same file loads no matter which directory you run
+from). Copy the template and fill in your values:
 
 ```bash
-cp .env.example .env
+cp backend/.env.example backend/.env
 ```
+
+Two other env files are scoped to their own component and are **not** read by the
+backend: `prefect/.env.example` → `prefect/.env` (Prefect flows) and
+`docker/.env.example` → `docker/.env` (compose stack). There is no repo-root
+`.env`.
 
 ---
 
@@ -102,6 +109,23 @@ pixi run dev
 # Start frontend (in another terminal)
 pixi run frontend
 ```
+
+### Create the First Admin
+
+The public API only registers `field_worker`/`viewer` accounts, and only a
+`super_admin` can promote anyone — so a fresh database has no route into the
+admin console (review queue, user management, engineer roster, ML endpoints).
+Create the first admin directly against the database:
+
+```bash
+ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='<at-least-12-chars>' pixi run create-admin
+# Windows PowerShell:
+#   $env:ADMIN_EMAIL='you@example.com'; $env:ADMIN_PASSWORD='<at-least-12-chars>'; pixi run create-admin
+```
+
+Add `ADMIN_ROLE=super_admin` to create the top-level account (needed later to
+promote other admins). The script is idempotent — re-running promotes/updates the
+existing account instead of failing. See `backend/scripts/create_admin.py`.
 
 ### With Docker Compose
 

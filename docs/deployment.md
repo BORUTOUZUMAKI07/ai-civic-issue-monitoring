@@ -104,14 +104,28 @@ recreated, and a run that never reaches a healthy `/health` exits non-zero.
 - **Auto-CD:** uncomment the `push: branches: [main]` block in `deploy.yml` so
   every push to `main` deploys itself (the `DEPLOY_ENABLED` gate still applies).
 
-## What CI/CD does *not* do: seed data
+## What CI/CD does *not* do: seed data and the first admin
 
-Ward seeding is a one-off against the target database and the backend image
-does not ship `backend/scripts/`:
+Two one-off steps run against the target database; the backend image ships
+neither `backend/scripts/` nor a way to create an admin through the API.
+
+**1. Ward seeding** — run locally with `backend/.env` pointing at the target DB:
 
 ```bash
-pixi run seed        # runs scripts/seed_wards.py locally
+pixi run seed        # runs scripts/seed_wards.py
 ```
+
+**2. The first admin** — the public API only registers `field_worker`/`viewer`
+accounts and only a `super_admin` can promote anyone, so a fresh database cannot
+reach the admin console at all. Bootstrap it locally (same `backend/.env`):
+
+```bash
+ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='<at-least-12-chars>' pixi run create-admin
+# use ADMIN_ROLE=super_admin for the top-level account
+```
+
+The script (`backend/scripts/create_admin.py`) is idempotent and inserts the user
+through the app's own models and password hashing.
 
 ## Alternative targets (image-based deploys)
 
