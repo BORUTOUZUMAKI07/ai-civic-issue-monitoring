@@ -25,6 +25,11 @@ alone. Call sites are split between ``get_logger()`` (which namespaces under
 under ``src.``); attaching only to ``civicpulse`` silently dropped the latter
 to Python's last-resort handler, so most of the codebase's INFO logs never
 reached the JSON file at all.
+
+Every handler also carries the shared
+:class:`src.log_utils.redaction.SensitiveDataFilter`, so a credential logged via
+``extra={...}`` is scrubbed before the JSON file, the console and the OTLP
+export render it.
 """
 
 from __future__ import annotations
@@ -38,6 +43,7 @@ from typing import Any
 import structlog
 
 from src.core.config import settings
+from src.log_utils.redaction import SensitiveDataFilter
 
 __all__ = ["setup_logging", "get_logger", "log_request_start", "log_request_end"]
 
@@ -45,6 +51,11 @@ __all__ = ["setup_logging", "get_logger", "log_request_start", "log_request_end"
 # idempotently without ripping out handlers pytest or uvicorn installed on the
 # root logger (those would otherwise be cleared on every app lifespan).
 _HANDLER_MARKER = "_civicpulse_handler"
+
+# One shared instance attached to every handler (console, file, OTLP). Attached
+# per handler rather than per logger so it runs for records from any logger that
+# propagates to the root, and before each handler formats/exports the record.
+_SENSITIVE_FILTER = SensitiveDataFilter()
 
 # Once the root logger is wired up these libraries become chatty. WARNING
 # keeps genuine failures visible without burying application logs.
@@ -165,6 +176,7 @@ def setup_logging(correlation_id: str | None = None) -> logging.Logger:
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(log_level)
     console_handler.setFormatter(_formatter(console_renderer, pre_chain))
+    console_handler.addFilter(_SENSITIVE_FILTER)
     setattr(console_handler, _HANDLER_MARKER, True)
     root.addHandler(console_handler)
 
@@ -173,6 +185,7 @@ def setup_logging(correlation_id: str | None = None) -> logging.Logger:
     file_handler = logging.FileHandler(filename=log_dir / "civicpulse.log", encoding="utf-8")
     file_handler.setLevel(log_level)
     file_handler.setFormatter(_formatter(json_renderer, pre_chain))
+    file_handler.addFilter(_SENSITIVE_FILTER)
     setattr(file_handler, _HANDLER_MARKER, True)
     root.addHandler(file_handler)
 
@@ -184,7 +197,11 @@ def setup_logging(correlation_id: str | None = None) -> logging.Logger:
         try:
             from src.core.observability import setup_otlp_log_handler
 
-            setup_otlp_log_handler(log_level)
+            otlp_handler = setup_otlp_log_handler(log_level)
+            # Redact before the exporter serialises the record, so a credential
+            # in `extra={...}` never leaves the process either.
+            if otlp_handler is not None and _SENSITIVE_FILTER not in otlp_handler.filters:
+                otlp_handler.addFilter(_SENSITIVE_FILTER)
         except Exception as exc:  # noqa: BLE001 - fail-open seam
             logging.getLogger("civicpulse").warning("OTLP log handler setup failed: %s", exc)
 
