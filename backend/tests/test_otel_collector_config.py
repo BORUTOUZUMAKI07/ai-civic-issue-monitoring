@@ -23,14 +23,22 @@ What is pinned:
   file-backed queue that survives a sink outage — including the image that
   pre-creates the queue directory for the collector uid, so a fresh volume
   cannot kill the collector at startup;
+* the built image actually BOOTS on a freshly created named volume — a
+  Docker-marked integration test (``Backend Integration`` in CI), because shape
+  assertions cannot see a queue directory the collector refuses to write to;
 * the Grafana fan-out is an opt-in overlay, absent from the default config, so
   enabling it can never be a prerequisite for starting up.
 """
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+import time
+import uuid
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -44,6 +52,21 @@ COLLECTOR_UID = "10001:10001"
 
 # The one line the collector actually runs by default (docker-compose command).
 DEFAULT_CONFIG_FLAG = "--config=/etc/otelcol-contrib/config.yaml"
+
+# The two FROM images in docker/otel-collector.Dockerfile: the collector
+# itself, and the shell-ful busybox stage that pre-creates the queue directory
+# (the distroless collector image has no shell to mkdir with).
+BASE_IMAGES = (
+    "busybox:stable",
+    "otel/opentelemetry-collector-contrib:0.121.0",
+)
+
+# Readiness lands ~1s after start (measured); a rejected config, or a queue
+# directory the collector cannot write to, exits immediately. Poll for the
+# marker so a healthy run is quick and a broken one fails fast.
+STARTUP_TIMEOUT_SECONDS = 30.0
+POLL_INTERVAL_SECONDS = 0.5
+READY_MARKER = "Everything is ready"
 
 
 def _load(path: Path) -> dict:
@@ -266,4 +289,180 @@ def test_default_command_runs_only_the_base_config() -> None:
     assert any("otel-collector-config.yaml:" in m for m in mounts), "base config must be mounted"
     assert any("otel-collector-config.grafana.yaml:" in m for m in mounts), (
         "the overlay should be pre-mounted so enabling it is only a command flag"
+    )
+
+
+# ──────────────── the Docker half: the image must actually boot ────────────────
+#
+# Everything above asserts the *shape* of the tracked files. This section runs
+# the built image, because the failure this repo actually hit — a queue
+# directory the collector (uid 10001) could not write to — is invisible to any
+# amount of YAML inspection: `otelcol validate` passes on it, and so does every
+# static guard above. It only exists once the image runs against a volume.
+
+
+def _docker(args: list[str], timeout: float = 60) -> subprocess.CompletedProcess[str]:
+    """Run a docker subcommand, capturing both streams as text.
+
+    ``encoding``/``errors`` match the rest of the suite: on Windows the child's
+    output is not reliably UTF-8, and a decode error here would look like a
+    Docker failure rather than a decode problem.
+    """
+    return subprocess.run(
+        ["docker", *args],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _require_docker() -> None:
+    """Skip — never fail — when Docker (or the network) cannot supply a run.
+
+    A missing daemon is an environment, not a regression: going red because
+    Docker Desktop is off would teach people to ignore the signal that matters.
+    """
+    if shutil.which("docker") is None:
+        pytest.skip("docker is not on PATH; the collector startup check needs it")
+
+    try:
+        probe = _docker(["info"], timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        pytest.skip(f"docker is not runnable: {type(exc).__name__}: {exc}")
+    if probe.returncode != 0:
+        pytest.skip("docker daemon is not running (environment, not a regression)")
+
+    # Build FROM these; the collector image is large. Pull only what is missing,
+    # and skip (with the reason) when the network cannot supply it — "no image"
+    # is not "the collector is broken".
+    for image in BASE_IMAGES:
+        if _docker(["image", "inspect", image], timeout=60).returncode == 0:
+            continue
+        try:
+            pull = _docker(["pull", image], timeout=600)
+        except (OSError, subprocess.SubprocessError) as exc:
+            pytest.skip(f"cannot pull {image}: {type(exc).__name__}: {exc}")
+        if pull.returncode != 0:
+            pytest.skip(f"cannot pull {image}: {pull.stderr.strip()[:300]}")
+
+
+def _wait_until_ready(name: str) -> str | None:
+    """Poll the container; ``None`` means readiness, else a failure reason.
+
+    Readiness is the property under test, not liveness: the collector prints
+    the marker only *after* every pipeline is built AND the ``file_storage``
+    queue is writable, which is the step a root-owned volume used to reject at
+    startup with ``permission denied``.
+    """
+    deadline = time.monotonic() + STARTUP_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        state = _docker(
+            ["inspect", name, "--format", "{{.State.Running}}|{{.State.ExitCode}}"],
+            timeout=30,
+        )
+        running, _, exit_code = state.stdout.strip().partition("|")
+        if running != "true":
+            return f"the collector exited with code {exit_code} instead of reaching readiness"
+
+        logs = _docker(["logs", name], timeout=30)
+        if READY_MARKER in logs.stdout + logs.stderr:
+            return None
+        time.sleep(POLL_INTERVAL_SECONDS)
+
+    return f"no readiness line after {STARTUP_TIMEOUT_SECONDS:.0f}s"
+
+
+def _tail(name: str, lines: int = 25) -> str:
+    """Last ``lines`` of the container's output, for the failure message."""
+    logs = _docker(["logs", name], timeout=30)
+    combined = (logs.stdout + logs.stderr).splitlines()
+    return "\n".join(combined[-lines:])
+
+
+@pytest.mark.integration
+@pytest.mark.timeout(600)
+def test_the_collector_image_boots_on_a_fresh_named_volume() -> None:
+    """The integration half: the image we ship starts on an empty volume.
+
+    Reproducer for the defect fixed in PR #7. Compose ran the *bare upstream*
+    image, so the queue directory did not exist / was not writable by the
+    collector uid (10001). A fresh named volume inherits the *image's* ownership
+    at the mount path, so the collector exited at startup with::
+
+        open /var/lib/otelcol/queue/exporter_otlphttp_newrelic_traces: permission denied
+
+    Building the repo image and booting it on a genuinely fresh volume is the
+    only assertion that covers that class of failure.
+
+    Deliberately unlike Nexus's boot test: that one mounts a world-writable
+    ``--tmpfs`` at the storage path, which *masks* this ownership bug. Here the
+    volume is a real, empty, image-initialised named volume, and no ports are
+    published (a host already running a collector must not collide).
+    """
+    _require_docker()
+
+    suffix = uuid.uuid4().hex[:8]
+    image = f"civicpulse-otel-collector-test:{suffix}"
+    container = f"civicpulse-cfg-check-{suffix}"
+    volume = f"civicpulse-cfg-check-{suffix}"
+
+    build = _docker(
+        ["build", "-f", str(COLLECTOR_DOCKERFILE), "-t", image, str(COLLECTOR_DOCKERFILE.parent)],
+        timeout=600,
+    )
+    assert build.returncode == 0, f"docker build failed for {COLLECTOR_DOCKERFILE}:\n{build.stderr.strip()}"
+
+    failure: str | None = None
+    logs = ""
+    try:
+        started = _docker(
+            [
+                "run",
+                "-d",
+                "--name",
+                container,
+                # A brand-new named volume: empty, and root-owned until the
+                # image's COPY --chown seeds it. This is the whole point — no
+                # --tmpfs, no bind mount, no chown to hide the bug.
+                "-v",
+                f"{volume}:/var/lib/otelcol/queue",
+                # The config reads these via ${env:...}; an unset name is an
+                # error for the collector, so supply them exactly as
+                # docker-compose.yml does.
+                "-e",
+                "ENVIRONMENT=development",
+                "-e",
+                "SERVICE_VERSION=dev",
+                "-e",
+                "OTLP_AUTH_USER=civicpulse",
+                "-e",
+                "OTLP_AUTH_PASSWORD=civicpulse",
+                "-e",
+                "NEW_RELIC_LICENSE_KEY=not-set",
+                image,
+                DEFAULT_CONFIG_FLAG,
+            ],
+            timeout=120,
+        )
+        assert started.returncode == 0, f"docker run failed:\n{started.stderr.strip()}"
+
+        failure = _wait_until_ready(container)
+        if failure is not None:
+            logs = _tail(container)
+    finally:
+        # Always clean up: the names are unique, so a leak collides with
+        # nothing, but a rejected config left alive would confuse whoever looks
+        # at `docker ps` next.
+        _docker(["rm", "-f", container], timeout=60)
+        _docker(["volume", "rm", volume], timeout=60)
+        _docker(["image", "rm", "-f", image], timeout=60)
+
+    assert failure is None, (
+        f"{failure} — the built collector image must start on a fresh volume "
+        f'(readiness marker: "{READY_MARKER}"). A root-owned queue directory '
+        "surfaces here as `permission denied`.\n"
+        f"--- collector log (tail) ---\n{logs}"
     )
