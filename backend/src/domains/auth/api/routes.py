@@ -439,7 +439,7 @@ def _oauth_callback_uri(provider: str) -> str:
     frontend origin. The proxy forwards to the backend, and rewrites the auth
     ``Set-Cookie`` headers onto the frontend domain so the session works exactly
     like the normal email/login flow. This is why the URI lives under
-    ``FRONTEND_URL`` and not ``BACKEND_URL``.
+    ``FRONTEND_URL`` and never under the backend's own origin.
     """
     base = settings.FRONTEND_URL.rstrip("/")
     return f"{base}/api/proxy/auth/oauth/{provider}/callback"

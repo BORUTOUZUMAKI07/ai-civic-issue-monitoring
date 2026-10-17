@@ -161,11 +161,6 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = ""
     GITHUB_CLIENT_ID: str = ""
     GITHUB_CLIENT_SECRET: str = ""
-    # Base URL the browser can reach this backend at (used to build OAuth redirect URIs).
-    # e.g. http://localhost:8000 in dev. In production behind the Next.js proxy this is the
-    # public API origin.
-    BACKEND_URL: str = "http://localhost:8000"
-
     # --- SMTP (outbound email) ---
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587

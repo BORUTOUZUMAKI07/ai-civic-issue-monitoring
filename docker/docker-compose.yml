@@ -28,6 +28,11 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-development}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
       - CORS_ORIGINS=${CORS_ORIGINS:-}
+      # Auth-cookie `secure` flag (backend config.py COOKIE_SECURE). Must stay
+      # false for plain-HTTP dev — a `secure` cookie is dropped over http://.
+      # A production deploy behind HTTPS sets true in docker/.env, which is what
+      # this ${...} interpolation reads.
+      - COOKIE_SECURE=${COOKIE_SECURE:-false}
       - OPENAI_BASE_URL=https://api.groq.com/openai/v1
       # The LLM classifier and embeddings are fail-open (src/core/llm.py,
       # src/core/embeddings.py), so empty keys keep dev boot working while
@@ -55,7 +60,6 @@ services:
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
-      - BACKEND_URL=${BACKEND_URL:-http://localhost:8000}
       - SMTP_HOST=${SMTP_HOST:-}
       - SMTP_PORT=${SMTP_PORT:-587}
       - SMTP_USER=${SMTP_USER:-}
@@ -81,7 +85,6 @@ services:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-      - BACKEND_URL=http://backend:8000
     depends_on:
       - backend
     restart: unless-stopped
