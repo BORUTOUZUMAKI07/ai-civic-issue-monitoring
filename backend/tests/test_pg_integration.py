@@ -13,7 +13,10 @@ introduced by migrations 005/007/008, and the ``idempotency_keys`` table from
 against PostgreSQL. The suite never trusts that a migration chain "probably
 applied"; it runs the real ``alembic upgrade head`` against a fresh
 ``postgres:16-alpine`` container and asserts on the catalog plus the runtime
-behaviour.
+behaviour. It also runs ``alembic check`` (``test_migrations_match_the_models``)
+so a model that was never migrated — or a column migrated with the wrong
+nullability, as migration 001 did — fails the build instead of drifting
+unnoticed.
 
 Whenever Docker is unavailable (no daemon, image pull failure), every test in
 this module skips itself rather than failing — that keeps the gate honest on
@@ -142,10 +145,10 @@ async def conn(pg_engine):
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def test_alembic_reached_head(pg_engine) -> None:
-    """The full chain 001→009 applied; the head revision is 009."""
+    """The full chain 001→010 applied; the head revision is 010."""
     async with pg_engine.connect() as c:
         version = await c.scalar(text("SELECT version_num FROM alembic_version"))
-    assert version == "009"
+    assert version == "010"
 
     async with pg_engine.connect() as c:
         tables = {
@@ -166,6 +169,36 @@ async def test_alembic_reached_head(pg_engine) -> None:
         "resolutions",
         "idempotency_keys",
     } <= tables
+
+
+async def test_migrations_match_the_models(migrated_pg_url) -> None:
+    """``alembic check`` must find nothing left to upgrade.
+
+    The ``migrated_pg_url`` fixture has already applied the real chain to the
+    container, so comparing the live schema with ``Base.metadata`` catches the
+    two ways a change can go missing: a model edited without a migration, and a
+    migration column created with the wrong nullability (both happened here —
+    migration 001 left nineteen columns nullable that the models call NOT NULL,
+    which is what migration 010 fixes). Without this, drift only shows up as a
+    silent ``alembic check`` failure nobody runs.
+    """
+    proc = subprocess.run(
+        [sys.executable, "-m", "alembic", "check"],
+        cwd=str(BACKEND_DIR),
+        env={
+            **os.environ,
+            "ASYNC_DATABASE_URI": migrated_pg_url,
+            "DATABASE_URL": migrated_pg_url,
+        },
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert proc.returncode == 0, (
+        "the models and the migration chain have drifted; add a migration (or "
+        "reconcile the column) so the two agree\n"
+        f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+    )
 
 
 async def test_issue_type_enum_has_exactly_three_values(pg_engine) -> None:
