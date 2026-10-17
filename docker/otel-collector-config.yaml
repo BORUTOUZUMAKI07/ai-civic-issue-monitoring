@@ -58,8 +58,8 @@ processors:
     check_interval: 5s
     limit_percentage: 80
     spike_limit_percentage: 25
-  # Tail-sampling: keep every error span, ~10% of the rest. The app sends its
-  # full trace stream, so the agent decides what reaches the free tier.
+  # Tail-sampling: keep every error and slow span, ~10% of the rest. The app
+  # sends its full trace stream, so the agent decides what reaches the free tier.
   tail_sampling:
     decision_wait: 10s
     num_traces: 10000
@@ -67,7 +67,13 @@ processors:
     policies:
       - name: keep-all-errors
         type: status_code
-        status_code: {status_codes: [ERROR, UNSET]}
+        status_code: {status_codes: [ERROR]}
+      # UNSET is a normal span's default status. Listing it kept *every* trace
+      # here, so the 10%-of-the-rest policy below never dropped anything.
+      - name: keep-slow
+        type: latency
+        latency:
+          threshold_ms: 2000
       - name: sample-rest
         type: probabilistic
         probabilistic: {sampling_percentage: 10}
