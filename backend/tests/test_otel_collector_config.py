@@ -23,6 +23,10 @@ What is pinned:
   file-backed queue that survives a sink outage — including the image that
   pre-creates the queue directory for the collector uid, so a fresh volume
   cannot kill the collector at startup;
+* the tail-sampling intent — errors and slow traces kept, ~10% of the rest —
+  including that the error policy lists only ``ERROR``: adding ``UNSET`` (a
+  healthy span's default status) matches almost every trace and quietly ships
+  the whole stream to the free tier;
 * the built image actually BOOTS on a freshly created named volume — a
   Docker-marked integration test (``Backend Integration`` in CI), because shape
   assertions cannot see a queue directory the collector refuses to write to;
@@ -176,6 +180,50 @@ def test_primary_sink_queues_to_disk_and_retries() -> None:
     assert exporter["sending_queue"]["storage"] == "file_storage"
     assert exporter["retry_on_failure"]["enabled"] is True
     assert "file_storage" in config["service"]["extensions"]
+
+
+def test_tail_sampling_keeps_errors_and_a_sample_of_the_rest() -> None:
+    """The quota guard: the error policy must NOT match every healthy span.
+
+    ``status_code`` accepts ``OK``/``ERROR``/``UNSET``, and ``UNSET`` is the
+    default status of a span that simply succeeded. Listing it makes the policy
+    match nearly every trace, so the policy "samples" them all and
+    ``sample-rest`` never drops anything — the collector then ships the ENTIRE
+    trace stream to the (free-tier) sink, silently. Naming only ``ERROR`` is
+    what makes "errors + ~10% of the rest" true, and the latency policy keeps
+    the slow traces that a healthy status would otherwise hide.
+    """
+    config = _load(COLLECTOR_CONFIG)
+    tail_sampling = config["processors"]["tail_sampling"]
+    policies = {policy["name"]: policy for policy in tail_sampling["policies"]}
+
+    errors = policies["keep-all-errors"]
+    assert errors["type"] == "status_code"
+    assert errors["status_code"]["status_codes"] == ["ERROR"], (
+        "the status_code policy must list only ERROR: UNSET is the default "
+        "status of a healthy span, so [ERROR, UNSET] matches almost every "
+        "trace and silently disables the probabilistic sampling of the rest"
+    )
+
+    slow = policies["keep-slow"]
+    assert slow["type"] == "latency"
+    assert slow["latency"]["threshold_ms"] == 2000, (
+        "the latency policy must keep traces slower than 2s — a healthy "
+        "status would otherwise let a slow-but-successful trace be dropped"
+    )
+
+    rest = policies["sample-rest"]
+    assert rest["type"] == "probabilistic"
+    assert rest["probabilistic"]["sampling_percentage"] == 10
+
+    # Tail sampling buffers whole traces, so it belongs on traces only: logs and
+    # metrics have no trace to sample and attaching it there is a config error.
+    pipelines = config["service"]["pipelines"]
+    assert "tail_sampling" in pipelines["traces"]["processors"]
+    for name in ("logs", "metrics"):
+        assert "tail_sampling" not in pipelines[name]["processors"], (
+            f"{name} has no trace to sample; attaching tail_sampling is a configuration error"
+        )
 
 
 def test_collector_image_precreates_the_queue_dir_for_its_uid() -> None:
