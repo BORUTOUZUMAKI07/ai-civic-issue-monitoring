@@ -186,10 +186,12 @@ class IssueService:
             if existing.engineer_id is not None and existing.engineer_id != engineer.id:
                 # `engineer_id` is NULLable (SET NULL on profile removal), so
                 # a superseded assignment may no longer name anyone.
-                await self.engineer_repo.decrement_workload(existing.engineer_id)
+                outgoing = await self.engineer_repo.get(existing.engineer_id)
+                if outgoing is not None and outgoing.current_workload > 0:
+                    outgoing.current_workload -= 1
             await self.assignment_repo.delete_by_issue(issue.id)
 
-        await self.engineer_repo.increment_workload(engineer.id)
+        engineer.current_workload += 1
 
         assignment = Assignment(
             issue_id=issue.id,
@@ -197,10 +199,20 @@ class IssueService:
             status=AssignmentStatus.pending,
             sla_deadline=datetime.now(timezone.utc) + timedelta(hours=48),
         )
-        await self.assignment_repo.create(assignment)
+        self.db.add(assignment)
 
         issue.status = IssueStatus.assigned
-        await self.issue_repo.commit()
+        # One transaction for the whole supersede: the workload deltas, the
+        # delete of the outgoing assignment and the insert of the new one. The
+        # repository helpers this used to call each committed on its own, so a
+        # failure part-way through (for example between deleting the old
+        # assignment and inserting the new one) left the issue unassigned while
+        # one engineer's workload had already been decremented and another's
+        # incremented — a roster count that stayed wrong forever. Flushing once
+        # at the end makes the supersede atomic: either the issue moves to the
+        # new engineer wholesale, or nothing changes at all.
+        await self.db.commit()
+        await self.db.refresh(assignment)
 
         return engineer
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { auth } from "@/lib/api";
+import { safeInternalPath } from "@/lib/safe-redirect";
 
 export function OAuthButtons() {
   const [providers, setProviders] = useState<{ google: boolean; github: boolean } | null>(null);
@@ -24,9 +25,10 @@ export function OAuthButtons() {
 
   function handleOAuth(provider: "google" | "github") {
     // Preserve any ?redirect= so the post-login destination carries through,
-    // then do a full-page navigation: the OAuth callback is a top-level redirect
-    // that sets auth cookies on the frontend domain in the same tab.
-    const redirect = new URLSearchParams(window.location.search).get("redirect") || "/dashboard";
+    // but only when it is a same-site path (see safeInternalPath); then do a
+    // full-page navigation: the OAuth callback is a top-level redirect that
+    // sets auth cookies on the frontend domain in the same tab.
+    const redirect = safeInternalPath(new URLSearchParams(window.location.search).get("redirect"));
     window.location.href = auth.oauthAuthorizeUrl(provider, redirect);
   }
 
