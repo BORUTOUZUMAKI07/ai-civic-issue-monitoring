@@ -138,22 +138,11 @@ class AuthService:
         access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
 
         if sid and jti:
-            revoked = await redis_client.get(f"{_REFRESH_REVOKED_PREFIX}{user.id}")
-            if revoked:
+            if await self._refresh_family_revoked(user.id):
                 raise TokenRevoked()
             new_refresh = create_refresh_token({"sub": str(user.id)}, sid=sid)
             new_jti = decode_token(new_refresh).get("jti", "")
-            result = await redis_client.eval(
-                _ROTATE_REFRESH_LUA,
-                1,
-                f"{_REFRESH_SESSION_PREFIX}{sid}",
-                jti,
-                new_jti,
-                str(_REUSE_GRACE_SECONDS),
-                str(_REFRESH_TTL),
-                str(int(time.time())),
-            )
-            result = int(result)
+            result = await self._rotate_refresh_session(sid, jti, new_jti)
             if result == 0:
                 # Replay: the presented token was already rotated out. Revoke the
                 # whole session family.
@@ -172,9 +161,61 @@ class AuthService:
             if exp:
                 ttl = int(exp) - int(time.time())
                 if ttl > 0:
-                    await blacklist_token(jti, ttl)
+                    await self._blacklist_best_effort(jti, ttl)
 
         return access_token, new_refresh
+
+    async def _refresh_family_revoked(self, user_id: int) -> bool:
+        """Read the post-replay lockout flag for ``user_id``.
+
+        Fails open (``False``) when Redis is unreachable — the flag is a
+        revocation signal, and an outage must not turn every refresh into a
+        500. This matches the rest of the module, whose Redis usage is already
+        best-effort.
+        """
+        try:
+            return bool(await redis_client.get(f"{_REFRESH_REVOKED_PREFIX}{user_id}"))
+        except Exception as e:
+            logger.warning("refresh: Redis unavailable, treating family as not revoked: %s", e)
+            return False
+
+    async def _rotate_refresh_session(self, sid: str, jti: str, new_jti: str) -> int:
+        """Run the rotation/reuse-detection script: 1 ok / 0 replay / -1 no record.
+
+        Redis is the session store behind rotation, and both Redis calls used
+        to sit here unguarded. The ``/auth/refresh`` route only catches
+        ``AppError``, so a Redis outage surfaced as a raw exception and every
+        session renewal returned a 500 — an instance that was otherwise serving
+        traffic correctly logged every user out. Every other Redis-backed
+        behaviour in this module already fails open; refresh now does too.
+
+        Failing open cannot be escalated into a privilege gain: reuse detection
+        is purely defensive, and whoever can reach Redis can already forge the
+        state it checks. When Redis returns, the next successful rotation
+        re-anchors the session record.
+        """
+        try:
+            result = await redis_client.eval(
+                _ROTATE_REFRESH_LUA,
+                1,
+                f"{_REFRESH_SESSION_PREFIX}{sid}",
+                jti,
+                new_jti,
+                str(_REUSE_GRACE_SECONDS),
+                str(_REFRESH_TTL),
+                str(int(time.time())),
+            )
+        except Exception as e:
+            logger.warning("refresh: Redis unavailable, skipping rotation bookkeeping: %s", e)
+            return 1
+        return int(result)
+
+    async def _blacklist_best_effort(self, jti: str, ttl_seconds: int) -> None:
+        """Blacklist a rotated-out token, tolerating Redis being unreachable."""
+        try:
+            await blacklist_token(jti, ttl_seconds)
+        except Exception as e:
+            logger.warning("refresh: Redis unavailable, could not blacklist rotated token: %s", e)
 
     async def logout(self, refresh_token: Optional[str], access_token: Optional[str] = None) -> None:
         # Blacklist the presented refresh token and, when available, the access

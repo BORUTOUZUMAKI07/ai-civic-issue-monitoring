@@ -53,10 +53,17 @@ setup_sentry()
 async def _collect_health() -> tuple[bool, dict[str, bool]]:
     """Dependency-aware health snapshot shared by /health and /health/ready.
 
-    ``ready`` is the only value that should gate traffic: it is true when the
-    datastores the request path needs (Postgres, Redis) answer. MongoDB and the
-    ML model are reported but do not gate -- both are optional subsystems that
-    degrade rather than fail a request.
+    ``ready`` is the only value that should gate traffic, and only Postgres
+    gates it: it is the one dependency whose loss makes every request fail.
+
+    Redis is reported but deliberately does not gate. Every Redis-backed
+    behaviour in this codebase already fails open when Redis is unreachable
+    (refresh rotation, the access-token blacklist, password-reset and 2FA
+    single-use markers, rate limiting, the dashboard cache), so an outage
+    weakens revocation and throttling but never breaks a request. Gating
+    readiness on it would instead pull a fully working API out of rotation --
+    turning a partial degradation into a total one. MongoDB and the ML model
+    stay informational for the same reason.
     """
     db_ok = await check_db_health()
     redis_ok = await check_redis_health()
@@ -75,7 +82,10 @@ async def _collect_health() -> tuple[bool, dict[str, bool]]:
         ml_ok = bool(ml_info.get("model_exists", False))
     except Exception:  # optional subsystem absent -> reported as down  # nosec B110
         pass
-    ready = db_ok and redis_ok
+    # Postgres alone gates readiness. See the docstring: Redis, MongoDB and the
+    # ML model are reported so an operator can see the degradation, but they do
+    # not remove a working instance from rotation.
+    ready = db_ok
     return ready, {
         "database": db_ok,
         "redis": redis_ok,

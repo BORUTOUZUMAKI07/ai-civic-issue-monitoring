@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { auth, getErrorMessage } from "@/lib/api"
+import { safeInternalPath } from "@/lib/safe-redirect"
 import { useQueryClient } from "@tanstack/react-query"
 import { loginSchema, type LoginFormData } from "@/lib/schemas"
 import { AuthShell } from "@/components/auth/auth-shell"
@@ -30,7 +31,9 @@ function LoginForm() {
   })
 
   function redirectAfterLogin() {
-    const redirect = searchParams.get("redirect") || "/dashboard"
+    // `?redirect=` is attacker-controllable; only a same-site path is honoured
+    // so a crafted login link cannot bounce the user to another origin.
+    const redirect = safeInternalPath(searchParams.get("redirect"))
     router.push(redirect)
   }
 
