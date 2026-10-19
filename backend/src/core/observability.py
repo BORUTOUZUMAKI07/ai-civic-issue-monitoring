@@ -39,7 +39,6 @@ _otlp_trace_provider: Any = None
 _otlp_metrics_provider: Any = None
 _http_server_requests: Any = None
 _http_server_duration: Any = None
-_sentry_initialized: bool = False
 
 
 def _otlp_base_endpoint() -> str | None:
@@ -367,43 +366,3 @@ def shutdown_otlp_metrics() -> None:
         provider.shutdown()
     except Exception as exc:  # noqa: BLE001 - teardown must never break shutdown
         logger.warning("OTLP metric provider shutdown failed: %s", exc)
-
-
-def setup_sentry() -> bool:
-    """Initialise Sentry error tracking when ``SENTRY_DSN`` is set (opt-in).
-
-    Returns ``True`` once the client is configured and ``False`` otherwise. A
-    strict no-op when the DSN is unset -- the common local/test/CI case pays
-    nothing. Fail-open by construction: if ``sentry-sdk`` is absent (it lives
-    in the optional ``[observability]`` extra) or ``init`` raises, a warning is
-    logged and startup continues. A broken error reporter must never be the
-    reason the service fails to boot.
-
-    Traces are **not** duplicated here: the OTLP path already owns spans, so
-    ``SENTRY_TRACES_SAMPLE_RATE`` defaults to 0 and this hook exists to group
-    and alert on *errors*. ``send_default_pii=False`` keeps request bodies,
-    cookies and user identifiers out of events -- the same posture as
-    :class:`src.log_utils.redaction.SensitiveDataFilter` on the log path.
-    """
-    global _sentry_initialized
-    if _sentry_initialized:
-        return True
-    dsn = (settings.SENTRY_DSN or "").strip()
-    if not dsn:
-        return False
-    try:
-        import sentry_sdk
-
-        sentry_sdk.init(
-            dsn=dsn,
-            environment=settings.ENVIRONMENT,
-            release=settings.VERSION,
-            traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
-            send_default_pii=False,
-        )
-        _sentry_initialized = True
-        logger.info("Sentry error tracking wired (env=%s)", settings.ENVIRONMENT)
-        return True
-    except Exception as exc:  # noqa: BLE001 - fail-open seam, never break startup
-        logger.warning("Sentry init failed: %s", exc)
-        return False

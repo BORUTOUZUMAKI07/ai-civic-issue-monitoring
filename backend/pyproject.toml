@@ -43,7 +43,6 @@ dependencies = [
     # console/file handlers. Replaced python-json-logger, which could only
     # flatten a record's own fields and had no notion of request-scoped context.
     "structlog>=24.1.0",
-    "pgvector>=0.3.0",
     "langgraph>=0.2.0",
     "langchain-core>=0.3.0",
     "openai>=1.50.0",
@@ -83,7 +82,6 @@ dev = [
 ]
 ml = [
     "scikit-learn>=1.5.0",
-    "pandas>=2.2.0",
     "peft>=0.14.0",
     "optuna>=4.0.0",
     "pyyaml>=6.0",
@@ -91,26 +89,19 @@ ml = [
     "onnx>=1.16.0",
     "tqdm>=4.66.0",
 ]
-# Layer-1 -> Layer-2 OTLP log + trace + metric export (3-layer observability)
-# plus opt-in error tracking. The app itself never holds the New Relic license
-# key -- the Layer-2 OpenTelemetry collector owns it
-# (docker/otel-collector-config.yaml). Kept as an optional extra so a fresh
-# pixi solve stays lean; the runtime image installs it via
-# `pip install ".[ml,observability]"` (backend/Dockerfile). The instrumentation
-# packages are version-paired with the SDK (SDK 1.x <-> 0.x-b instrumentation)
-# and are registered from src/core/observability.py.
-# sentry-sdk sits here rather than in the base dependencies for the same reason
-# the OTel stack does: it is strictly opt-in (nothing happens without
-# SENTRY_DSN), and a default CI/pixi environment that has neither a DSN nor the
-# package must still boot, typecheck and pass its tests -- setup_sentry() treats
-# the missing module as a fail-open condition.
+# Layer-1 -> Layer-2 OTLP log + trace + metric export (3-layer observability).
+# The app itself never holds the New Relic license key -- the Layer-2
+# OpenTelemetry collector owns it (docker/otel-collector-config.yaml). Kept as
+# an optional extra so a fresh pixi solve stays lean; the runtime image installs
+# it via `pip install ".[ml,observability]"` (backend/Dockerfile). The
+# instrumentation packages are version-paired with the SDK (SDK 1.x <->
+# 0.x-b instrumentation) and are registered from src/core/observability.py.
 observability = [
     "opentelemetry-sdk>=1.28.0",
     "opentelemetry-exporter-otlp-proto-http>=1.28.0",
     "opentelemetry-instrumentation-fastapi>=0.50b0",
     "opentelemetry-instrumentation-httpx>=0.50b0",
     "opentelemetry-instrumentation-sqlalchemy>=0.50b0",
-    "sentry-sdk>=2.7.0",
 ]
 
 [tool.pytest.ini_options]
@@ -158,7 +149,6 @@ warn_unused_ignores = false
 module = [
     "langgraph.*",
     "langchain.*",
-    "pgvector.*",
     "openai.*",
     "opentelemetry.*",
     # Untyped dependencies. These ship no `py.typed` marker (or no stubs at
@@ -175,12 +165,7 @@ module = [
     "yaml.*",
     "tqdm.*",
     "sklearn.*",
-    "pandas.*",
     "numpy.*",
-    # Optional [observability] dependency: absent from the default CI/pixi env,
-    # so `import sentry_sdk` inside setup_sentry() would otherwise be an
-    # import-not-found error rather than a deliberately fail-open condition.
-    "sentry_sdk.*",
 ]
 ignore_missing_imports = true
 
