@@ -11,6 +11,7 @@ from src.domains.issues.services.issue_service import ALLOWED_EXTENSIONS, IssueS
 from src.domains.users.deps import get_current_active_user
 from src.domains.users.models.user import User
 from src.shared.errors import BadRequestError, InvalidImageError, NotFoundError
+from src.shared.uploads import read_upload_bounded
 
 router = APIRouter(prefix="/resolution", tags=["Resolution"])
 
@@ -21,7 +22,7 @@ UPLOAD_DIR = Path("uploads/resolutions")
 async def resolve_issue(
     issue_id: str = Form(...),
     file: UploadFile = File(...),
-    notes: str = Form(""),
+    notes: str = Form("", max_length=2000),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
@@ -32,7 +33,9 @@ async def resolve_issue(
     # no size cap, no PIL check — so a "photo" could be an .html or .svg that
     # the browser would execute, and every rejected (or never-processed) upload
     # left an orphan file behind in a directory that was publicly served.
-    content = await file.read()
+    # Bounded read: see ``src.shared.uploads`` — never pull a whole spool into
+    # memory, whatever the declared length.
+    content = await read_upload_bounded(file)
     filename_in = file.filename or "after.jpg"
     svc.validate_image(filename_in, content)
 

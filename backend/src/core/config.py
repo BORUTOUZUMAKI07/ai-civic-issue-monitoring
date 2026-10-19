@@ -32,6 +32,11 @@ WEAK_SECRET_KEYS: frozenset[str] = frozenset(
 )
 SECRET_KEY_MIN_LENGTH: int = 32
 
+# Algorithms accepted for signing/verifying JWTs. The secret is a shared
+# HMAC key, so only the HS family is ever correct here. Anything else
+# (especially `none`) would turn every token check into a rubber stamp.
+ALLOWED_JWT_ALGORITHMS: frozenset[str] = frozenset({"HS256", "HS384", "HS512"})
+
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "CivicPulse"
@@ -113,6 +118,19 @@ class Settings(BaseSettings):
                 f"SECRET_KEY must be at least {SECRET_KEY_MIN_LENGTH} characters to resist brute force. "
                 "Generate with: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
             )
+        return v
+
+    @field_validator("ALGORITHM", mode="after")
+    @classmethod
+    def validate_algorithm(cls, v: str) -> str:
+        # `decode_token` passes this straight into `algorithms=[...]`, so an
+        # env var that reaches `none` (or an asymmetric name python-jose will
+        # happily ignore the key for) would turn every token check into a
+        # rubber stamp. The secret is a shared HMAC key, so only the HS
+        # family can ever be correct here — reject anything else at startup
+        # rather than discovering it in production.
+        if v not in ALLOWED_JWT_ALGORITHMS:
+            raise ValueError(f"ALGORITHM must be one of {', '.join(sorted(ALLOWED_JWT_ALGORITHMS))}; got '{v}'.")
         return v
 
     # --- Cookie settings ---

@@ -18,6 +18,7 @@ from src.domains.users.deps import get_current_active_user
 from src.domains.users.models.user import User
 from src.domains.users.rbac import require_admin
 from src.shared.errors import BadRequestError
+from src.shared.uploads import read_upload_bounded
 
 logger = logging.getLogger(__name__)
 
@@ -156,19 +157,28 @@ async def _run_agent_pipeline(
 @router.post("/upload", response_model=IssueResponse)
 async def upload_issue(
     file: UploadFile = File(...),
-    latitude: str = Form(...),
-    longitude: str = Form(...),
-    description: str = Form(""),
+    # Typed and bounded by FastAPI, not parsed by hand: the old
+    # ``latitude: str`` + ``float(latitude)`` turned a non-numeric or
+    # out-of-range coordinate into an unhandled ``ValueError`` (500) and let
+    # ``nan``/``inf`` through to the database. This is a 422 with the offending
+    # field named, for every bad value, before the body is touched.
+    latitude: float = Form(..., ge=-90, le=90),
+    longitude: float = Form(..., ge=-180, le=180),
+    description: str = Form("", max_length=2000),
     force_submit: str = Form("false"),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    lat_val = float(latitude)
-    lon_val = float(longitude)
     force = force_submit.lower() == "true"
 
-    content = await file.read()
+    # Bounded read. The multipart parser has already spooled the file to a
+    # temporary file by now (the Content-Length guard in middleware is what
+    # stops that for honest clients), but ``await file.read()`` would pull the
+    # *whole* spool into memory — a 1 GB "photo" from an authenticated user,
+    # times concurrent requests, is a one-request OOM. This reads at most the
+    # ceiling plus one byte and refuses anything past it.
+    content = await read_upload_bounded(file)
     filename = file.filename or "image.jpg"
 
     if idempotency_key is not None:
@@ -178,8 +188,8 @@ async def upload_issue(
             key=idempotency_key,
             filename=filename,
             content=content,
-            lat_val=lat_val,
-            lon_val=lon_val,
+            lat_val=latitude,
+            lon_val=longitude,
             description=description,
             force=force,
         )
@@ -189,8 +199,8 @@ async def upload_issue(
         user=user,
         filename=filename,
         content=content,
-        lat_val=lat_val,
-        lon_val=lon_val,
+        lat_val=latitude,
+        lon_val=longitude,
         description=description,
         force=force,
     )

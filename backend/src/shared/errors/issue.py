@@ -12,8 +12,11 @@ class InvalidImageError(BadRequestError):
 
 
 class ImageTooLargeError(BadRequestError):
-    def __init__(self):
-        super().__init__(detail="Image exceeds maximum size of 5MB.")
+    # Two ceilings can trip this — the byte count and the decoded pixel count
+    # — so the caller says which one fired. Both are the same *kind* of
+    # failure (the upload is too big to accept) and both are 400s.
+    def __init__(self, detail: str = "Image exceeds maximum size of 5MB."):
+        super().__init__(detail=detail)
 
 
 class CorruptedImageError(BadRequestError):

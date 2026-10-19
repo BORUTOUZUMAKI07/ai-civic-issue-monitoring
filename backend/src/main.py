@@ -37,7 +37,14 @@ from src.domains.notifications.api.routes import router as notifications_router
 from src.domains.resolution.api.routes import router as resolution_router
 from src.domains.wards.api.routes import router as wards_router
 from src.log_utils import setup_logging
-from src.middleware import LoggingMiddleware, OTelMetricsMiddleware, RateLimitMiddleware, RBACMiddleware
+from src.middleware import (
+    LoggingMiddleware,
+    OTelMetricsMiddleware,
+    RateLimitMiddleware,
+    RBACMiddleware,
+    RequestBodyLimitMiddleware,
+    SecurityHeadersMiddleware,
+)
 from src.shared.errors.base import AppError
 
 logger = logging.getLogger("civicpulse")
@@ -110,6 +117,12 @@ def create_app(lifespan_override=None):
     )
 
     app.add_middleware(LoggingMiddleware)
+    # Added before the rate limiter in this list = *inside* it (a later
+    # add_middleware wraps the earlier ones), so an oversized body is still
+    # counted against the caller's budget but never reaches FastAPI's parser —
+    # which would otherwise spool a big file to disk, or accumulate a big JSON
+    # body in memory, before any size check could run.
+    app.add_middleware(RequestBodyLimitMiddleware)
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(RBACMiddleware)
     # Added after the app's own middleware, so it wraps the rate-limit and RBAC
@@ -119,6 +132,11 @@ def create_app(lifespan_override=None):
     # Recording is a no-op until setup_otlp_metrics() wires a provider, so an
     # unconfigured app pays nothing.
     app.add_middleware(OTelMetricsMiddleware)
+    # Outermost of the app's own middleware (only the trace instrumentor, added
+    # below, sits outside it), so the baseline headers land on *every* response
+    # — including the 429s and 401/403s assembled by the layers above, which
+    # never reach a handler.
+    app.add_middleware(SecurityHeadersMiddleware)
 
     # Layer-1 -> Layer-2 export. Wired at build time so the global providers
     # exist before the first request; a strict no-op unless NEW_RELIC_ENABLED is

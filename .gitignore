@@ -102,6 +102,10 @@ mlruns/
 outputs/
 _dagshub_review/
 
+# --- Security scanning ---
+# `strix -t .` writes its run artifacts here. Local scan output, not source.
+strix_runs/
+
 # --- Node ---
 node_modules/
 .next/

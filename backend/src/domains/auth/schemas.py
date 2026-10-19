@@ -8,7 +8,7 @@ class LoginRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=6, max_length=128)
     full_name: str
     role: str = "field_worker"
 
@@ -29,13 +29,13 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str
-    new_password: str
+    new_password: str = Field(min_length=6, max_length=128)
 
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
     # Matches the client-side floor in ``frontend/src/lib/schemas.ts``.
-    new_password: str = Field(min_length=6)
+    new_password: str = Field(min_length=6, max_length=128)
 
 
 class WsTicketResponse(BaseModel):

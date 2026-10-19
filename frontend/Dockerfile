@@ -11,6 +11,13 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# `next build` does not fold `public/` into `.next/standalone`, so the runtime
+# stage below copies it separately. That copy needs the directory to exist even
+# when the project ships no static assets (it currently ships none): Docker's
+# COPY fails outright on a missing source, which is exactly how this image broke
+# once the last placeholder file left `public/`.
+RUN mkdir -p public
+
 ENV NODE_ENV=production
 RUN npm run build -- --webpack
 
