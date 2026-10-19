@@ -30,11 +30,11 @@ from src.shared.errors import (
     InvalidImageError,
     IssueNotFound,
 )
+from src.shared.uploads import MAX_IMAGE_PIXELS, MAX_UPLOAD_BYTES
 
 pillow_heif.register_heif_opener()
 
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic"}
-MAX_FILE_SIZE_MB = 5
 
 
 class IssueService:
@@ -60,14 +60,30 @@ class IssueService:
     def validate_image(self, filename: str, content: bytes) -> None:
         ext = filename.split(".")[-1].lower()
         if ext not in ALLOWED_EXTENSIONS:
-            raise InvalidImageError(f"Invalid file type '{ext}'. Allowed: {', '.join(ALLOWED_EXTENSIONS)}")
+            raise InvalidImageError(f"Invalid file type '{ext}'. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
 
-        size_mb = len(content) / (1024 * 1024)
-        if size_mb > MAX_FILE_SIZE_MB:
+        if len(content) > MAX_UPLOAD_BYTES:
             raise ImageTooLargeError()
 
         try:
             image = Image.open(io.BytesIO(content))
+        except Image.DecompressionBombError:
+            # Pillow's own 178 MP hard stop, for images far past ours. It is
+            # a size refusal, not corruption — say so, rather than handing
+            # back "corrupted or unreadable" for a perfectly valid file.
+            raise ImageTooLargeError(f"Image dimensions exceed {MAX_IMAGE_PIXELS // 1_000_000} megapixels.")
+        except Exception:
+            raise CorruptedImageError()
+
+        # The byte ceiling does not bound the *decode*: a small, heavily
+        # compressed file can declare tens of millions of pixels, and turning
+        # it into an RGB buffer costs ~3 bytes each (48 MP -> ~144 MB) before
+        # a single pixel of inference runs. Checked on the header, so the
+        # expensive decode never starts for an image we are about to refuse.
+        if image.width * image.height > MAX_IMAGE_PIXELS:
+            raise ImageTooLargeError(f"Image dimensions exceed {MAX_IMAGE_PIXELS // 1_000_000} megapixels.")
+
+        try:
             image.verify()
         except Exception:
             raise CorruptedImageError()

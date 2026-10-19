@@ -81,6 +81,15 @@ services:
     ports:
       - "3000:3000"
     environment:
+      # Server-side base URL for the API proxy (`/api/proxy/*`): the backend's
+      # in-network service name, which is only resolvable from inside this
+      # container. Do NOT use NEXT_PUBLIC_API_URL here — `localhost:8000` from
+      # inside the frontend container is the container itself, so every
+      # proxied API call would 502.
+      - BACKEND_URL=${BACKEND_URL:-http://backend:8000}
+      # Browser-facing base, used only to build the WebSocket URL in the
+      # issue stream. It must be reachable from the user's browser, i.e. the
+      # host-published port, not the in-network name.
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     depends_on:
       - backend

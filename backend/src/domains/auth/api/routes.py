@@ -389,14 +389,17 @@ async def verify_2fa(
     user_id = int(payload["sub"])
     svc = TwoFactorService(db)
 
-    # Burn the challenge *after* the code checks out but before tokens are
-    # issued, so one challenge mints exactly one session. Consuming it first
-    # would force a full re-login on a mistyped digit; never consuming it
-    # (the old behaviour) let a stolen challenge be replayed for 5 minutes.
+    # Verify the code first, and only then burn the challenge. Consuming it
+    # before the check (what this did) meant a mistyped digit threw away a
+    # valid challenge and forced a full re-login; the burn still happens
+    # before any cookie is set, so one challenge mints exactly one session —
+    # a replayed challenge fails here and the tokens from the duplicate
+    # `verify_challenge` call are discarded with the response.
+    access_token, refresh_token = await svc.verify_challenge(user_id, body.code)
+
     if payload.get("jti"):
         await _consume_2fa_challenge(payload["jti"])
 
-    access_token, refresh_token = await svc.verify_challenge(user_id, body.code)
     _set_auth_cookies(response, access_token, refresh_token)
     return {"detail": "Login successful"}
 

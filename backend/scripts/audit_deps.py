@@ -66,8 +66,16 @@ IGNORED: dict[str, str] = {
     "PYSEC-2026-4012": "virtualenv: dev tooling only",
     "PYSEC-2026-4013": "virtualenv: dev tooling only",
     "PYSEC-2026-4014": "virtualenv: dev tooling only",
-    # ── aiohttp 3.14.2 (conda via dvc; fixed 3.14.3) ─────────────────────────
+    # ── aiohttp 3.14.2 (conda via dvc; fixed 3.14.3/3.14.4) ──────────────────
+    # dvc's transfer stack (s3fs / aiobotocore / mlflow) is the only consumer,
+    # and only as an HTTP *client* against this project's own DVC remote. The
+    # application never imports aiohttp — `grep -r aiohttp backend/src` is
+    # empty — and two of the four below are server-side request-handling bugs a
+    # client cannot reach.
     "PYSEC-2026-3545": "aiohttp: OOB heap read in C response parser; not imported by the app",
+    "CVE-2026-111063": "aiohttp: Secure cookie attribute; app holds no aiohttp cookie jar",
+    "CVE-2026-111064": "aiohttp: keepalive timeout is server-side; app runs no aiohttp server",
+    "GHSA-2g87-pp6c-29x5": "aiohttp: unbounded memory on hostile requests; server-side, app runs no aiohttp server",
     # ── asyncssh 2.23.0 (conda via prefect; fixed 2.23.1/2.24.0) ─────────────
     "PYSEC-2026-3808": "asyncssh: malicious-SCP-server file write; SCP CLI never used",
     "PYSEC-2026-4026": "asyncssh: max-packet-size wedge; SSH client never used",

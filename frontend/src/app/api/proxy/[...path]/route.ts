@@ -1,6 +1,29 @@
 import { NextRequest, NextResponse } from "next/server"
 
-const BACKEND = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+/**
+ * Where the backend actually lives, as seen from *this server*.
+ *
+ * `BACKEND_URL` is the server-only variable to set (Docker Compose sets it to
+ * `http://backend:8000`, the in-network service name). `NEXT_PUBLIC_API_URL`
+ * is kept only as a fallback for existing setups — it is a *browser* variable
+ * (`http://localhost:8000`), and inside a container that resolves to the
+ * container itself, not the backend. It is not inlined into client bundles
+ * anywhere: the browser only ever talks to this proxy.
+ */
+const BACKEND =
+  process.env.BACKEND_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:8000"
+
+/**
+ * Mirrors the backend's own ceilings (`backend/src/shared/uploads.py`), with
+ * slack for the multipart envelope. Checked here so an oversized body is
+ * refused before it is buffered: `request.arrayBuffer()` below would
+ * otherwise pull the whole thing into the Next.js process's memory long
+ * before the backend could reject it.
+ */
+const MAX_UPLOAD_BODY_BYTES = 7 * 1024 * 1024
+const MAX_JSON_BODY_BYTES = 1024 * 1024
 
 type RouteContext = { params: Promise<{ path: string[] }> }
 
@@ -126,8 +149,27 @@ async function proxy(request: NextRequest, context: RouteContext) {
 
     let body: ArrayBuffer | string | undefined
     if (request.method !== "GET" && request.method !== "HEAD") {
+      // Cap the body before buffering it. A declared length over the ceiling
+      // is refused outright; a missing or bogus one (chunked) is checked again
+      // after the read, so neither path can walk off with the process.
+      const declared = Number(request.headers.get("content-length") ?? "0")
+      const limit = contentType?.includes("multipart/form-data")
+        ? MAX_UPLOAD_BODY_BYTES
+        : MAX_JSON_BODY_BYTES
+      if (Number.isFinite(declared) && declared > limit) {
+        return NextResponse.json(
+          { detail: "Request body too large." },
+          { status: 413 },
+        )
+      }
       try {
         const buf = await request.arrayBuffer()
+        if (buf.byteLength > limit) {
+          return NextResponse.json(
+            { detail: "Request body too large." },
+            { status: 413 },
+          )
+        }
         if (buf.byteLength > 0) {
           if (contentType?.includes("multipart/form-data")) {
             body = buf
