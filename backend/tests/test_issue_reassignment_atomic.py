@@ -2,8 +2,8 @@
 
 ``IssueService.assign_issue_to_engineer`` supersedes the outgoing assignment:
 it moves one engineer's workload down, the other's up, deletes the old
-assignment row and inserts the new one. The repository helpers it used to call
-(``increment_workload`` / ``decrement_workload`` / ``create``) each committed on
+assignment row and inserts the new one. The old repository helpers
+(``increment_workload`` / workload decrement / ``create``) each committed on
 their own, so a failure part-way through left the issue unassigned while both
 workload counters had already been persisted — a roster that stayed wrong
 forever. This test injects a failure at the final flush and asserts nothing was
