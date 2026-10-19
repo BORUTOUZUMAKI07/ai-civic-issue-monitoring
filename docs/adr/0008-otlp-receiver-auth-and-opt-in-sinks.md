@@ -1,4 +1,4 @@
-# ADR-0008: Authenticate the OTLP receiver; keep second sinks and error tracking opt-in
+# ADR-0008: Authenticate the OTLP receiver; keep second sinks opt-in
 
 - **Status**: Accepted
 - **Date**: 2026-10-16
@@ -19,7 +19,7 @@ anyone who can route to them, and an OTLP receiver is not a read endpoint: it
 2. fabricates the very numbers alerts and dashboards are computed from —
    a worse failure than missing telemetry, because nobody investigates it.
 
-Two gaps from the same audit sat alongside it:
+One gap from the same audit sat alongside it:
 
 - **The "second sink" was never real.** Grafana appeared only as a commented-out
   exporter block. Enabling it naively is impossible by construction: the
@@ -27,7 +27,6 @@ Two gaps from the same audit sat alongside it:
   so a default-on fan-out makes the stack unbootable for anyone without Grafana
   credentials — the fail-open guarantee ADR-0001 established would regress the
   moment the file is uncommented.
-- **There was no error tracking.** A 500 became a log line nobody reads.
 
 ## Decision
 
@@ -54,16 +53,7 @@ restates all three pipelines with it joined (collector config files are merged:
 overlay repeats rather than appends). Enabling it is two credentials plus one
 `--config` flag — a collector change, never an app change.
 
-### 3. Add Sentry error tracking, off unless a DSN is set
-
-`setup_sentry()` in `src/core/observability.py` runs at import time in
-`main.py`, before the app is built, so startup exceptions are captured too. It
-is a strict no-op without `SENTRY_DSN`, fails open if `sentry-sdk` is absent
-(it lives in the optional `[observability]` extra), and is idempotent.
-`send_default_pii=False` and `SENTRY_TRACES_SAMPLE_RATE=0.0` keep it to what it
-is for — grouping *errors* — since traces already travel over OTLP.
-
-### 4. Pin the handshake from both ends in tests
+### 3. Pin the handshake from both ends in tests
 
 `test_otel_collector_config.py` asserts statically (no Docker) that the receiver
 demands auth, that no literal credential is tracked, and that compose hands the
@@ -85,10 +75,6 @@ failure worth a test.
   the commented-out Grafana stub never was: `test_grafana_fan_out_is_opt_in_and_complete`
   proves the overlay is complete *and* that the default config cannot depend on
   it.
-- **Error tracking is opt-in, fail-open and CI-safe.** `sentry-sdk` lives in the
-  optional `[observability]` extra, so the default pixi/CI environment carries
-  neither the package nor any side effect, while the runtime image (which
-  installs `[ml,observability]`) gets it.
 - **Config drift now fails a test in the default environment on every push** —
   the place the historical silent failure (an empty `action:` killing the
   collector before `/healthz`) would have been caught.
@@ -106,6 +92,3 @@ failure worth a test.
 - **Enabling Grafana costs a second `--config` flag.** Deliberately manual: a
   default-on exporter would make the stack unbootable for anyone without
   `GRAFANA_*` credentials.
-- **`sentry-sdk` needs an explicit mypy `ignore_missing_imports` entry** and is
-  invisible to `pip-audit` in the default environment, since the package is only
-  installed in the runtime image.

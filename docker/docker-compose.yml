@@ -53,9 +53,6 @@ services:
       # collector's copy) before any deployment that exposes :4318.
       - OTLP_AUTH_USER=${OTLP_AUTH_USER:-civicpulse}
       - OTLP_AUTH_PASSWORD=${OTLP_AUTH_PASSWORD:-civicpulse}
-      # Opt-in error tracking (Sentry). Empty = not configured, no client at all.
-      - SENTRY_DSN=${SENTRY_DSN:-}
-      - SENTRY_TRACES_SAMPLE_RATE=${SENTRY_TRACES_SAMPLE_RATE:-0.0}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}

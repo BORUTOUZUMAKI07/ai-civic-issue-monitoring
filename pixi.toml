@@ -39,7 +39,6 @@ pillow = ">=11.0.0"
 # structlog renders structured JSON with request-scoped context (see
 # src/log_utils); stdlib logging still does the transport.
 structlog = ">=24.1.0"
-pgvector = ">=0.3.0"
 langgraph = ">=0.2.0"
 langchain-core = ">=0.3.0"
 openai = ">=1.50.0"
@@ -111,9 +110,8 @@ civicpulse-backend = {path = "./backend", editable = true, extras = ["ml"]}
 dvc-s3 = ">=3.3.0, <4"
 
 # Full observability stack for LOCAL runs — mirrors backend/pyproject.toml's
-# `[observability]` extra (OTLP SDK + http exporter + instrumentors +
-# sentry-sdk) so the app can actually export telemetry and track errors
-# outside Docker.
+# `[observability]` extra (OTLP SDK + http exporter + instrumentors) so the app
+# can actually export telemetry outside Docker.
 # The default env deliberately omits it (fail-open coverage lives there; see
 # the extra's comment in backend/pyproject.toml), so the REAL-exporter half
 # of test_observability_3layer.py only runs here:

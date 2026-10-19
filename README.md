@@ -16,7 +16,7 @@ A professional, production-grade system for monitoring and managing civic issues
 | **ML Engine** | PyTorch + LangGraph | Custom trained models for issue classification + agent pipeline. |
 | **Monitoring** | Prefect + statistical drift checks | Scheduled confidence/label drift detection on logged predictions. |
 | **Scheduling** | Prefect Cloud | Automated drift detection, SLA monitoring, reporting, and ML retraining. |
-| **Observability** | OpenTelemetry (3-layer: OTLP → collector → New Relic / Grafana) | Structured logs, traces and RED metrics all exported over OTLP (FastAPI/httpx/SQLAlchemy instrumentors + HTTP metrics middleware), transported by a Layer-2 collector that owns the vendor key, guards its OTLP receiver with basic auth, and fans out to any OTLP sink via a config-flag-gated overlay. Error tracking (Sentry) is opt-in behind `SENTRY_DSN`. |
+| **Observability** | OpenTelemetry (3-layer: OTLP → collector → New Relic / Grafana) | Structured logs, traces and RED metrics all exported over OTLP (FastAPI/httpx/SQLAlchemy instrumentors + HTTP metrics middleware), transported by a Layer-2 collector that owns the vendor key, guards its OTLP receiver with basic auth, and fans out to any OTLP sink via a config-flag-gated overlay. |
 | **Containerization** | Docker | Full stack orchestration via Docker Compose. |
 
 **Directory Structure:**
@@ -39,7 +39,6 @@ This project uses **[Pixi](https://pixi.sh)** (conda-forge) instead of UV or Pip
 | **asyncpg** | `libpq-dev` | PostgreSQL C client library |
 | **MongoDB (motor)** | `libssl` | TLS for database connections |
 | **Argon2** | `libffi-dev` | Password hashing C extension |
-| **pgvector** | `postgresql-devel` | Vector search extension headers |
 
 UV and Pip only manage **Python packages** — they cannot install system-level C libraries. This forces you into a messy hybrid of `apt-get install` + `pip install` + manual `LD_LIBRARY_PATH` hacks. **Pixi resolves both Python and native dependencies in a single, reproducible environment** via conda-forge channels.
 
@@ -256,7 +255,7 @@ We use scheduled **drift detection** (confidence/label distribution vs. baseline
 
 ### Backend
 - FastAPI + Uvicorn
-- SQLAlchemy 2.0 (async) + PostgreSQL + pgvector
+- SQLAlchemy 2.0 (async) + PostgreSQL
 - Beanie + MongoDB (audit logs, drift reports)
 - Redis + Upstash (rate limiting, caching, token blacklist)
 - LangGraph (agent pipeline)

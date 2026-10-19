@@ -146,16 +146,6 @@ class Settings(BaseSettings):
     # (e.g. a bearer token); when a key collides, this wins. Empty by default.
     NEW_RELIC_OTLP_HEADERS: dict[str, str] = {}
 
-    # --- Error tracking (Sentry, opt-in) ---
-    # Set SENTRY_DSN to group and alert on unhandled exceptions -- without it a
-    # 500 is only a log line nobody reads. A strict no-op when unset, and
-    # fail-open when sentry-sdk is absent (it ships in the optional
-    # ``[observability]`` extra). Traces stay on the OTLP path, so Sentry's
-    # performance sampling defaults to 0: this hook exists for *errors*, not a
-    # second trace pipeline. Personal data is never attached (see setup_sentry).
-    SENTRY_DSN: str = ""
-    SENTRY_TRACES_SAMPLE_RATE: float = 0.0
-
     # --- OAuth (Google / GitHub) ---
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
