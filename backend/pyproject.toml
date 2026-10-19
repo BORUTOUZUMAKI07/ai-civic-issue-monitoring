@@ -44,7 +44,6 @@ dependencies = [
     # flatten a record's own fields and had no notion of request-scoped context.
     "structlog>=24.1.0",
     "langgraph>=0.2.0",
-    "langchain-core>=0.3.0",
     "openai>=1.50.0",
     "numpy>=1.26.0",
     "pyotp>=2.9.0",
@@ -148,7 +147,6 @@ warn_unused_ignores = false
 [[tool.mypy.overrides]]
 module = [
     "langgraph.*",
-    "langchain.*",
     "openai.*",
     "opentelemetry.*",
     # Untyped dependencies. These ship no `py.typed` marker (or no stubs at
@@ -234,7 +232,6 @@ module = [
     "src.ml.inference.predict",
     "src.ml.models.build_model",
     "src.ml.registry.model_registry",
-    "src.ml.training.clean_data",
     "src.ml.training.train",
     "src.domains.issues.models.issue",
     "src.domains.wards.models.ward",

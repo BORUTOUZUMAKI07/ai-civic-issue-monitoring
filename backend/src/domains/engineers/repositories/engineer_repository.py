@@ -46,9 +46,3 @@ class EngineerRepository:
         if engineer:
             engineer.current_workload += 1
             await self.db.commit()
-
-    async def decrement_workload(self, engineer_id: int) -> None:
-        engineer = await self.get(engineer_id)
-        if engineer and engineer.current_workload > 0:
-            engineer.current_workload -= 1
-            await self.db.commit()

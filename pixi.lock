@@ -8254,7 +8254,7 @@ packages:
 - pypi: ./backend
   name: civicpulse-backend
   version: 0.1.0
-  sha256: 4587f23197d4e75af042f6fc437d09fbc254d84ea34735b1e5cfa6fd2563b9b8
+  sha256: d9159e1bbbd2561d66fb8034406483d84f2ed2ee38b66f5db0f28f8d9a740c0c
   requires_dist:
   - fastapi>=0.115.0
   - uvicorn>=0.32.0
@@ -8279,7 +8279,6 @@ packages:
   - pillow-heif>=0.19.0
   - structlog>=24.1.0
   - langgraph>=0.2.0
-  - langchain-core>=0.3.0
   - openai>=1.50.0
   - numpy>=1.26.0
   - pyotp>=2.9.0
