@@ -76,8 +76,26 @@ const ALLOWED_PREFIXES = new Set([
  */
 const NEEDS_REFRESH = new Set(["auth/refresh", "auth/logout"])
 
-/** Paths that may be called without an access token (login, register, 2FA, OAuth). */
-const PUBLIC_PREFIXES = ["auth/login", "auth/register", "auth/forgot-password", "auth/reset-password", "auth/2fa", "auth/oauth", "auth/refresh", "auth/logout"]
+/**
+ * Paths that may be called without an access token.
+ *
+ * Beyond the auth flows, this includes the handful of read-only endpoints the
+ * public marketing page renders before anyone has signed in. They are safe to
+ * expose because they leak counts only, never rows: listing a path here is a
+ * deliberate statement that the backend handler behind it needs no identity,
+ * not a convenience.
+ */
+const PUBLIC_PREFIXES = [
+  "auth/login",
+  "auth/register",
+  "auth/forgot-password",
+  "auth/reset-password",
+  "auth/2fa",
+  "auth/oauth",
+  "auth/refresh",
+  "auth/logout",
+  "dashboard/public-stats",
+]
 
 function isPublicRoute(key: string): boolean {
   return PUBLIC_PREFIXES.some((p) => key === p || key.startsWith(`${p}/`))

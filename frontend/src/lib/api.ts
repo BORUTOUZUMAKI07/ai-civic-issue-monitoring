@@ -1,5 +1,7 @@
 const API_BASE = "/api/proxy";
 
+import { isProtectedPath } from "./protected-paths";
+
 /**
  * Turn a stored ``image_url`` (``/uploads/issues/x.jpg``) into an authenticated
  * fetch URL.
@@ -70,8 +72,14 @@ async function rawFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
         return retry.json();
       }
     }
-    if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-      window.location.href = "/login";
+    // Only bounce to /login from a *protected* page. A 401 on a public page
+    // (the marketing landing runs a couple of read-only queries) is a normal
+    // answer, and treating it as a dead session navigated visitors away from
+    // the page they deliberately opened. `expired=1` tells the middleware this
+    // is a session-expiry redirect, so a stale-but-present cookie cannot bounce
+    // /login straight back to the app and loop (mirrors the url-shortner flow).
+    if (typeof window !== "undefined" && isProtectedPath(window.location.pathname)) {
+      window.location.href = "/login?expired=1";
     }
     throw new Error("Session expired. Please login again.");
   }

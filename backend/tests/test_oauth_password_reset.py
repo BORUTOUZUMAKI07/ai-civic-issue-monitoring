@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -588,6 +590,43 @@ async def test_oauth_authorize_pages_to_provider_and_binds_session(client: Async
         set_cookie = "; ".join(response.headers.get_list("set-cookie", []))
         assert "oauth_state=" in set_cookie
         assert "HttpOnly" in set_cookie
+    finally:
+        settings.GOOGLE_CLIENT_ID = old_google_id
+        settings.GOOGLE_CLIENT_SECRET = old_google_secret
+
+
+async def test_oauth_authorize_navigates_with_raw_query_separators(client: AsyncClient) -> None:
+    """The provider URL must reach the browser with real ``&`` separators.
+
+    The authorize page embeds the URL in two different contexts, each needing a
+    different encoding: inside the HTML ``content="..."`` attribute ``&`` is
+    written ``&amp;``, but inside the JS string that actually performs the
+    navigation it must stay raw. Escaping the JS string as HTML sent the literal
+    text ``&amp;`` to Google, so the query never split into parameters and the
+    provider rejected the request with "Missing required parameter:
+    redirect_uri" — a login that could not start.
+    """
+    old_google_id = settings.GOOGLE_CLIENT_ID
+    old_google_secret = settings.GOOGLE_CLIENT_SECRET
+    settings.GOOGLE_CLIENT_ID = "client-123"
+    settings.GOOGLE_CLIENT_SECRET = "secret-abc"
+    try:
+        response = await client.get("/api/v1/auth/oauth/google/authorize", follow_redirects=False)
+        assert response.status_code == 200
+        body = response.text
+
+        # The JS navigation carries raw separators, so redirect_uri is a real
+        # parameter and not swallowed into one giant &amp;-joined value.
+        js_nav = re.search(r'window\.location\.replace\("([^"]+)"\)', body)
+        assert js_nav is not None, "authorize page must navigate via window.location.replace"
+        js_url = js_nav.group(1)
+        assert "&amp;" not in js_url
+        assert "&redirect_uri=" in js_url
+
+        # The HTML attribute keeps the entity form, which is correct there.
+        meta = re.search(r'content="0;url=([^"]+)"', body)
+        assert meta is not None, "authorize page must carry a meta refresh fallback"
+        assert "&amp;" in meta.group(1)
     finally:
         settings.GOOGLE_CLIENT_ID = old_google_id
         settings.GOOGLE_CLIENT_SECRET = old_google_secret
