@@ -20,11 +20,44 @@ class IssueRepositoryPort(Protocol):
 
     async def list_all(self, skip: int = 0, limit: int = 20) -> list[Issue]: ...
 
-    async def list_review_queue(self, skip: int = 0, limit: int = 20) -> list[Issue]: ...
+    async def list_filtered(
+        self,
+        *,
+        skip: int = 0,
+        limit: int = 20,
+        sort: str = "created_at",
+        order: str = "desc",
+        status: str | None = None,
+        issue_type: str | None = None,
+        severity: int | None = None,
+        ward_id: int | None = None,
+        search: str = "",
+    ) -> list[Issue]: ...
+
+    async def count_filtered(
+        self,
+        *,
+        status: str | None = None,
+        issue_type: str | None = None,
+        severity: int | None = None,
+        ward_id: int | None = None,
+        search: str = "",
+    ) -> int: ...
+
+    async def list_review_queue(
+        self,
+        skip: int = 0,
+        limit: int = 20,
+        *,
+        issue_type: str | None = None,
+        severity: int | None = None,
+        sort: str = "created_at",
+        order: str = "desc",
+    ) -> list[Issue]: ...
 
     async def count(self) -> int: ...
 
-    async def count_review_queue(self) -> int: ...
+    async def count_review_queue(self, *, issue_type: str | None = None, severity: int | None = None) -> int: ...
 
     async def count_by_status(self) -> dict[str, int]: ...
 

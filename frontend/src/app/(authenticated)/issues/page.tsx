@@ -13,7 +13,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -29,23 +28,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
 import { IssueTypeIcon } from "@/components/shared/issue-icon";
 import { QueryError } from "@/components/shared/query-error";
+import { SortHeaders } from "@/components/shared/sort-headers";
+import { ListPager } from "@/components/shared/list-pager";
+import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
 import { toast } from "sonner";
 import {
   ChevronRight,
+  ArrowDownToLine,
   Inbox,
   LocateFixed,
   MapPin,
   Plus,
+  Rows3,
   Search,
   Wifi,
   WifiOff,
@@ -145,19 +141,72 @@ function IssueRow({ issue, wardName }: { issue: Issue; wardName: string }) {
 
 export default function IssuesPage() {
   const { data: currentUser } = useMe();
-  const { data, isLoading, isError, error, refetch } = useIssues({ limit: 50 });
+
+  // Filter / sort / page state lives here and is pushed to the server: the
+  // list pages over the *whole* table rather than slicing whatever first page
+  // happened to be fetched, so filters and totals stay correct past page one.
+  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [filterType, setFilterType] = useState<string>("all");
+  const [sort, setSort] = useState("created_at");
+  const [order, setOrder] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(1);
+  // "pages" = classic numbered pager; "scroll" = append the next page as the
+  // sentinel scrolls into view and drop the pager. Both drive the same
+  // server-side query; only the accumulation differs.
+  const [loadMode, setLoadMode] = useState<"pages" | "scroll">("pages");
+
+  const queryParams = useMemo(
+    () => ({
+      skip: (page - 1) * PAGE_SIZE,
+      limit: PAGE_SIZE,
+      search: search || undefined,
+      status: filterStatus !== "all" ? filterStatus : undefined,
+      issue_type: filterType !== "all" ? filterType : undefined,
+      sort,
+      order,
+    }),
+    [page, search, filterStatus, filterType, sort, order]
+  );
+
+  const { data, isLoading, isError, error, refetch, isFetching } = useIssues(queryParams);
   const uploadMutation = useUploadIssueMutation();
   const { data: wards } = useWards();
+
+  // Accumulated rows for scroll mode. Reset whenever the filter/sort identity
+  // changes (a new result set must start from scratch), and append each newly
+  // fetched page otherwise. Keyed on the serialized filter set so a page-2
+  // fetch appends but a new search replaces.
+  const filterKey = `${search}|${filterStatus}|${filterType}|${sort}|${order}|${loadMode}`;
+  const [accumulated, setAccumulated] = useState<Issue[]>([]);
+  useEffect(() => {
+    setAccumulated([]);
+    setPage(1);
+  }, [filterKey]);
+  useEffect(() => {
+    if (loadMode !== "scroll" || !data) return;
+    setAccumulated((prev) => {
+      const base = page === 1 ? [] : prev;
+      const seen = new Set(base.map((i) => i.id));
+      return [...base, ...data.items.filter((i) => !seen.has(i.id))];
+    });
+  }, [data, loadMode, page]);
 
   const wardName = useCallback(
     (id: number) => wards?.find((w) => w.id === id)?.name ?? `Ward ${id}`,
     [wards]
   );
 
-  const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState<string>("all");
-  const [filterType, setFilterType] = useState<string>("all");
-  const [page, setPage] = useState(1);
+  // Debounce the search box so each keystroke does not fire a request; the
+  // committed `search` is what the query key depends on.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearch(searchInput);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -326,28 +375,26 @@ export default function IssuesPage() {
   };
 
   const items = useMemo(() => data?.items ?? [], [data]);
-  const total = data?.total ?? items.length;
+  const total = data?.total ?? 0;
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return items.filter((i) => {
-      if (filterStatus !== "all" && i.status !== filterStatus) return false;
-      if (filterType !== "all" && i.issue_type !== filterType) return false;
-      if (q) {
-        return (
-          i.description?.toLowerCase().includes(q) ||
-          i.issue_type.replace("_", " ").includes(q)
-        );
-      }
-      return true;
-    });
-  }, [items, search, filterStatus, filterType]);
+  // Scroll mode renders the accumulated set; pages mode renders the last page.
+  const displayItems = loadMode === "scroll" ? accumulated : items;
+  const hasMore = loadMode === "scroll" && displayItems.length < total;
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const pageItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const sentinelRef = useInfiniteScroll(
+    () => setPage((p) => p + 1),
+    { disabled: !hasMore || isFetching }
+  );
 
-  const filtersActive = search || filterStatus !== "all" || filterType !== "all";
+  const filtersActive = Boolean(search || filterStatus !== "all" || filterType !== "all");
+
+  const clearFilters = () => {
+    setSearchInput("");
+    setSearch("");
+    setFilterStatus("all");
+    setFilterType("all");
+    setPage(1);
+  };
 
   return (
     <div className="space-y-6">
@@ -356,9 +403,7 @@ export default function IssuesPage() {
         <div className="flex items-center gap-3">
           <div>
             <p className="text-sm text-muted-foreground">
-              {filtersActive
-                ? `${filtered.length} of ${total} issues`
-                : `${total} total issues`}
+              {filtersActive ? `${total} matching issues` : `${total} total issues`}
             </p>
           </div>
           <span
@@ -385,11 +430,8 @@ export default function IssuesPage() {
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search issues…"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               className="pl-9"
             />
           </div>
@@ -456,19 +498,49 @@ export default function IssuesPage() {
         </Select>
 
         {filtersActive && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setSearch("");
-              setFilterStatus("all");
-              setFilterType("all");
-              setPage(1);
-            }}
-          >
+          <Button variant="ghost" size="sm" onClick={clearFilters}>
             Clear filters
           </Button>
         )}
+
+        <SortHeaders
+          className="ml-auto"
+          sort={sort}
+          order={order}
+          onChange={(s, o) => {
+            setSort(s);
+            setOrder(o);
+            setPage(1);
+          }}
+          options={[
+            { key: "created_at", label: "Newest" },
+            { key: "severity", label: "Severity" },
+            { key: "confidence", label: "Confidence" },
+          ]}
+        />
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          onClick={() => {
+            setLoadMode((m) => (m === "pages" ? "scroll" : "pages"));
+            setPage(1);
+          }}
+          title="Toggle between page numbers and load-on-scroll"
+        >
+          {loadMode === "pages" ? (
+            <>
+              <ArrowDownToLine className="h-3.5 w-3.5" />
+              Load on scroll
+            </>
+          ) : (
+            <>
+              <Rows3 className="h-3.5 w-3.5" />
+              Page numbers
+            </>
+          )}
+        </Button>
       </div>
 
       {/* List */}
@@ -493,38 +565,29 @@ export default function IssuesPage() {
               </div>
             ))}
           </div>
-        ) : pageItems.length === 0 ? (
+        ) : displayItems.length === 0 ? (
           <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
               <Inbox className="h-7 w-7 text-muted-foreground" />
             </div>
             <h3 className="mt-4 text-base font-semibold">
-              {total === 0 ? "No issues reported yet" : "No issues match your filters"}
+              {total === 0 && !filtersActive ? "No issues reported yet" : "No issues match your filters"}
             </h3>
             <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-              {total === 0
+              {total === 0 && !filtersActive
                 ? "Click 'Report Issue' to submit the first report from the field."
                 : "Try adjusting your search or clearing the active filters."}
             </p>
-            {total > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-4"
-                onClick={() => {
-                  setSearch("");
-                  setFilterStatus("all");
-                  setFilterType("all");
-                }}
-              >
+            {filtersActive && (
+              <Button variant="outline" size="sm" className="mt-4" onClick={clearFilters}>
                 Clear filters
               </Button>
             )}
           </div>
         ) : (
           <>
-            <div className="divide-y">
-              {pageItems.map((issue) => (
+            <div className={`divide-y transition-opacity ${isFetching && loadMode === "pages" ? "opacity-60" : ""}`}>
+              {displayItems.map((issue) => (
                 <IssueRow
                   key={issue.id}
                   issue={issue}
@@ -532,63 +595,22 @@ export default function IssuesPage() {
                 />
               ))}
             </div>
-            {totalPages > 1 && (
-              <>
-                <Separator />
-                <div className="flex items-center justify-between px-5 py-3">
-                  <p className="text-xs text-muted-foreground">
-                    Page {safePage} of {totalPages}
-                  </p>
-                  <Pagination>
-                    <PaginationContent>
-                      <PaginationItem>
-                        <PaginationPrevious
-                          href="#"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setPage(Math.max(1, safePage - 1));
-                          }}
-                          className={safePage === 1 ? "pointer-events-none opacity-50" : ""}
-                        />
-                      </PaginationItem>
-                      <PaginationItem>
-                        <PaginationLink
-                          href="#"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setPage(1);
-                          }}
-                          isActive={safePage === 1}
-                        >
-                          1
-                        </PaginationLink>
-                      </PaginationItem>
-                      <PaginationItem>
-                        <PaginationLink
-                          href="#"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setPage(totalPages);
-                          }}
-                          isActive={safePage === totalPages}
-                        >
-                          {totalPages}
-                        </PaginationLink>
-                      </PaginationItem>
-                      <PaginationItem>
-                        <PaginationNext
-                          href="#"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setPage(Math.min(totalPages, safePage + 1));
-                          }}
-                          className={safePage === totalPages ? "pointer-events-none opacity-50" : ""}
-                        />
-                      </PaginationItem>
-                    </PaginationContent>
-                  </Pagination>
-                </div>
-              </>
+            {loadMode === "scroll" ? (
+              <div className="flex flex-col items-center gap-3 py-6">
+                {isFetching && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span className="size-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                    Loading more…
+                  </div>
+                )}
+                {hasMore ? (
+                  <div ref={sentinelRef} className="h-1 w-full" aria-hidden />
+                ) : (
+                  <p className="text-xs text-muted-foreground">You&apos;ve reached the end · {total} issues</p>
+                )}
+              </div>
+            ) : (
+              <ListPager page={page} total={total} pageSize={PAGE_SIZE} onPageChange={setPage} />
             )}
           </>
         )}

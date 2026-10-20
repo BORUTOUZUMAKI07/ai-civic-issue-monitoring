@@ -105,12 +105,28 @@ class _FakeIssueRepo:
         self.total = total
         self.calls: list[tuple[str, dict]] = []
 
-    async def list_review_queue(self, skip: int = 0, limit: int = 20) -> list[Issue]:
-        self.calls.append(("list_review_queue", {"skip": skip, "limit": limit}))
+    async def list_review_queue(
+        self,
+        skip: int = 0,
+        limit: int = 20,
+        *,
+        issue_type: str | None = None,
+        severity: int | None = None,
+        sort: str = "created_at",
+        order: str = "desc",
+    ) -> list[Issue]:
+        self.calls.append(
+            (
+                "list_review_queue",
+                {"skip": skip, "limit": limit, "issue_type": issue_type, "severity": severity, "sort": sort, "order": order},
+            )
+        )
         return self.queue
 
-    async def count_review_queue(self) -> int:
-        self.calls.append(("count_review_queue", {}))
+    async def count_review_queue(
+        self, *, issue_type: str | None = None, severity: int | None = None
+    ) -> int:
+        self.calls.append(("count_review_queue", {"issue_type": issue_type, "severity": severity}))
         return self.total
 
 
@@ -134,8 +150,24 @@ class _FakeUserRepo:
         self.total = total
         self.filters: dict = {}
 
-    async def list_filtered(self, *, skip: int = 0, limit: int = 50, search: str = "", role: str | None = None):
-        self.filters = {"skip": skip, "limit": limit, "search": search, "role": role}
+    async def list_filtered(
+        self,
+        *,
+        skip: int = 0,
+        limit: int = 50,
+        search: str = "",
+        role: str | None = None,
+        sort: str = "created_at",
+        order: str = "desc",
+    ):
+        self.filters = {
+            "skip": skip,
+            "limit": limit,
+            "search": search,
+            "role": role,
+            "sort": sort,
+            "order": order,
+        }
         return self.users
 
     async def count_filtered(self, *, search: str = "", role: str | None = None) -> int:
@@ -204,7 +236,10 @@ async def test_issue_service_list_review_queue_uses_injected_repo() -> None:
 
     assert total == 5
     assert [i.id for i in issues] == [1, 2]
-    assert ("list_review_queue", {"skip": 10, "limit": 2}) in repo.calls
+    assert (
+        "list_review_queue",
+        {"skip": 10, "limit": 2, "issue_type": None, "severity": None, "sort": "created_at", "order": "desc"},
+    ) in repo.calls
 
 
 async def test_issue_service_get_assignment_map_delegates() -> None:
@@ -228,7 +263,14 @@ async def test_user_service_list_users_uses_injected_repo() -> None:
 
     assert total == 2
     assert [u.id for u in users] == [1, 2]
-    assert repo.filters == {"skip": 5, "limit": 10, "search": "ada", "role": "admin"}
+    assert repo.filters == {
+        "skip": 5,
+        "limit": 10,
+        "search": "ada",
+        "role": "admin",
+        "sort": "created_at",
+        "order": "desc",
+    }
 
 
 # ── EngineerService ───────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,37 @@ async def list_engineers(
 ):
     engineers = await EngineerService(db).list_engineers()
     return [EngineerResponse.from_engineer(e) for e in engineers]
+
+
+@router.get("/list")
+async def list_engineers_paged(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    specialization: str | None = Query(None),
+    ward_id: int | None = Query(None, ge=1),
+    available: bool | None = Query(None),
+    sort: str = Query("id", pattern="^(id|current_workload|max_workload|avg_resolution_hours)$"),
+    order: str = Query("asc", pattern="^(asc|desc)$"),
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_active_user),
+):
+    """Paginated, filterable, sortable engineer roster.
+
+    Kept separate from ``GET /engineers`` (a plain array) because that shape is
+    still consumed by the map, assignment picker and dashboard, which want the
+    whole roster in one shot. This endpoint backs the engineers *list* page,
+    which pages over the table with server-side filter/sort.
+    """
+    engineers, total = await EngineerService(db).list_engineers_paged(
+        skip=skip,
+        limit=limit,
+        specialization=specialization,
+        ward_id=ward_id,
+        available=available,
+        sort=sort,
+        order=order,
+    )
+    return {"items": [EngineerResponse.from_engineer(e) for e in engineers], "total": total}
 
 
 @router.post("", response_model=EngineerResponse)

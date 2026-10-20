@@ -30,6 +30,8 @@ class UserRepositoryPort(Protocol):
         limit: int = 50,
         search: str = "",
         role: str | None = None,
+        sort: str = "created_at",
+        order: str = "desc",
     ) -> list[User]: ...
 
     async def count_filtered(self, *, search: str = "", role: str | None = None) -> int: ...

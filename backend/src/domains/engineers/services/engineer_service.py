@@ -30,6 +30,31 @@ class EngineerService:
     async def list_engineers(self):
         return await self.engineer_repo.list_all()
 
+    async def list_engineers_paged(
+        self,
+        *,
+        skip: int = 0,
+        limit: int = 20,
+        specialization: str | None = None,
+        ward_id: int | None = None,
+        available: bool | None = None,
+        sort: str = "id",
+        order: str = "asc",
+    ) -> tuple[list[Engineer], int]:
+        engineers = await self.engineer_repo.list_filtered(
+            skip=skip,
+            limit=limit,
+            specialization=specialization,
+            ward_id=ward_id,
+            available=available,
+            sort=sort,
+            order=order,
+        )
+        total = await self.engineer_repo.count_filtered(
+            specialization=specialization, ward_id=ward_id, available=available
+        )
+        return engineers, total
+
     async def get_engineer(self, engineer_id: int):
         return await self.engineer_repo.get(engineer_id)
 

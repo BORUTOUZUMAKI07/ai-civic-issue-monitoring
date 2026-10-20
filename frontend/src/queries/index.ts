@@ -59,7 +59,17 @@ export function useRegisterMutation() {
   });
 }
 
-export function useIssues(params?: { skip?: number; limit?: number }) {
+export function useIssues(params?: {
+  skip?: number;
+  limit?: number;
+  status?: string;
+  issue_type?: string;
+  severity?: number;
+  ward_id?: number;
+  search?: string;
+  sort?: string;
+  order?: string;
+}) {
   return useQuery({
     queryKey: ["issues", params],
     queryFn: () => issues.list(params),
@@ -96,7 +106,7 @@ export function useUploadIssueMutation() {
   });
 }
 
-export function useAdminUsers(params?: { skip?: number; limit?: number; search?: string; role?: string }) {
+export function useAdminUsers(params?: { skip?: number; limit?: number; search?: string; role?: string; sort?: string; order?: string }) {
   return useQuery({
     queryKey: ["admin-users", params],
     queryFn: () => admin.listUsers(params),
@@ -112,7 +122,14 @@ export function useUpdateUserRoleMutation() {
   });
 }
 
-export function useReviewQueue(params?: { skip?: number; limit?: number }) {
+export function useReviewQueue(params?: {
+  skip?: number;
+  limit?: number;
+  issue_type?: string;
+  severity?: number;
+  sort?: string;
+  order?: string;
+}) {
   return useQuery({
     queryKey: ["review-queue", params],
     queryFn: () => admin.reviewQueue(params),
@@ -144,6 +161,21 @@ export function useEngineers() {
     queryKey: ["engineers"],
     queryFn: () => engineers.list(),
     staleTime: 2 * 60 * 1000,
+  });
+}
+
+export function useEngineersPaged(params?: {
+  skip?: number;
+  limit?: number;
+  specialization?: string;
+  ward_id?: number;
+  available?: boolean;
+  sort?: string;
+  order?: string;
+}) {
+  return useQuery({
+    queryKey: ["engineers-paged", params],
+    queryFn: () => engineers.listPaged(params),
   });
 }
 
@@ -211,5 +243,19 @@ export function useHeatmapData() {
     queryKey: ["heatmap"],
     queryFn: () => dashboard.heatmap(),
     staleTime: 30_000,
+  });
+}
+
+/**
+ * Public, unauthenticated aggregate counters for the landing page. Failures
+ * are swallowed by the caller (the landing page falls back to hiding the
+ * stat block), so a landing-page visit never depends on the API being up.
+ */
+export function usePublicStats() {
+  return useQuery({
+    queryKey: ["public-stats"],
+    queryFn: () => dashboard.publicStats(),
+    staleTime: 60_000,
+    retry: false,
   });
 }

@@ -48,18 +48,109 @@ class IssueRepository:
         result = await self.db.execute(select(Issue).order_by(Issue.created_at.desc()).offset(skip).limit(limit))
         return list(result.scalars().all())
 
-    async def list_review_queue(self, skip: int = 0, limit: int = 20) -> list[Issue]:
-        result = await self.db.execute(
-            select(Issue)
-            .where(Issue.review_required == True)  # noqa: E712
-            .order_by(Issue.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-        )
+    @staticmethod
+    def _apply_filters(
+        stmt,
+        *,
+        status: str | None = None,
+        issue_type: str | None = None,
+        severity: int | None = None,
+        ward_id: int | None = None,
+        search: str = "",
+    ):
+        """Shared WHERE clauses for list + count so the page and its total agree.
+
+        Values are validated at the HTTP edge (the route constrains them to the
+        enum members / column types), so here they map straight onto columns.
+        """
+        if status:
+            stmt = stmt.where(Issue.status == status)
+        if issue_type:
+            stmt = stmt.where(Issue.issue_type == issue_type)
+        if severity is not None:
+            stmt = stmt.where(Issue.severity == severity)
+        if ward_id is not None:
+            stmt = stmt.where(Issue.ward_id == ward_id)
+        if search:
+            stmt = stmt.where(Issue.description.ilike(f"%{search}%"))
+        return stmt
+
+    # Sort keys are an explicit allowlist -> column, so a caller cannot inject
+    # an arbitrary ORDER BY expression by passing a column name.
+    SORT_COLUMNS = {
+        "created_at": Issue.created_at,
+        "severity": Issue.severity,
+        "confidence": Issue.confidence,
+        "status": Issue.status,
+    }
+
+    async def list_filtered(
+        self,
+        *,
+        skip: int = 0,
+        limit: int = 20,
+        sort: str = "created_at",
+        order: str = "desc",
+        **filters,
+    ) -> list[Issue]:
+        column = self.SORT_COLUMNS.get(sort, Issue.created_at)
+        direction = column.asc() if order == "asc" else column.desc()
+        stmt = self._apply_filters(select(Issue), **filters)
+        # Stable tiebreak on id so pages never repeat or skip a row when the
+        # sort key ties (e.g. many rows share a created_at).
+        stmt = stmt.order_by(direction, Issue.id.desc()).offset(skip).limit(limit)
+        result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def count_review_queue(self) -> int:
-        result = await self.db.execute(select(func.count(Issue.id)).where(Issue.review_required == True))  # noqa: E712
+    async def count_filtered(self, **filters) -> int:
+        stmt = self._apply_filters(select(func.count(Issue.id)), **filters)
+        result = await self.db.execute(stmt)
+        return result.scalar_one()
+
+    @staticmethod
+    def _apply_review_filters(stmt, *, issue_type: str | None = None, severity: int | None = None):
+        """Shared WHERE clauses for the review queue's page and its total.
+
+        The queue is always scoped to `review_required` rows; the filters only
+        narrow it further.
+        """
+        stmt = stmt.where(Issue.review_required == True)  # noqa: E712
+        if issue_type:
+            stmt = stmt.where(Issue.issue_type == issue_type)
+        if severity is not None:
+            stmt = stmt.where(Issue.severity == severity)
+        return stmt
+
+    # Lowest-confidence first is the useful default for a human review queue:
+    # the rows the model was least sure about surface at the top.
+    REVIEW_SORT_COLUMNS = {
+        "created_at": Issue.created_at,
+        "confidence": Issue.confidence,
+        "severity": Issue.severity,
+    }
+
+    async def list_review_queue(
+        self,
+        skip: int = 0,
+        limit: int = 20,
+        *,
+        issue_type: str | None = None,
+        severity: int | None = None,
+        sort: str = "created_at",
+        order: str = "desc",
+    ) -> list[Issue]:
+        column = self.REVIEW_SORT_COLUMNS.get(sort, Issue.created_at)
+        direction = column.asc() if order == "asc" else column.desc()
+        stmt = self._apply_review_filters(select(Issue), issue_type=issue_type, severity=severity)
+        # Stable tiebreak on id so paging never repeats or skips a row when the
+        # sort key ties (a common case for confidence scores).
+        stmt = stmt.order_by(direction, Issue.id.desc()).offset(skip).limit(limit)
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def count_review_queue(self, *, issue_type: str | None = None, severity: int | None = None) -> int:
+        stmt = self._apply_review_filters(select(func.count(Issue.id)), issue_type=issue_type, severity=severity)
+        result = await self.db.execute(stmt)
         return result.scalar_one()
 
     async def count(self) -> int:

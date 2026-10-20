@@ -8,6 +8,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { QueryError } from "@/components/shared/query-error";
+import { SortHeaders } from "@/components/shared/sort-headers";
+import { ListPager } from "@/components/shared/list-pager";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -117,14 +119,39 @@ function UserRow({
 export default function AdminUsersPage() {
   const { data: currentUser } = useMe();
   const router = useRouter();
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("");
+  const [sort, setSort] = useState("created_at");
+  const [order, setOrder] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
+
+  // Debounce the search box so each keystroke does not fire a request.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearch(searchInput);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
   const params = {
-    limit: 50,
+    skip: (page - 1) * PAGE_SIZE,
+    limit: PAGE_SIZE,
+    sort,
+    order,
     ...(search && { search }),
     ...(roleFilter && { role: roleFilter }),
   };
-  const { data, isLoading, isError, error, refetch } = useAdminUsers(params);
+  const { data, isLoading, isError, error, refetch, isFetching } = useAdminUsers(params);
+
+  // Role counts describe the whole table, not just the visible page: fetched
+  // separately with a large limit so the summary cards stay accurate as the
+  // user list pages. Declared before the admin guard below so every render
+  // calls the same hooks in the same order.
+  const { data: allData } = useAdminUsers({ limit: 100 });
+
   const roleMutation = useUpdateUserRoleMutation();
   const [processingId, setProcessingId] = useState<number | null>(null);
 
@@ -142,6 +169,7 @@ export default function AdminUsersPage() {
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
+  const allItems = allData?.items ?? items;
 
   const handleRoleChange = async (userId: number, role: string) => {
     setProcessingId(userId);
@@ -170,7 +198,7 @@ export default function AdminUsersPage() {
       {/* Stats */}
       <div className="grid gap-4 sm:grid-cols-4">
         {(["admin", "engineer", "field_worker", "viewer"] as const).map((r) => {
-          const count = items.filter((u) => u.role === r).length;
+          const count = allItems.filter((u) => u.role === r).length;
           const Icon = r === "admin" ? ShieldCheck : r === "engineer" ? UserCheck : UserX;
           return (
             <Card key={r} className="flex items-center gap-3 px-4 py-3">
@@ -192,17 +220,23 @@ export default function AdminUsersPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search by name or email..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             className="pl-9 h-9 text-sm"
           />
         </div>
-        <Select value={roleFilter || "all"} onValueChange={(v) => setRoleFilter(v === "all" ? "" : v)}>
+        <Select
+          value={roleFilter || "all"}
+          onValueChange={(v) => {
+            setRoleFilter(v === "all" ? "" : v);
+            setPage(1);
+          }}
+        >
           <SelectTrigger className="h-9 w-[140px] text-sm">
             <SelectValue placeholder="All roles" />
           </SelectTrigger>
@@ -215,6 +249,19 @@ export default function AdminUsersPage() {
             ))}
           </SelectContent>
         </Select>
+
+        <SortHeaders
+          className="ml-auto"
+          sort={sort}
+          order={order}
+          onChange={(s, o) => { setSort(s); setOrder(o); setPage(1); }}
+          options={[
+            { key: "created_at", label: "Joined" },
+            { key: "full_name", label: "Name" },
+            { key: "email", label: "Email" },
+            { key: "role", label: "Role" },
+          ]}
+        />
       </div>
 
       {/* Table */}
@@ -228,7 +275,7 @@ export default function AdminUsersPage() {
           />
         ) : isLoading ? (
           <div className="space-y-1 p-2">
-            {Array.from({ length: 4 }).map((_, i) => (
+            {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="flex items-center gap-4 px-4 py-4">
                 <Skeleton className="h-10 w-10 rounded-full" />
                 <div className="flex-1 space-y-2">
@@ -250,18 +297,21 @@ export default function AdminUsersPage() {
             </p>
           </div>
         ) : (
-          <div className="divide-y">
-            {items.map((user) => (
-              <UserRow
-                key={user.id}
-                user={user}
-                currentUserId={currentUser?.id ?? 0}
-                currentUserRole={currentUser?.role ?? ""}
-                onRoleChange={handleRoleChange}
-                processing={processingId === user.id}
-              />
-            ))}
-          </div>
+          <>
+            <div className={`divide-y transition-opacity ${isFetching ? "opacity-60" : ""}`}>
+              {items.map((user) => (
+                <UserRow
+                  key={user.id}
+                  user={user}
+                  currentUserId={currentUser?.id ?? 0}
+                  currentUserRole={currentUser?.role ?? ""}
+                  onRoleChange={handleRoleChange}
+                  processing={processingId === user.id}
+                />
+              ))}
+            </div>
+            <ListPager page={page} total={total} pageSize={PAGE_SIZE} onPageChange={setPage} />
+          </>
         )}
       </Card>
     </div>

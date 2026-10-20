@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useReviewQueue, useReviewIssueMutation, useMe } from "@/queries/index";
@@ -9,6 +9,9 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { QueryError } from "@/components/shared/query-error";
+import { SortHeaders } from "@/components/shared/sort-headers";
+import { ListPager } from "@/components/shared/list-pager";
+import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
 import {
   Select,
   SelectContent,
@@ -25,7 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Check, Inbox, MapPin, Trash2 } from "lucide-react";
+import { ArrowDownToLine, Check, Inbox, MapPin, Rows3, Trash2 } from "lucide-react";
 import {
   formatDate,
   humanize,
@@ -144,10 +147,51 @@ function ReviewRow({
 export default function ReviewQueuePage() {
   const { data: currentUser } = useMe();
   const router = useRouter();
-  const { data, isLoading, isError, error, refetch } = useReviewQueue({ limit: 50 });
+
+  // Server-side filter/sort/page state. Confidence ascending by default: the
+  // rows the classifier was least sure about are the ones a human should see
+  // first, so the queue leads with them rather than with the newest.
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [sevFilter, setSevFilter] = useState<string>("all");
+  const [sort, setSort] = useState("confidence");
+  const [order, setOrder] = useState<"asc" | "desc">("asc");
+  const [page, setPage] = useState(1);
+  const [loadMode, setLoadMode] = useState<"pages" | "scroll">("pages");
+  const PAGE_SIZE = 20;
+
+  const queryParams = useMemo(
+    () => ({
+      skip: (page - 1) * PAGE_SIZE,
+      limit: PAGE_SIZE,
+      issue_type: typeFilter !== "all" ? typeFilter : undefined,
+      severity: sevFilter !== "all" ? Number(sevFilter) : undefined,
+      sort,
+      order,
+    }),
+    [page, typeFilter, sevFilter, sort, order]
+  );
+
+  const { data, isLoading, isError, error, refetch, isFetching } = useReviewQueue(queryParams);
   const reviewMutation = useReviewIssueMutation();
   const [processingId, setProcessingId] = useState<number | null>(null);
   const [rejectConfirm, setRejectConfirm] = useState<number | null>(null);
+
+  // Accumulated rows for scroll mode, reset whenever the filter/sort identity
+  // changes so a new result set starts from scratch.
+  const filterKey = `${typeFilter}|${sevFilter}|${sort}|${order}|${loadMode}`;
+  const [accumulated, setAccumulated] = useState<Issue[]>([]);
+  useEffect(() => {
+    setAccumulated([]);
+    setPage(1);
+  }, [filterKey]);
+  useEffect(() => {
+    if (loadMode !== "scroll" || !data) return;
+    setAccumulated((prev) => {
+      const base = page === 1 ? [] : prev;
+      const seen = new Set(base.map((i) => i.id));
+      return [...base, ...data.items.filter((i) => !seen.has(i.id))];
+    });
+  }, [data, loadMode, page]);
 
   const isAdmin = currentUser?.role === "admin" || currentUser?.role === "super_admin";
 
@@ -157,12 +201,17 @@ export default function ReviewQueuePage() {
     }
   }, [currentUser, isAdmin, router]);
 
+  const items = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const displayItems = loadMode === "scroll" ? accumulated : items;
+  const hasMore = loadMode === "scroll" && displayItems.length < total;
+  const sentinelRef = useInfiniteScroll(() => setPage((p) => p + 1), {
+    disabled: !hasMore || isFetching,
+  });
+
   if (currentUser && !isAdmin) {
     return null;
   }
-
-  const items = data?.items ?? [];
-  const total = data?.total ?? 0;
 
   const handleApprove = async (id: number) => {
     setProcessingId(id);
@@ -206,11 +255,77 @@ export default function ReviewQueuePage() {
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm text-muted-foreground">
-            {total} issues waiting for admin review
+            {total} {total === 1 ? "issue" : "issues"} waiting for admin review
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()}>
           Refresh
+        </Button>
+      </div>
+
+      {/* Filters + sort */}
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); setPage(1); }}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="All types" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All types</SelectItem>
+            {TYPE_OPTIONS.map((t) => (
+              <SelectItem key={t} value={t}>
+                {TYPE_META[t]?.label ?? t}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={sevFilter} onValueChange={(v) => { setSevFilter(v); setPage(1); }}>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="All severities" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All severities</SelectItem>
+            {[1, 2, 3, 4, 5].map((s) => (
+              <SelectItem key={s} value={String(s)}>
+                {severityMeta(s).label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <SortHeaders
+          className="ml-auto"
+          sort={sort}
+          order={order}
+          onChange={(s, o) => { setSort(s); setOrder(o); setPage(1); }}
+          options={[
+            { key: "confidence", label: "Confidence" },
+            { key: "severity", label: "Severity" },
+            { key: "created_at", label: "Newest" },
+          ]}
+        />
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          onClick={() => {
+            setLoadMode((m) => (m === "pages" ? "scroll" : "pages"));
+            setPage(1);
+          }}
+          title="Toggle between page numbers and load-on-scroll"
+        >
+          {loadMode === "pages" ? (
+            <>
+              <ArrowDownToLine className="h-3.5 w-3.5" />
+              Load on scroll
+            </>
+          ) : (
+            <>
+              <Rows3 className="h-3.5 w-3.5" />
+              Page numbers
+            </>
+          )}
         </Button>
       </div>
 
@@ -235,29 +350,56 @@ export default function ReviewQueuePage() {
               </div>
             ))}
           </div>
-        ) : items.length === 0 ? (
+        ) : displayItems.length === 0 ? (
           <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
               <Inbox className="h-7 w-7 text-muted-foreground" />
             </div>
-            <h3 className="mt-4 text-base font-semibold">Queue is empty</h3>
+            <h3 className="mt-4 text-base font-semibold">
+              {total === 0 && typeFilter === "all" && sevFilter === "all"
+                ? "Queue is empty"
+                : "No issues match your filters"}
+            </h3>
             <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-              No issues are currently waiting for review. Check back later.
+              {total === 0 && typeFilter === "all" && sevFilter === "all"
+                ? "No issues are currently waiting for review. Check back later."
+                : "Try adjusting your filters."}
             </p>
           </div>
         ) : (
-          <div className="divide-y">
-            {items.map((issue) => (
-              <ReviewRow
-                key={issue.id}
-                issue={issue}
-                onApprove={() => handleApprove(issue.id)}
-                onReject={() => setRejectConfirm(issue.id)}
-                onChangeType={(t) => handleChangeType(issue.id, t)}
-                processing={processingId === issue.id}
-              />
-            ))}
-          </div>
+          <>
+            <div className={`divide-y transition-opacity ${isFetching && loadMode === "pages" ? "opacity-60" : ""}`}>
+              {displayItems.map((issue) => (
+                <ReviewRow
+                  key={issue.id}
+                  issue={issue}
+                  onApprove={() => handleApprove(issue.id)}
+                  onReject={() => setRejectConfirm(issue.id)}
+                  onChangeType={(t) => handleChangeType(issue.id, t)}
+                  processing={processingId === issue.id}
+                />
+              ))}
+            </div>
+            {loadMode === "scroll" ? (
+              <div className="flex flex-col items-center gap-3 py-6">
+                {isFetching && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span className="size-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                    Loading more…
+                  </div>
+                )}
+                {hasMore ? (
+                  <div ref={sentinelRef} className="h-1 w-full" aria-hidden />
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    You&apos;ve reached the end · {total} issues
+                  </p>
+                )}
+              </div>
+            ) : (
+              <ListPager page={page} total={total} pageSize={PAGE_SIZE} onPageChange={setPage} />
+            )}
+          </>
         )}
       </Card>
 

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.config import settings
 from src.core.database import get_db
 from src.core.gate import gate_decision
+from src.domains.issues.models.issue import IssueStatus
 from src.domains.issues.schemas import IssueListResponse, IssueResponse, IssueStatusUpdate
 from src.domains.issues.services.issue_service import IssueService
 from src.domains.users.deps import get_current_active_user
@@ -476,11 +477,36 @@ async def list_issues(
     # smuggle a negative OFFSET past the ORM.
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
+    # Server-side filter/sort so the list page pages over the whole table
+    # instead of slicing whatever first page it happened to fetch. Values are
+    # constrained here; the repository maps them straight onto columns.
+    status: Optional[str] = Query(None),
+    issue_type: Optional[str] = Query(None),
+    severity: Optional[int] = Query(None, ge=1, le=5),
+    ward_id: Optional[int] = Query(None, ge=1),
+    search: str = Query("", max_length=200),
+    sort: str = Query("created_at", pattern="^(created_at|severity|confidence|status)$"),
+    order: str = Query("desc", pattern="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
+    # Reject an unknown status rather than silently returning everything: a
+    # typo in a filter should surface as a 400, not as an unfiltered page.
+    if status is not None and status not in {s.value for s in IssueStatus}:
+        raise BadRequestError(f"Invalid status '{status}'")
+
     svc = IssueService(db)
-    issues, total = await svc.list_issues(skip=skip, limit=limit)
+    issues, total = await svc.list_issues(
+        skip=skip,
+        limit=limit,
+        status=status,
+        issue_type=issue_type,
+        severity=severity,
+        ward_id=ward_id,
+        search=search,
+        sort=sort,
+        order=order,
+    )
     a_map = await svc.get_assignment_map([i.id for i in issues])
     items = [IssueResponse.from_issue(i, a_map.get(i.id)) for i in issues]
     return IssueListResponse(items=items, total=total)
