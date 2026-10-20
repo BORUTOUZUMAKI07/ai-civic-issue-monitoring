@@ -210,14 +210,22 @@ async def oauth_authorize(
     # nonce does not match the cookie, which blocks login-CSRF: a state
     # harvested from an attacker's own authorize can never be replayed into
     # the victim's browser, which holds no such cookie.
-    escaped = uri.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+    # The URI needs two different encodings depending on where it lands:
+    #   - inside the HTML `content="..."` attribute, `&` must be written
+    #     `&amp;` or the attribute is parsed wrong;
+    #   - inside a JS string literal, `&` must stay raw (an `&amp;` there is
+    #     sent to Google verbatim, so the query separator never survives and
+    #     Google rejects the request with "Missing required parameter:
+    #     redirect_uri"). Only JS-inert chars are escaped for the script.
+    html_uri = uri.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+    js_uri = uri.replace("\\", "\\\\").replace('"', '\\"')
     html = (
         '<!doctype html><html><head><meta charset="utf-8">'
         '<meta http-equiv="refresh" content="0;url={0}">'
-        '<script>window.location.replace("{0}");</script></head>'
-        '<body><script>window.location.replace("{0}");</script>'
+        '<script>window.location.replace("{1}");</script></head>'
+        '<body><script>window.location.replace("{1}");</script>'
         "</body></html>"
-    ).format(escaped)
+    ).format(html_uri, js_uri)
 
     from fastapi.responses import HTMLResponse
 

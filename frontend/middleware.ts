@@ -1,15 +1,12 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-
-const protectedPaths = ["/dashboard", "/issues", "/map", "/engineers", "/settings", "/admin"];
+import { isProtectedPath } from "@/lib/protected-paths";
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const sessionActive = request.cookies.get("session_active")?.value;
 
-  const isProtected = protectedPaths.some(
-    (p) => pathname === p || pathname.startsWith(p + "/")
-  );
+  const isProtected = isProtectedPath(pathname);
 
   if (isProtected && !sessionActive) {
     const loginUrl = new URL("/login", request.url);
