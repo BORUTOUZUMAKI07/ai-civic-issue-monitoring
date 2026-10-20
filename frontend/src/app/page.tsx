@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
+import { ScrollReveal } from "@/components/ScrollReveal";
+import { LiveStats } from "@/components/marketing/live-stats";
 import {
   ArrowRight,
   BarChart3,
@@ -167,7 +169,7 @@ export default function LandingPage() {
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
                 </span>
-                Live across Vadodara Municipal
+                AI-assisted civic issue intelligence
               </div>
               <h1 className="mt-6 text-4xl font-semibold leading-[1.08] tracking-tight md:text-[3.4rem]">
                 Smarter cities start with{" "}
@@ -207,7 +209,7 @@ export default function LandingPage() {
                 <span className="h-2.5 w-2.5 rounded-full bg-amber-400/80" />
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
                 <span className="ml-3 text-xs font-medium text-muted-foreground">
-                  command-center.civicpulse.dev
+                  CivicPulse · Command Center
                 </span>
               </div>
 
@@ -253,15 +255,12 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Live platform stats (real data, hidden when empty) */}
+      <LiveStats />
+
       {/* Features */}
       <section id="features" className="mx-auto max-w-6xl px-6 py-20 md:py-24">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-80px" }}
-          transition={{ duration: 0.5 }}
-          className="mx-auto mb-14 max-w-2xl text-center"
-        >
+        <ScrollReveal className="mx-auto mb-14 max-w-2xl text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
             Platform
           </p>
@@ -273,16 +272,13 @@ export default function LandingPage() {
             From a photo taken on the street to a resolved work order — every step
             is designed to be effortless.
           </p>
-        </motion.div>
+        </ScrollReveal>
 
         <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
           {features.map((f, i) => (
-            <motion.div
+            <ScrollReveal
               key={f.title}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: "-60px" }}
-              transition={{ duration: 0.45, delay: (i % 3) * 0.08 }}
+              delay={(i % 3) * 0.08}
               className="group relative overflow-hidden rounded-2xl border border-border/80 bg-card p-6 transition-all duration-300 hover:-translate-y-1 hover:border-primary/30 hover:shadow-lift"
             >
               <div
@@ -296,7 +292,7 @@ export default function LandingPage() {
               </div>
               <h3 className="font-semibold tracking-tight">{f.title}</h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{f.desc}</p>
-            </motion.div>
+            </ScrollReveal>
           ))}
         </div>
       </section>
@@ -320,29 +316,20 @@ export default function LandingPage() {
 
       {/* How it works */}
       <section id="how" className="mx-auto max-w-6xl px-6 py-20 md:py-24">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-80px" }}
-          transition={{ duration: 0.5 }}
-          className="mx-auto mb-14 max-w-2xl text-center"
-        >
+        <ScrollReveal className="mx-auto mb-14 max-w-2xl text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
             How it works
           </p>
           <h2 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
             From street to resolution in three steps
           </h2>
-        </motion.div>
+        </ScrollReveal>
 
         <div className="grid gap-5 md:grid-cols-3">
           {steps.map((s, i) => (
-            <motion.div
+            <ScrollReveal
               key={s.step}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: "-60px" }}
-              transition={{ duration: 0.45, delay: i * 0.1 }}
+              delay={i * 0.1}
               className="relative rounded-2xl border border-border/80 bg-card p-6"
             >
               <span className="absolute right-5 top-5 text-3xl font-semibold text-muted-foreground/20">
@@ -353,7 +340,7 @@ export default function LandingPage() {
               </div>
               <h3 className="font-semibold tracking-tight">{s.title}</h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.desc}</p>
-            </motion.div>
+            </ScrollReveal>
           ))}
         </div>
       </section>
