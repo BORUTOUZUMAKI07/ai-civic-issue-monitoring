@@ -77,6 +77,25 @@ const ALLOWED_PREFIXES = new Set([
 const NEEDS_REFRESH = new Set(["auth/refresh", "auth/logout"])
 
 /**
+ * Client headers the backend is allowed to see, forwarded verbatim.
+ *
+ * The proxy builds its outgoing headers from scratch rather than spreading the
+ * incoming set — that is deliberate: relaying the browser's `Cookie` or
+ * `Authorization` wholesale would hand a caller the very credentials the proxy
+ * manages, and `Host`/`X-Forwarded-*` are hop-by-hop concerns. But copying only
+ * `Content-Type` (what this used to do) meant every *application* header was
+ * dropped too. `Idempotency-Key` is the one that bites: without it the backend
+ * never enters its idempotent path, so a retried report upload created a
+ * second issue row instead of replaying the first response.
+ *
+ * An allowlist keeps both properties: named headers cross, everything else
+ * stays home. Header names are case-insensitive on the wire, so lookups are
+ * normalised to lower case.
+ */
+const RELAYED_CLIENT_HEADERS = ["idempotency-key"]
+
+
+/**
  * Cookies other than `access_token` that a handler reads server-side.
  *
  * Exactly like the refresh token above, these are relayed only to the handlers
@@ -189,6 +208,16 @@ async function proxy(request: NextRequest, context: RouteContext) {
     const contentType = request.headers.get("content-type")
     if (contentType) {
       headers["Content-Type"] = contentType
+    }
+
+    // Relay the allowlisted application headers (see RELAYED_CLIENT_HEADERS).
+    // `Headers.get` is case-insensitive, and the canonical name is used on the
+    // outgoing request so the value is not lost to casing.
+    for (const name of RELAYED_CLIENT_HEADERS) {
+      const value = request.headers.get(name)
+      if (value) {
+        headers[name.replace(/(^|-)([a-z])/g, (_, sep, ch) => sep + ch.toUpperCase())] = value
+      }
     }
 
     let body: ArrayBuffer | string | undefined
