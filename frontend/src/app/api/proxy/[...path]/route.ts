@@ -77,6 +77,27 @@ const ALLOWED_PREFIXES = new Set([
 const NEEDS_REFRESH = new Set(["auth/refresh", "auth/logout"])
 
 /**
+ * Cookies other than `access_token` that a handler reads server-side.
+ *
+ * Exactly like the refresh token above, these are relayed only to the handlers
+ * that actually read them rather than on every proxied request.
+ *
+ * `oauth_state` is the one-time nonce the authorize response sets to bind the
+ * OAuth flow to this browser. The callback compares it against the nonce inside
+ * the signed `state` (the login-CSRF guard). The proxy used to build the
+ * backend `Cookie` header from `access_token` alone, so this cookie was dropped
+ * on the way in and every callback failed with "Invalid OAuth state" — the flow
+ * could never complete.
+ */
+function extraCookiesFor(key: string): string[] {
+  // Only the OAuth *callback* reads `oauth_state`; the sibling
+  // `authorize`/`providers` routes are GETs that ignore it, so scoping to the
+  // exact callback path keeps it off them.
+  if (key.startsWith("auth/oauth/") && key.endsWith("/callback")) return ["oauth_state"]
+  return []
+}
+
+/**
  * Paths that may be called without an access token.
  *
  * Beyond the auth flows, this includes the handful of read-only endpoints the
@@ -150,12 +171,17 @@ async function proxy(request: NextRequest, context: RouteContext) {
     }
 
     // Forward the auth cookies to the backend so endpoints that read them
-    // server-side (/auth/refresh, /auth/logout) work. The browser sends the
-    // access+refresh cookies to this proxy path, and we relay them to the
-    // backend; the access token is also sent as a Bearer header above.
+    // server-side (/auth/refresh, /auth/logout, the OAuth callback) work. The
+    // browser sends the access+refresh cookies to this proxy path, and we relay
+    // them to the backend; the access token is also sent as a Bearer header
+    // above.
     const cookieParts: string[] = []
     if (accessToken) cookieParts.push(`access_token=${accessToken}`)
     if (refreshToken && NEEDS_REFRESH.has(key)) cookieParts.push(`refresh_token=${refreshToken}`)
+    for (const name of extraCookiesFor(key)) {
+      const value = request.cookies.get(name)?.value
+      if (value) cookieParts.push(`${name}=${value}`)
+    }
     if (cookieParts.length > 0) {
       headers["Cookie"] = cookieParts.join("; ")
     }

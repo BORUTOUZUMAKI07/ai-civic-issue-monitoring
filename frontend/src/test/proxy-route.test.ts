@@ -81,6 +81,26 @@ function authedReq(url: string, init: ReqInit = {}) {
   return r
 }
 
+/**
+ * A request carrying several named cookies.
+ *
+ * `cookies.get(name)` must answer per name, unlike `authedReq` above which
+ * always returns the access token. Used by the cookie-relay tests, where the
+ * whole point is *which* cookies reach the backend.
+ */
+function cookieReq(url: string, cookies: Record<string, string>, init: ReqInit = {}) {
+  const r = req(url, init)
+  vi.spyOn(r.cookies, "get").mockImplementation(((
+    ...args: [string] | [{ name: string }]
+  ) => {
+    const name = typeof args[0] === "string" ? args[0] : args[0].name
+    return name in cookies
+      ? ({ name, value: cookies[name] } as ReturnType<typeof r.cookies.get>)
+      : undefined
+  }) as typeof r.cookies.get)
+  return r
+}
+
 beforeEach(() => {
   vi.stubEnv("BACKEND_URL", "http://backend:8000")
   fetchMock.mockReset()
@@ -235,5 +255,53 @@ describe("proxy: body size ceilings", () => {
 
     expect(res.status).not.toBe(413)
     expect(fetchMock).toHaveBeenCalled()
+  })
+})
+
+describe("proxy: cookie relay", () => {
+  it("forwards oauth_state to the OAuth callback", async () => {
+    // The callback compares this cookie (set on the authorize response) against
+    // the nonce inside the signed state. Dropping it made every OAuth sign-in
+    // end at "Invalid OAuth state".
+    fetchMock.mockResolvedValue(jsonRes({ ok: true }))
+    const { GET } = await loadHandlers()
+
+    await GET(
+      cookieReq(`${API}/auth/oauth/google/callback?code=x&state=y`, {
+        oauth_state: "nonce-abc",
+      }),
+      ctx("auth", "oauth", "google", "callback"),
+    )
+
+    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>
+    expect(headers.Cookie).toContain("oauth_state=nonce-abc")
+  })
+
+  it("does not leak oauth_state to unrelated routes", async () => {
+    // Least privilege: only the OAuth callback reads it, so nothing else may
+    // carry it. `/auth/oauth/providers` is a sibling under the same prefix and
+    // must stay clean.
+    fetchMock.mockResolvedValue(jsonRes({}))
+    const { GET } = await loadHandlers()
+
+    await GET(
+      cookieReq(`${API}/auth/oauth/providers`, { oauth_state: "nonce-abc", access_token: "tok" }),
+      ctx("auth", "oauth", "providers"),
+    )
+
+    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>
+    expect(headers.Cookie).toBe("access_token=tok")
+  })
+
+  it("still forwards refresh_token only to refresh and logout", async () => {
+    fetchMock.mockResolvedValue(jsonRes({}))
+    const { POST } = await loadHandlers()
+
+    await POST(
+      cookieReq(`${API}/auth/refresh`, { access_token: "tok", refresh_token: "ref" }, { method: "POST" }),
+      ctx("auth", "refresh"),
+    )
+    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>
+    expect(headers.Cookie).toContain("refresh_token=ref")
   })
 })
