@@ -116,3 +116,63 @@ async def test_refresh_unknown_user_rejected(fake_store) -> None:
         async with AsyncSessionLocal() as session:
             svc = AuthService(session)
             await svc.refresh(refresh)
+
+
+@pytest.mark.asyncio
+async def test_replay_revokes_only_the_replayed_signin(fake_store) -> None:
+    """A replayed token must end its own sign-in, not every device.
+
+    Two logins for the same account are two independent families. Rotating the
+    first out and then replaying its original token is a reuse signal and must
+    kill *that* sign-in — but the second sign-in, on another device, must keep
+    working. The old user-wide flag would have torn both down.
+    """
+    password = "TestPass123!"
+    async with AsyncSessionLocal() as session:
+        session.add(
+            User(
+                email="family@civicpulse.com",
+                password_hash=hash_password(password),
+                full_name="Family User",
+                role=UserRole.field_worker,
+                is_active=True,
+            )
+        )
+        await session.commit()
+
+    async with AsyncSessionLocal() as session:
+        svc = AuthService(session)
+        _, device_a = await svc.login("family@civicpulse.com", password)
+        _, device_b = await svc.login("family@civicpulse.com", password)
+
+    # Device A rotates once: device_a is now the *previous* jti of its session.
+    async with AsyncSessionLocal() as session:
+        svc = AuthService(session)
+        _, device_a2 = await svc.refresh(device_a)
+
+    # Replay A's original token, past the grace window by clearing prev_jti.
+    # Also drop the blacklist entry: a rotated-out token is normally refused at
+    # the blacklist check, but the *rotation record* is the durable reuse signal
+    # that must catch a token whose blacklist entry has lapsed. Clearing both
+    # is what reaches the replay branch under test.
+    fake_store.blacklist.clear()
+    for key, rec in fake_store.records.items():
+        rec["prev_at"] = 0
+        rec["prev_jti"] = None
+
+    async with AsyncSessionLocal() as session:
+        svc = AuthService(session)
+        with pytest.raises(Exception):
+            await svc.refresh(device_a)
+
+    # Device B never replayed anything and must still renew.
+    async with AsyncSessionLocal() as session:
+        svc = AuthService(session)
+        _, device_b2 = await svc.refresh(device_b)
+    assert device_b2
+
+    # And the replayed sign-in stays dead.
+    async with AsyncSessionLocal() as session:
+        svc = AuthService(session)
+        with pytest.raises(Exception):
+            await svc.refresh(device_a2)

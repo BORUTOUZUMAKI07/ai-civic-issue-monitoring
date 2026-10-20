@@ -164,9 +164,11 @@ async def _consume_reset_jti(jti: str) -> bool:
 async def revoke_all_refresh_sessions(user_id: int) -> None:
     """Best-effort global sign-out for ``user_id``.
 
-    Mirrors the family-revocation flag used by refresh-rotation reuse
-    detection, so the two mechanisms share one code path and one TTL rather
-    than drifting apart.
+    Sets the user-wide revocation flag, which ``AuthService._refresh_family_revoked``
+    checks *alongside* the per-sign-in family flag. Reuse detection uses the
+    family flag so a leaked token ends one sign-in; this stays account-wide
+    because its callers (password change and reset) genuinely mean "end every
+    session", not "end one device". The two share a TTL so they age out together.
     """
     try:
         ttl = settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400
