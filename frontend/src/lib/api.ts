@@ -178,6 +178,15 @@ export interface HeatmapPoint {
   status: string;
 }
 
+/** Aggregate counters for the public landing page (no session required). */
+export interface PublicStats {
+  total_issues: number;
+  resolved_issues: number;
+  wards_covered: number;
+  active_engineers: number;
+  avg_resolution_hours: number | null;
+}
+
 export const auth = {
   login: (email: string, password: string) =>
     apiFetch<{ detail: string; challenge?: string }>("/auth/login", {
@@ -234,11 +243,30 @@ export const auth = {
     }),
 };
 
+export interface IssueListParams {
+  skip?: number;
+  limit?: number;
+  status?: string;
+  issue_type?: string;
+  severity?: number;
+  ward_id?: number;
+  search?: string;
+  sort?: string;
+  order?: string;
+}
+
 export const issues = {
-  list: (params?: { skip?: number; limit?: number }) => {
+  list: (params?: IssueListParams) => {
     const q = new URLSearchParams();
     if (params?.skip) q.set("skip", String(params.skip));
     if (params?.limit) q.set("limit", String(params.limit));
+    if (params?.status) q.set("status", params.status);
+    if (params?.issue_type) q.set("issue_type", params.issue_type);
+    if (params?.severity) q.set("severity", String(params.severity));
+    if (params?.ward_id) q.set("ward_id", String(params.ward_id));
+    if (params?.search) q.set("search", params.search);
+    if (params?.sort) q.set("sort", params.sort);
+    if (params?.order) q.set("order", params.order);
     return apiFetch<{ items: Issue[]; total: number }>(`/issues?${q}`);
   },
   get: (id: number) => apiFetch<Issue>(`/issues/${id}`),
@@ -286,10 +314,21 @@ export const issues = {
 };
 
 export const admin = {
-  reviewQueue: (params?: { skip?: number; limit?: number }) => {
+  reviewQueue: (params?: {
+    skip?: number;
+    limit?: number;
+    issue_type?: string;
+    severity?: number;
+    sort?: string;
+    order?: string;
+  }) => {
     const q = new URLSearchParams();
     if (params?.skip) q.set("skip", String(params.skip));
     if (params?.limit) q.set("limit", String(params.limit));
+    if (params?.issue_type) q.set("issue_type", params.issue_type);
+    if (params?.severity) q.set("severity", String(params.severity));
+    if (params?.sort) q.set("sort", params.sort);
+    if (params?.order) q.set("order", params.order);
     return apiFetch<{ items: Issue[]; total: number }>(`/admin/review-queue?${q}`);
   },
   reviewIssue: (id: number, action: string, newType?: string) =>
@@ -297,12 +336,14 @@ export const admin = {
       `/admin/review/${id}`,
       { method: "POST", body: JSON.stringify({ action, new_type: newType }) }
     ),
-  listUsers: (params?: { skip?: number; limit?: number; search?: string; role?: string }) => {
+  listUsers: (params?: { skip?: number; limit?: number; search?: string; role?: string; sort?: string; order?: string }) => {
     const q = new URLSearchParams();
     if (params?.skip) q.set("skip", String(params.skip));
     if (params?.limit) q.set("limit", String(params.limit));
     if (params?.search) q.set("search", params.search);
     if (params?.role) q.set("role", params.role);
+    if (params?.sort) q.set("sort", params.sort);
+    if (params?.order) q.set("order", params.order);
     return apiFetch<{ items: User[]; total: number }>(`/admin/users?${q}`);
   },
   updateUserRole: (userId: number, role: string) =>
@@ -318,6 +359,25 @@ export const wards = {
 
 export const engineers = {
   list: () => apiFetch<Engineer[]>("/engineers"),
+  listPaged: (params?: {
+    skip?: number;
+    limit?: number;
+    specialization?: string;
+    ward_id?: number;
+    available?: boolean;
+    sort?: string;
+    order?: string;
+  }) => {
+    const q = new URLSearchParams();
+    if (params?.skip) q.set("skip", String(params.skip));
+    if (params?.limit) q.set("limit", String(params.limit));
+    if (params?.specialization) q.set("specialization", params.specialization);
+    if (params?.ward_id) q.set("ward_id", String(params.ward_id));
+    if (params?.available !== undefined) q.set("available", String(params.available));
+    if (params?.sort) q.set("sort", params.sort);
+    if (params?.order) q.set("order", params.order);
+    return apiFetch<{ items: Engineer[]; total: number }>(`/engineers/list?${q}`);
+  },
   /**
    * The caller's own engineer profile, or null when they do not have one.
    * Used to decide whether the engineer-only `/resolution` flow is available
@@ -334,6 +394,7 @@ export const engineers = {
 export const dashboard = {
   stats: () => apiFetch<DashboardStats>("/dashboard/stats"),
   heatmap: () => apiFetch<HeatmapPoint[]>("/dashboard/heatmap"),
+  publicStats: () => apiFetch<PublicStats>("/dashboard/public-stats"),
 };
 
 export interface ResolutionResult {

@@ -18,6 +18,22 @@ class EngineerRepositoryPort(Protocol):
 
     async def list_all(self) -> list[Engineer]: ...
 
+    async def list_filtered(
+        self,
+        *,
+        skip: int = 0,
+        limit: int = 20,
+        specialization: str | None = None,
+        ward_id: int | None = None,
+        available: bool | None = None,
+        sort: str = "id",
+        order: str = "asc",
+    ) -> list[Engineer]: ...
+
+    async def count_filtered(
+        self, *, specialization: str | None = None, ward_id: int | None = None, available: bool | None = None
+    ) -> int: ...
+
     async def create(self, engineer: Engineer) -> Engineer: ...
 
     async def increment_workload(self, engineer_id: int) -> None: ...

@@ -263,9 +263,37 @@ class IssueService:
         await self.db.delete(issue)
         await self.db.commit()
 
-    async def list_issues(self, skip: int = 0, limit: int = 20) -> tuple[list[Issue], int]:
-        issues = await self.issue_repo.list_all(skip=skip, limit=limit)
-        total = await self.issue_repo.count()
+    async def list_issues(
+        self,
+        skip: int = 0,
+        limit: int = 20,
+        *,
+        status: str | None = None,
+        issue_type: str | None = None,
+        severity: int | None = None,
+        ward_id: int | None = None,
+        search: str = "",
+        sort: str = "created_at",
+        order: str = "desc",
+    ) -> tuple[list[Issue], int]:
+        issues = await self.issue_repo.list_filtered(
+            skip=skip,
+            limit=limit,
+            sort=sort,
+            order=order,
+            status=status,
+            issue_type=issue_type,
+            severity=severity,
+            ward_id=ward_id,
+            search=search,
+        )
+        total = await self.issue_repo.count_filtered(
+            status=status,
+            issue_type=issue_type,
+            severity=severity,
+            ward_id=ward_id,
+            search=search,
+        )
         return issues, total
 
     async def list_issues_by_ward(self, ward_id: int, skip: int = 0, limit: int = 20) -> tuple[list[Issue], int]:
@@ -273,9 +301,20 @@ class IssueService:
         total = await self.issue_repo.count()
         return issues, total
 
-    async def list_review_queue(self, skip: int = 0, limit: int = 20) -> tuple[list[Issue], int]:
-        issues = await self.issue_repo.list_review_queue(skip=skip, limit=limit)
-        total = await self.issue_repo.count_review_queue()
+    async def list_review_queue(
+        self,
+        skip: int = 0,
+        limit: int = 20,
+        *,
+        issue_type: str | None = None,
+        severity: int | None = None,
+        sort: str = "created_at",
+        order: str = "desc",
+    ) -> tuple[list[Issue], int]:
+        issues = await self.issue_repo.list_review_queue(
+            skip=skip, limit=limit, issue_type=issue_type, severity=severity, sort=sort, order=order
+        )
+        total = await self.issue_repo.count_review_queue(issue_type=issue_type, severity=severity)
         return issues, total
 
     async def get_assignment_map(self, issue_ids: list[int]) -> dict[int, dict[str, Any]]:

@@ -5,11 +5,13 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
+from src.domains.issues.models.issue import IssueType
 from src.domains.issues.services.issue_service import IssueService
 from src.domains.users.deps import get_current_active_user
 from src.domains.users.models.user import User
 from src.domains.users.rbac import require_admin
 from src.domains.users.services.user_service import UserService
+from src.shared.errors import BadRequestError
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +60,24 @@ async def review_queue(
     # where the value arrives from the client.
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
+    issue_type: str | None = Query(None),
+    severity: int | None = Query(None, ge=1, le=5),
+    sort: str = Query("created_at", pattern="^(created_at|confidence|severity)$"),
+    order: str = Query("desc", pattern="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
     require_admin(user)
-    issues, total = await IssueService(db).list_review_queue(skip=skip, limit=limit)
+    if issue_type is not None and issue_type not in {t.value for t in IssueType}:
+        raise BadRequestError(f"Invalid issue_type '{issue_type}'")
+    issues, total = await IssueService(db).list_review_queue(
+        skip=skip,
+        limit=limit,
+        issue_type=issue_type,
+        severity=severity,
+        sort=sort,
+        order=order,
+    )
     return {"items": [_review_queue_item(issue) for issue in issues], "total": total}
 
 
@@ -72,11 +87,15 @@ async def list_users(
     limit: int = Query(50, ge=1, le=100),
     search: str = "",
     role: str | None = None,
+    sort: str = Query("created_at", pattern="^(created_at|full_name|email|role)$"),
+    order: str = Query("desc", pattern="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
     require_admin(user)
-    users, total = await UserService(db).list_users(skip=skip, limit=limit, search=search, role=role)
+    users, total = await UserService(db).list_users(
+        skip=skip, limit=limit, search=search, role=role, sort=sort, order=order
+    )
     return {"items": [_user_item(u) for u in users], "total": total}
 
 

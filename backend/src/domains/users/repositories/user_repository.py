@@ -39,6 +39,8 @@ class UserRepository:
         limit: int = 50,
         search: str = "",
         role: str | None = None,
+        sort: str = "created_at",
+        order: str = "desc",
     ) -> list[User]:
         """Page of users matching an optional free-text search and role filter.
 
@@ -46,9 +48,20 @@ class UserRepository:
         rows and the reported total can never drift apart.
         """
         stmt = self._filtered(select(User), search=search, role=role)
-        stmt = stmt.order_by(User.created_at.desc()).offset(skip).limit(limit)
+        column = self.SORT_COLUMNS.get(sort, User.created_at)
+        direction = column.asc() if order == "asc" else column.desc()
+        stmt = stmt.order_by(direction, User.id.desc()).offset(skip).limit(limit)
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
+
+    # Sort keys are an explicit allowlist -> column, so a caller cannot inject
+    # an arbitrary ORDER BY expression by passing a column name.
+    SORT_COLUMNS = {
+        "created_at": User.created_at,
+        "full_name": User.full_name,
+        "email": User.email,
+        "role": User.role,
+    }
 
     async def count_filtered(self, *, search: str = "", role: str | None = None) -> int:
         result = await self.db.execute(self._filtered(select(func.count(User.id)), search=search, role=role))

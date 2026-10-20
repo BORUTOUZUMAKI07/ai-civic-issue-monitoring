@@ -41,8 +41,12 @@ class UserService:
         limit: int = 50,
         search: str = "",
         role: str | None = None,
+        sort: str = "created_at",
+        order: str = "desc",
     ) -> tuple[list[User], int]:
-        users = await self.user_repo.list_filtered(skip=skip, limit=limit, search=search, role=role)
+        users = await self.user_repo.list_filtered(
+            skip=skip, limit=limit, search=search, role=role, sort=sort, order=order
+        )
         total = await self.user_repo.count_filtered(search=search, role=role)
         return users, total
 
