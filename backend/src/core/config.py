@@ -95,11 +95,29 @@ class Settings(BaseSettings):
     RATE_LIMIT_USER_CAPACITY: int = 200
     RATE_LIMIT_USER_REFILL: float = 3.33
 
+    # Auth-specific budgets (attempts per minute). These sit *on top of* the
+    # generic buckets above and are deliberately tight: password guessing and
+    # credential stuffing need far less headroom than normal API traffic.
+    AUTH_LOGIN_RATE_LIMIT_IP: int = 10
+    AUTH_LOGIN_RATE_LIMIT_ACCOUNT: int = 5
+    AUTH_REFRESH_RATE_LIMIT_IP: int = 30
+    AUTH_REFRESH_RATE_LIMIT_ACCOUNT: int = 20
+    AUTH_FORGOT_RATE_LIMIT_IP: int = 5
+    AUTH_FORGOT_RATE_LIMIT_ACCOUNT: int = 3
+
     # --- JWT ---
     SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    # `iss`/`aud` are pinned into every token this service mints and verified on
+    # decode. A shared HS256 key is symmetric, so the signature alone cannot say
+    # *which* service issued a token: a token minted by any other system sharing
+    # this key (a sibling deployment, a re-used secret) would verify here. These
+    # claims scope a token to this issuer and this audience, and the defaults
+    # match the project name so an unconfigured deployment still gets them.
+    JWT_ISSUER: str = "civicpulse-api"
+    JWT_AUDIENCE: str = "civicpulse-web"
 
     @field_validator("SECRET_KEY", mode="after")
     @classmethod

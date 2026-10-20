@@ -82,6 +82,23 @@ async def verify_password_for_login_async(plain: str, hashed: str, *, oauth_prov
     return await asyncio.to_thread(verify_password, plain, hashed)
 
 
+def _standard_claims() -> dict:
+    """The registered claims every token carries, independent of its type.
+
+    ``iat`` records when the token was minted (useful for auditing a leaked
+    credential by age, and for a future "invalidate tokens issued before T").
+    ``iss``/``aud`` scope the token to this service; because the signing key is
+    symmetric, possession of the key is not by itself evidence of *this*
+    issuer, so a token that does not name this issuer and audience is refused
+    on decode.
+    """
+    return {
+        "iat": datetime.now(timezone.utc),
+        "iss": settings.JWT_ISSUER,
+        "aud": settings.JWT_AUDIENCE,
+    }
+
+
 def create_access_token(
     data: dict,
     expires_delta: Optional[timedelta] = None,
@@ -91,6 +108,7 @@ def create_access_token(
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update(
         {
+            **_standard_claims(),
             "exp": expire,
             "type": "access",
             "jti": jti or uuid4().hex,
@@ -115,7 +133,7 @@ def create_ws_ticket(user_id: int, *, ttl_seconds: int = 60) -> str:
     """
     to_encode: dict = {"sub": str(user_id)}
     expire = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
-    to_encode.update({"exp": expire, "type": "ws"})
+    to_encode.update({**_standard_claims(), "exp": expire, "type": "ws"})
     return str(jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM))
 
 
@@ -123,6 +141,7 @@ def create_refresh_token(
     data: dict,
     sid: Optional[str] = None,
     jti: Optional[str] = None,
+    fam: Optional[str] = None,
 ) -> str:
     """Mint a refresh token.
 
@@ -130,15 +149,24 @@ def create_refresh_token(
     same login session (it survives rotation), so reuse detection can tie a
     replayed token back to its session. ``jti`` is unique per token and changes
     on every rotation.
+
+    ``fam`` is a *family* id, minted once per sign-in and carried on every
+    rotation of that sign-in. It is what lets reuse detection revoke exactly
+    the compromised sign-in rather than every session the account owns: the
+    previous design had only the user-wide flag, so one leaked token signed the
+    user out of all their devices. Defaults to a fresh id, so a brand-new login
+    naturally starts a new family.
     """
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update(
         {
+            **_standard_claims(),
             "exp": expire,
             "type": "refresh",
             "jti": jti or uuid4().hex,
             "sid": sid or uuid4().hex,
+            "fam": fam or uuid4().hex,
         }
     )
     return str(jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM))
@@ -160,13 +188,22 @@ def create_2fa_challenge_token(user_id: int) -> str:
     """
     to_encode: dict = {"sub": str(user_id)}
     expire = datetime.now(timezone.utc) + timedelta(minutes=5)
-    to_encode.update({"exp": expire, "type": "2fa_challenge", "jti": uuid4().hex})
+    to_encode.update({**_standard_claims(), "exp": expire, "type": "2fa_challenge", "jti": uuid4().hex})
     return str(jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM))
 
 
 def decode_token(token: str) -> dict:
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+            # Pin the issuer and audience. Without these, `python-jose` only
+            # checks the signature and expiry, so a token minted for a different
+            # audience with the same key would be accepted here.
+            issuer=settings.JWT_ISSUER,
+            audience=settings.JWT_AUDIENCE,
+        )
         # Copy into a real dict: `jwt.decode` is untyped, so this is where the
         # guarantee that callers get an actual mapping has to be made.
         return dict(payload)
