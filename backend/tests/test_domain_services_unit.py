@@ -252,6 +252,42 @@ async def test_issue_service_get_assignment_map_delegates() -> None:
     assert repo.seen_ids == [1, 2]
 
 
+async def test_create_issue_with_no_wards_raises_bad_request() -> None:
+    """A city with no wards must fail loudly, not fabricate a foreign key.
+
+    ``create_issue`` used to fall back to ``ward_id=1`` whenever no ward could
+    be resolved. With an empty ``wards`` table that id points at nothing, so the
+    INSERT tripped the ``fk_issues_ward_id_wards`` constraint and surfaced as an
+    opaque 500 — on the core "submit a report" flow, the first thing a new
+    deployment's users would touch. The service must refuse with a message that
+    names the real cause instead.
+    """
+    created: list[Issue] = []
+
+    class _Repo:
+        async def create(self, issue: Issue) -> Issue:
+            created.append(issue)
+            return issue
+
+    class _EmptyWards:
+        async def list_all(self) -> list:
+            return []
+
+    service = IssueService(db=None, issue_repo=_Repo(), ward_repo=_EmptyWards())
+
+    with pytest.raises(BadRequestError):
+        await service.create_issue(
+            image_url="/uploads/issues/x.jpg",
+            latitude=12.9716,
+            longitude=77.5946,
+            reporter_id=3,
+            classification={"label": "pothole", "confidence": 0.9, "model": "m", "probabilities": {}},
+        )
+
+    # Nothing may be persisted when the ward cannot be resolved.
+    assert created == []
+
+
 # ── UserService ───────────────────────────────────────────────────────────────
 
 
