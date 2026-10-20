@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { useEngineers, useWards, useAdminUsers, useCreateEngineerMutation, useMe } from "@/queries/index";
+import { useMemo, useState } from "react";
+import { useEngineers, useEngineersPaged, useWards, useAdminUsers, useCreateEngineerMutation, useMe } from "@/queries/index";
 import { Card, CardContent } from "@/components/ui/card";
 import { QueryError } from "@/components/shared/query-error";
+import { SortHeaders } from "@/components/shared/sort-headers";
+import { ListPager } from "@/components/shared/list-pager";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +36,7 @@ import {
   Lightbulb,
   MapPin,
   Plus,
+  Search,
   Trash2,
   Waves,
   Wrench,
@@ -59,12 +62,38 @@ function workloadColor(pct: number) {
 }
 
 export default function EngineersPage() {
-  const { data: engineers, isLoading, isError, error, refetch } = useEngineers();
-  const { data: wards } = useWards();
   const { data: currentUser } = useMe();
   const isAdmin =
     currentUser?.role === "admin" || currentUser?.role === "super_admin";
   const createMutation = useCreateEngineerMutation();
+  const { data: wards } = useWards();
+
+  // Server-side filter/sort/pagination state. The roster can grow past one
+  // page, so the list pages over the table rather than slicing a fetch.
+  const [search, setSearch] = useState("");
+  const [specFilter, setSpecFilter] = useState<string>("all");
+  const [availability, setAvailability] = useState<string>("all");
+  const [sort, setSort] = useState("current_workload");
+  const [order, setOrder] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 12;
+
+  const queryParams = useMemo(
+    () => ({
+      skip: (page - 1) * PAGE_SIZE,
+      limit: PAGE_SIZE,
+      specialization: specFilter !== "all" ? specFilter : undefined,
+      available: availability === "all" ? undefined : availability === "available",
+      sort,
+      order,
+    }),
+    [page, specFilter, availability, sort, order]
+  );
+
+  const { data, isLoading, isError, error, refetch, isFetching } = useEngineersPaged(queryParams);
+  // Summary cards read the unpaginated roster so their counts reflect the whole
+  // team, not just the visible page.
+  const { data: allEngineers } = useEngineers();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
@@ -75,18 +104,36 @@ export default function EngineersPage() {
   const wardName = (id: number) =>
     wards?.find((w) => w.id === id)?.name ?? `Ward ${id}`;
 
-  const list = engineers ?? [];
-  const available = list.filter((e) => e.is_available).length;
-  const busy = list.length - available;
+  const list = useMemo(() => data?.items ?? [], [data]);
+  const total = data?.total ?? 0;
+
+  // Client-side search narrows the visible slice by specialization or ward
+  // name without a round trip; the server already handled the specialization
+  // and availability filters, so this only refines what is already paged in.
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((e) => {
+      const ward = wards?.find((w) => w.id === e.ward_id)?.name ?? "";
+      return (
+        e.specialization.toLowerCase().includes(q) ||
+        ward.toLowerCase().includes(q)
+      );
+    });
+  }, [list, search, wards]);
+
+  const roster = allEngineers ?? list;
+  const available = roster.filter((e) => e.is_available).length;
+  const busy = roster.length - available;
   const avgResolution =
-    list.length > 0
-      ? list.reduce((sum, e) => sum + e.avg_resolution_hours, 0) / list.length
+    roster.length > 0
+      ? roster.reduce((sum, e) => sum + e.avg_resolution_hours, 0) / roster.length
       : 0;
 
-  const engineerUserIds = new Set(list.map((e) => e.user_id));
+  const engineerUserIds = new Set(roster.map((e) => e.user_id));
 
   const summary = [
-    { label: "Engineers", value: list.length, icon: HardHat, chip: "bg-blue-50 text-blue-600" },
+    { label: "Engineers", value: roster.length, icon: HardHat, chip: "bg-blue-50 text-blue-600" },
     { label: "Available", value: available, icon: Wrench, chip: "bg-emerald-50 text-emerald-600" },
     { label: "On assignment", value: busy, icon: Clock, chip: "bg-amber-50 text-amber-600" },
     {
@@ -147,30 +194,87 @@ export default function EngineersPage() {
         )}
       </div>
 
+      {/* Toolbar: search, filters, sort */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 sm:w-64 sm:flex-none">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search engineers…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+
+        <Select value={specFilter} onValueChange={(v) => { setSpecFilter(v); setPage(1); }}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="All specializations" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All specializations</SelectItem>
+            {SPECIALIZATIONS.map((s) => (
+              <SelectItem key={s} value={s}>
+                {humanize(s)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={availability} onValueChange={(v) => { setAvailability(v); setPage(1); }}>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="All statuses" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All engineers</SelectItem>
+            <SelectItem value="available">Available only</SelectItem>
+            <SelectItem value="busy">On assignment</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <SortHeaders
+          className="ml-auto"
+          sort={sort}
+          order={order}
+          onChange={(s, o) => { setSort(s); setOrder(o); setPage(1); }}
+          options={[
+            { key: "current_workload", label: "Workload" },
+            { key: "avg_resolution_hours", label: "Avg resolution" },
+            { key: "max_workload", label: "Capacity" },
+          ]}
+        />
+      </div>
+
       {/* Cards */}
       {isError ? (
         <QueryError error={error} onRetry={() => refetch()} title="Could not load engineers" />
       ) : isLoading ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
+          {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-56 rounded-xl" />
           ))}
         </div>
-      ) : list.length === 0 ? (
+      ) : visible.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
               <HardHat className="h-7 w-7 text-muted-foreground" />
             </div>
-            <h3 className="mt-4 text-base font-semibold">No engineers registered yet</h3>
+            <h3 className="mt-4 text-base font-semibold">
+              {total === 0 ? "No engineers registered yet" : "No engineers match your filters"}
+            </h3>
             <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-              {isAdmin ? "Click 'Add Engineer' to register the first field engineer." : "Engineers will appear here once added by an admin."}
+              {total === 0
+                ? isAdmin
+                  ? "Click 'Add Engineer' to register the first field engineer."
+                  : "Engineers will appear here once added by an admin."
+                : "Try adjusting your search or clearing the active filters."}
             </p>
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {list.map((eng) => {
+        <>
+          <div className={`grid grid-cols-1 gap-4 transition-opacity md:grid-cols-2 lg:grid-cols-3 ${isFetching ? "opacity-60" : ""}`}>
+            {visible.map((eng) => {
             const workloadPct =
               eng.max_workload > 0
                 ? Math.min((eng.current_workload / eng.max_workload) * 100, 100)
@@ -257,7 +361,9 @@ export default function EngineersPage() {
               </Card>
             );
           })}
-        </div>
+          </div>
+          <ListPager page={page} total={total} pageSize={PAGE_SIZE} onPageChange={setPage} />
+        </>
       )}
 
       {/* Add Engineer Dialog */}
