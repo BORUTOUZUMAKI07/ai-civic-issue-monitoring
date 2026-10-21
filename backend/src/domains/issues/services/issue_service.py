@@ -24,6 +24,7 @@ from src.domains.wards.geofencing import get_ward_from_coords
 from src.domains.wards.repositories.ports import WardRepositoryPort
 from src.domains.wards.repositories.ward_repository import WardRepository
 from src.shared.errors import (
+    BadRequestError,
     CorruptedImageError,
     ForbiddenError,
     ImageTooLargeError,
@@ -134,6 +135,19 @@ class IssueService:
         if not ward:
             ward = wards[0] if wards else None
 
+        if ward is None:
+            # No ward covers this location and none exists to fall back to.
+            # ``get_ward_from_coords`` already degrades to the nearest ward
+            # centroid, so reaching here means the ward table is empty — the
+            # deployment has not been seeded with wards. The old code wrote
+            # ``ward_id=1`` in this case, which points at no row and tripped
+            # ``fk_issues_ward_id_wards`` as an opaque 500 on the report-submit
+            # flow. Fail with the actual cause instead of inventing a key.
+            raise BadRequestError(
+                "No ward is configured for this location. An administrator must "
+                "set up wards before reports can be submitted."
+            )
+
         issue = Issue(
             issue_type=issue_type,
             confidence=confidence,
@@ -146,7 +160,7 @@ class IssueService:
             review_required=review_required,
             model_used=model_used,
             probabilities=probabilities,
-            ward_id=ward.id if ward else 1,
+            ward_id=ward.id,
             reporter_id=reporter_id,
         )
         return await self.issue_repo.create(issue)

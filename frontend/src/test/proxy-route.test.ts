@@ -305,3 +305,56 @@ describe("proxy: cookie relay", () => {
     expect(headers.Cookie).toContain("refresh_token=ref")
   })
 })
+
+describe("proxy: client header relay", () => {
+  it("forwards Idempotency-Key so backend replay works", async () => {
+    // The proxy built its outgoing headers from scratch and copied only
+    // Content-Type, so this header never left the browser. The backend then
+    // never entered its idempotent path and a retried upload created a second
+    // issue row instead of replaying the first response.
+    fetchMock.mockResolvedValue(jsonRes({ id: 1 }))
+    const { POST } = await loadHandlers()
+
+    await POST(
+      authedReq(`${API}/issues/upload`, {
+        method: "POST",
+        headers: {
+          "content-type": "multipart/form-data; boundary=X",
+          "idempotency-key": "abc-123",
+        },
+        body: "body",
+      }),
+      ctx("issues", "upload"),
+    )
+
+    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>
+    expect(headers["Idempotency-Key"]).toBe("abc-123")
+  })
+
+  it("does not relay arbitrary client headers", async () => {
+    // Forwarding the browser's whole header set would leak the very
+    // credentials the proxy deliberately controls (Cookie, Authorization) and
+    // let a caller override the outgoing Content-Type. Only the explicit
+    // allowlist crosses the boundary.
+    fetchMock.mockResolvedValue(jsonRes({}))
+    const { POST } = await loadHandlers()
+
+    await POST(
+      authedReq(`${API}/issues/upload`, {
+        method: "POST",
+        headers: {
+          "content-type": "multipart/form-data; boundary=X",
+          "x-evil-header": "1",
+          "x-forwarded-for": "10.0.0.1",
+        },
+        body: "body",
+      }),
+      ctx("issues", "upload"),
+    )
+
+    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>
+    expect(headers["X-Evil-Header"]).toBeUndefined()
+    expect(headers["x-evil-header"]).toBeUndefined()
+    expect(headers["X-Forwarded-For"]).toBeUndefined()
+  })
+})

@@ -204,6 +204,17 @@ jobs:
       RATE_LIMIT_IP_REFILL: "1000"
       RATE_LIMIT_USER_CAPACITY: "100000"
       RATE_LIMIT_USER_REFILL: "1000"
+      # The credential endpoints have their own tighter per-IP/per-account
+      # budgets on top of the global one. Widen them here for the same reason:
+      # every Locust user signs in from one address with one account, so the
+      # default login cap (5/min/account) would 429 the run instead of the app
+      # under test being measured.
+      AUTH_LOGIN_RATE_LIMIT_IP: "100000"
+      AUTH_LOGIN_RATE_LIMIT_ACCOUNT: "100000"
+      AUTH_REFRESH_RATE_LIMIT_IP: "100000"
+      AUTH_REFRESH_RATE_LIMIT_ACCOUNT: "100000"
+      AUTH_FORGOT_RATE_LIMIT_IP: "100000"
+      AUTH_FORGOT_RATE_LIMIT_ACCOUNT: "100000"
       LOCUST_EMAIL: loadtest@example.com
       LOCUST_PASSWORD: LoadTest!2026
     defaults:

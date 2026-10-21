@@ -14,6 +14,12 @@ from src.domains.auth.oauth import (
     login_with_provider,
 )
 from src.domains.auth.password_reset import reset_password, send_password_reset_email
+from src.domains.auth.rate_limit import (
+    enforce_auth_rate_limit,
+    forgot_password_limits,
+    login_limits,
+    refresh_limits,
+)
 from src.domains.auth.schemas import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
@@ -84,9 +90,14 @@ def _clear_auth_cookies(response: Response) -> None:
 
 
 @router.post("/register", response_model=UserResponse)
-async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
+async def register(body: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
     from src.domains.users.models.user import UserRole as _UserRole
     from src.shared.errors import ForbiddenError
+
+    per_ip, per_account = login_limits()
+    await enforce_auth_rate_limit(
+        request, action="register", per_ip=per_ip, per_account=per_account, account=body.email
+    )
 
     allowed_roles = {_UserRole.field_worker, _UserRole.viewer}
     try:
@@ -110,7 +121,10 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/login")
-async def login(body: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
+async def login(body: LoginRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    per_ip, per_account = login_limits()
+    await enforce_auth_rate_limit(request, action="login", per_ip=per_ip, per_account=per_account, account=body.email)
+
     svc = TwoFactorService(db)
     result = await svc.verify_or_challenge(body.email, body.password)
 
@@ -127,6 +141,21 @@ async def login(body: LoginRequest, response: Response, db: AsyncSession = Depen
 @router.post("/refresh")
 async def refresh(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
     from fastapi.responses import JSONResponse
+
+    per_ip, per_account = refresh_limits()
+    # Prefer the account from the presented token so a distributed attempt to
+    # reuse one session's token is capped per account too; on an undecodable
+    # token there is no account to key on and the IP bucket stands alone.
+    account = None
+    presented = request.cookies.get("refresh_token")
+    if presented:
+        try:
+            from src.core.security import decode_token
+
+            account = decode_token(presented).get("sub")
+        except Exception:
+            account = None
+    await enforce_auth_rate_limit(request, action="refresh", per_ip=per_ip, per_account=per_account, account=account)
 
     refresh_token = request.cookies.get("refresh_token")
     if not refresh_token:
@@ -304,7 +333,9 @@ async def oauth_callback(
 
 
 @router.post("/forgot-password")
-async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+async def forgot_password(body: ForgotPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    per_ip, per_account = forgot_password_limits()
+    await enforce_auth_rate_limit(request, action="forgot", per_ip=per_ip, per_account=per_account, account=body.email)
     await send_password_reset_email(db, body.email)
     return {"detail": "If that email is registered, a reset link has been sent."}
 
@@ -383,6 +414,7 @@ async def disable_2fa(
 @router.post("/2fa/verify")
 async def verify_2fa(
     body: TwoFactorVerifyRequest,
+    request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ):
@@ -393,6 +425,14 @@ async def verify_2fa(
         from src.shared.errors import InvalidToken
 
         raise InvalidToken()
+
+    # A 6-digit TOTP is guessable given enough attempts, so this step gets the
+    # same tight per-IP / per-account budget as the password step — keyed on the
+    # account inside the challenge, which is known before the code is checked.
+    per_ip, per_account = login_limits()
+    await enforce_auth_rate_limit(
+        request, action="2fa", per_ip=per_ip, per_account=per_account, account=payload.get("sub")
+    )
 
     user_id = int(payload["sub"])
     svc = TwoFactorService(db)
