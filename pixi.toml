@@ -9,9 +9,26 @@ python = "3.12.*"
 pip = ">=26.2.0"
 dvc = ">=3.67.1,<4"
 pillow-heif = ">=1.5.0,<2"
+# certifi ships the CA trust store, so its advisories are trust-store drift
+# rather than code bugs. PYSEC-2026-4320 covers the compromised `emSign ECC
+# Root CA - G3`; 2026.10.19 drops it. Cheap to take, so take it rather than
+# allowlist a bad CA.
+certifi = ">=2026.10.19"
+# aiohttp arrives as a dvc transitive and is never imported by the app
+# (`grep -r aiohttp backend/src` is empty), but the 2026-11 batch added five
+# advisories and conda-forge already carries the fixed build, so pin the floor
+# instead of growing the pip-audit allowlist.
+aiohttp = ">=3.14.5"
 
 [pypi-dependencies]
-fastapi = ">=0.115.0"
+# Upper bound is not about our code: Prefect 3.8.x imports
+# `Body(..., min_items=...)` in its server package
+# (prefect/server/api/concurrency_limits_v2.py), and FastAPI 0.155.0 removed the
+# deprecated `**extra` passthrough from the request-parameter helpers, turning
+# that into a `TypeError` at import. Prefect's own metadata still claims
+# `fastapi<1.0.0`, so the resolver will happily pick the broken pair unless we
+# hold the ceiling here. Drop the cap once Prefect stops using `min_items`.
+fastapi = ">=0.115.0,<0.155"
 uvicorn = ">=0.32.0"
 pydantic = ">=2.10.0"
 pydantic-settings = ">=2.7.0"
@@ -35,7 +52,14 @@ argon2-cffi = ">=23.1.0"
 python-multipart = ">=0.0.18"
 email-validator = ">=2.2.0"
 httpx = ">=0.28.0"
-pillow = ">=11.0.0"
+# Pillow decodes untrusted uploads (image validation + ML preprocessing), so
+# the 13.0.0 fixes matter even though the extension allowlist blocks the
+# formats most of them describe: `Image.open` sniffs the format from the file
+# header, so a TIFF renamed to `.jpg` still reaches the TIFF decoder. 13.0.0
+# closes the tiled-TIFF OOB reads (CVE-2026-112395/112404/112896/112897), the
+# GIF seek DoS (CVE-2026-112400) and the Ghostscript/EPS path
+# (CVE-2026-112899).
+pillow = ">=13.0.0"
 # structlog renders structured JSON with request-scoped context (see
 # src/log_utils); stdlib logging still does the transport.
 structlog = ">=24.1.0"
