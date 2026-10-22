@@ -118,6 +118,12 @@ version = ">=6.100.0"
 ruff = ">=0.8.0"
 mypy = ">=1.13.0"
 pre-commit = ">=4.0.0"
+# virtualenv arrives transitively via pre-commit (dev tooling only, never in
+# the runtime image). Pinned explicitly so the resolver cannot fall back to the
+# 21.7.0 build, whose advisories (CVE-2026-113722/113725/113726/113732/113776)
+# are closed by 21.14.x. Bumping here is what lets the allowlist in
+# backend/scripts/audit_deps.py shrink rather than grow.
+virtualenv = ">=21.14.12"
 
 [feature.ml.dependencies]
 scikit-learn = ">=1.5.0"
