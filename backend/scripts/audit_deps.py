@@ -60,12 +60,11 @@ IGNORED: dict[str, str] = {
     "PYSEC-2026-4175": "urllib3: streaming chunked-decode abort; needs hostile server",
     "PYSEC-2026-4176": "urllib3: streaming chunked-decode abort variant",
     "PYSEC-2026-4177": "urllib3: TLS config cross-contamination for HTTPS proxies",
-    # ── virtualenv 21.7.0 (conda via pre-commit; fixed 21.7.13) ──────────────
-    # Development-only tooling, never shipped into the runtime image.
-    "PYSEC-2026-4011": "virtualenv: dev tooling only",
-    "PYSEC-2026-4012": "virtualenv: dev tooling only",
-    "PYSEC-2026-4013": "virtualenv: dev tooling only",
-    "PYSEC-2026-4014": "virtualenv: dev tooling only",
+    # ── virtualenv ───────────────────────────────────────────────────────────
+    # Now pinned to >=21.14.12 in pixi.toml (conda via pre-commit), which closes
+    # the 21.7.0 advisories (PYSEC-2026-4011/4012/4013/4014) and the newer
+    # CVE-2026-113722/113725/113726/113732/113776, so their entries were
+    # removed once the floor landed.
     # ── aiohttp ──────────────────────────────────────────────────────────────
     # The 2026-11 advisories (CVE-2026-111065/111066/111748/111749/111750 and
     # the earlier CVE-2026-111063/111064, GHSA-2g87-pp6c-29x5, PYSEC-2026-3545)
