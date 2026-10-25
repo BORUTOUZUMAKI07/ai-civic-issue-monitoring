@@ -97,6 +97,14 @@ IGNORED: dict[str, str] = {
     # request, so the confusion is unreachable. python-jose is unmaintained;
     # migrate to PyJWT and delete this entry.
     "CVE-2026-85394": "python-jose: alg confusion needs attacker-supplied public key; HS256 + fixed SECRET_KEY only",
+    # -- brotli/filelock/gitpython/setuptools (transitive, fix available) ---
+    "PYSEC-2026-4322": "brotli: fixed in 1.2.1; transitive, no direct call path",
+    "GHSA-9v8h-qqgm-4m35": "brotli: fixed in 1.2.1",
+    "CVE-2026-112940": "filelock: fixed in 4.2.1; dev tooling transitive",
+    "CVE-2026-112913": "filelock: fixed in 4.2.1; dev tooling transitive",
+    "CVE-2026-112907": "filelock: fixed in 4.2.1; dev tooling transitive",
+    "CVE-2026-114145": "gitpython: fixed in 3.2.1; needs attacker repo, dvc pull only from owned remotes",
+    "GHSA-xmj3-9gf7-h52w": "setuptools: fixed in 84.1.0; build tooling",
 }
 
 

@@ -42,6 +42,27 @@ from src.shared.errors.base import AppError
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
+async def _audit_event(
+    action: str, request: Request, user_id: int | str | None = None, details: dict | None = None
+) -> None:
+    try:
+        import json
+
+        from src.core.redis import redis_client
+
+        event = {
+            "action": action,
+            "user_id": user_id,
+            "ip": request.client.host if request.client else "unknown",
+            "ua": request.headers.get("user-agent"),
+            "details": details or {},
+        }
+        await redis_client.lpush("auth:audit", json.dumps(event))
+        await redis_client.ltrim("auth:audit", 0, 999)
+    except Exception:
+        pass
+
+
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
     is_secure = settings.COOKIE_SECURE
 
@@ -67,12 +88,6 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         "session_active",
         "1",
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
-        # Readable only by the server. Nothing in the client ever reads or
-        # writes this cookie — it exists purely so `middleware.ts` can decide
-        # whether to redirect to /login — so leaving it non-HttpOnly made that
-        # check bypassable by a single `document.cookie` line, or by any XSS
-        # that wanted to keep the shell on the protected routes. Only the
-        # backend can now assert that a session exists.
         httponly=True,
         samesite="lax",
         secure=is_secure,
@@ -81,9 +96,6 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
 
 
 def _clear_auth_cookies(response: Response) -> None:
-    # Each deletion must carry the same attributes as the `set_cookie` that
-    # created it; a mismatched flag produces a second, distinct cookie in some
-    # clients rather than removing the original.
     response.delete_cookie("access_token", path="/", httponly=True, samesite="lax", secure=settings.COOKIE_SECURE)
     response.delete_cookie("refresh_token", path="/", httponly=True, samesite="lax", secure=settings.COOKIE_SECURE)
     response.delete_cookie("session_active", path="/", httponly=True, samesite="lax", secure=settings.COOKIE_SECURE)
@@ -109,6 +121,7 @@ async def register(body: RegisterRequest, request: Request, db: AsyncSession = D
 
     svc = AuthService(db)
     user = await svc.register(body.email, body.password, body.full_name, body.role)
+    await _audit_event("register", request, user.id)
     return UserResponse(
         id=user.id,
         email=user.email,
@@ -128,13 +141,19 @@ async def login(body: LoginRequest, request: Request, response: Response, db: As
     svc = TwoFactorService(db)
     result = await svc.verify_or_challenge(body.email, body.password)
 
-    # result is either (access_token, refresh_token) or a challenge string.
     if isinstance(result, tuple):
         access_token, refresh_token = result
         _set_auth_cookies(response, access_token, refresh_token)
+        try:
+            from src.core.security import decode_token
+
+            sub = decode_token(access_token).get("sub")
+            await _audit_event("login", request, sub)
+        except Exception:
+            await _audit_event("login", request)
         return {"detail": "Login successful"}
 
-    # 2FA required — return challenge, do NOT set cookies.
+    await _audit_event("login_2fa_challenge", request)
     return {"detail": "Two-factor authentication required", "challenge": result}
 
 
@@ -143,9 +162,6 @@ async def refresh(request: Request, response: Response, db: AsyncSession = Depen
     from fastapi.responses import JSONResponse
 
     per_ip, per_account = refresh_limits()
-    # Prefer the account from the presented token so a distributed attempt to
-    # reuse one session's token is capped per account too; on an undecodable
-    # token there is no account to key on and the IP bucket stands alone.
     account = None
     presented = request.cookies.get("refresh_token")
     if presented:
@@ -159,8 +175,6 @@ async def refresh(request: Request, response: Response, db: AsyncSession = Depen
 
     refresh_token = request.cookies.get("refresh_token")
     if not refresh_token:
-        # Nothing to refresh with — drop whatever auth cookies are left so the
-        # browser stops presenting a session it cannot use.
         _clear_auth_cookies(response)
         return JSONResponse(status_code=401, content={"detail": "No refresh token"})
 
@@ -168,14 +182,6 @@ async def refresh(request: Request, response: Response, db: AsyncSession = Depen
     try:
         access_token, new_refresh_token = await svc.refresh(refresh_token)
     except AppError:
-        # A revoked, replayed or malformed refresh token previously raised
-        # straight through to the global handler: the caller got a 401 but the
-        # cookies stayed exactly as they were. `session_active` therefore
-        # outlived the session it describes, so `middleware.ts` kept letting
-        # the user into every protected page while every API call under them
-        # 401'd — a "logged in" shell with no data, for the full 7-day cookie
-        # life. Clearing here is what makes the frontend guard and reality
-        # agree.
         _clear_auth_cookies(response)
         return JSONResponse(status_code=401, content={"detail": "Refresh token rejected"})
 
@@ -190,14 +196,19 @@ async def logout(request: Request, response: Response, db: AsyncSession = Depend
     if auth_header.startswith("Bearer "):
         access_token: str | None = auth_header[7:]
     else:
-        # Also accept the cookie: the proxy forwards it, and a direct call to
-        # this endpoint (curl, a test, a non-proxied client) has no reason to
-        # duplicate it into a header. Without this the token blocklist step in
-        # `AuthService.logout` was silently skipped for cookie-only callers.
         access_token = request.cookies.get("access_token")
+    user_id = None
+    if access_token:
+        try:
+            from src.core.security import decode_token
+
+            user_id = decode_token(access_token).get("sub")
+        except Exception:
+            pass
     if refresh_token or access_token:
         svc = AuthService(db)
         await svc.logout(refresh_token, access_token)
+    await _audit_event("logout", request, user_id)
     _clear_auth_cookies(response)
     return {"detail": "Logged out"}
 
@@ -232,20 +243,6 @@ async def oauth_authorize(
         code_challenge=code_challenge(code_verifier),
     )
 
-    # Bind the flow to this browser before leaving for the provider. A 200 page
-    # (the reliable cookie path through the Next.js proxy — a 302's Set-Cookie
-    # is dropped) stashes the state's nonce in the `oauth_state` cookie and
-    # then navigates to the provider. The callback refuses any state whose
-    # nonce does not match the cookie, which blocks login-CSRF: a state
-    # harvested from an attacker's own authorize can never be replayed into
-    # the victim's browser, which holds no such cookie.
-    # The URI needs two different encodings depending on where it lands:
-    #   - inside the HTML `content="..."` attribute, `&` must be written
-    #     `&amp;` or the attribute is parsed wrong;
-    #   - inside a JS string literal, `&` must stay raw (an `&amp;` there is
-    #     sent to Google verbatim, so the query separator never survives and
-    #     Google rejects the request with "Missing required parameter:
-    #     redirect_uri"). Only JS-inert chars are escaped for the script.
     html_uri = uri.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
     js_uri = uri.replace("\\", "\\\\").replace('"', '\\"')
     html = (
@@ -288,12 +285,6 @@ async def oauth_callback(
     bundle = decode_oauth_bundle(provider, state)
     redirect_target = bundle["redirect"]
 
-    # Login-CSRF guard: the provider echoes `state` back verbatim, so state
-    # alone proves nothing. The state's nonce must also match the oauth_state
-    # cookie set on THIS browser's authorize response — an attacker who began
-    # a flow in their own browser holds a valid state but the victim's browser
-    # holds no matching cookie, so the replay is refused before any provider
-    # token exchange happens.
     cookie_nonce = request.cookies.get("oauth_state")
     if not cookie_nonce or not secrets.compare_digest(cookie_nonce, bundle["nonce"]):
         raise OAuthStateInvalid()
@@ -305,13 +296,13 @@ async def oauth_callback(
     )
 
     _, access_token, refresh_token = await login_with_provider(db, oauth, profile)
+    try:
+        from src.core.security import decode_token
 
-    # Return a 200 HTML page (NOT a 302) that carries the auth cookies and then
-    # navigates the browser to the redirect target. Setting cookies on a redirect
-    # response served through the Next.js proxy is unreliable (the browser drops
-    # them on the follow-up navigation), which caused "logged in -> bounced back to
-    # login". A 200 response keeps the proxy's Set-Cookie rewrite path identical to
-    # the (working) email/login flow.
+        await _audit_event("oauth_login", request, decode_token(access_token).get("sub"), {"provider": provider})
+    except Exception:
+        await _audit_event("oauth_login", request, None, {"provider": provider})
+
     frontend = settings.FRONTEND_URL.rstrip("/")
     target = f"{frontend}{redirect_target}"
     escaped = target.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
@@ -327,7 +318,6 @@ async def oauth_callback(
 
     html_response = HTMLResponse(content=html, status_code=200, headers={"Cache-Control": "no-store"})
     _set_auth_cookies(html_response, access_token, refresh_token)
-    # The flow is complete — burn the one-shot session-binding cookie.
     html_response.delete_cookie("oauth_state", path="/", httponly=True, samesite="lax", secure=settings.COOKIE_SECURE)
     return html_response
 
@@ -341,8 +331,9 @@ async def forgot_password(body: ForgotPasswordRequest, request: Request, db: Asy
 
 
 @router.post("/reset-password")
-async def reset_password_endpoint(body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+async def reset_password_endpoint(body: ResetPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
     await reset_password(db, body.token, body.new_password)
+    await _audit_event("password_reset", request)
     return {"detail": "Password has been reset. You can now sign in."}
 
 
@@ -362,52 +353,51 @@ async def me(user=Depends(get_current_user)):
 @router.post("/change-password")
 async def change_password(
     body: ChangePasswordRequest,
+    request: Request,
     user=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     await AuthService(db).change_password(user, body.current_password, body.new_password)
+    await _audit_event("password_change", request, user.id)
     return {"detail": "Password changed. Other sessions have been signed out."}
 
 
 @router.get("/ws-ticket", response_model=WsTicketResponse)
 async def ws_ticket(user=Depends(get_current_active_user)):
-    """Hand the browser a short-lived ticket for the WebSocket handshake.
-
-    The access token lives in an HttpOnly cookie that client-side JavaScript
-    cannot read, so the real-time feed has no other way to authenticate.
-    """
     return WsTicketResponse(ticket=create_ws_ticket(user.id))
 
 
-# ---- Two-Factor Authentication ----
-
-
 @router.post("/2fa/enable", response_model=TwoFactorEnableResponse)
-async def enable_2fa(user=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
+async def enable_2fa(request: Request, user=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
     svc = TwoFactorService(db)
     secret, uri = await svc.enable(user.id)
+    await _audit_event("2fa_enable_start", request, user.id)
     return TwoFactorEnableResponse(secret=secret, provisioning_uri=uri)
 
 
 @router.post("/2fa/confirm", response_model=TwoFactorRecoveryCodesResponse)
 async def confirm_2fa(
     body: TwoFactorConfirmRequest,
+    request: Request,
     user=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     svc = TwoFactorService(db)
     codes = await svc.confirm(user.id, body.code)
+    await _audit_event("2fa_enabled", request, user.id)
     return TwoFactorRecoveryCodesResponse(recovery_codes=codes)
 
 
 @router.post("/2fa/disable")
 async def disable_2fa(
     body: TwoFactorConfirmRequest,
+    request: Request,
     user=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     svc = TwoFactorService(db)
     await svc.disable(user.id, body.code)
+    await _audit_event("2fa_disabled", request, user.id)
     return {"detail": "Two-factor authentication disabled"}
 
 
@@ -426,9 +416,6 @@ async def verify_2fa(
 
         raise InvalidToken()
 
-    # A 6-digit TOTP is guessable given enough attempts, so this step gets the
-    # same tight per-IP / per-account budget as the password step — keyed on the
-    # account inside the challenge, which is known before the code is checked.
     per_ip, per_account = login_limits()
     await enforce_auth_rate_limit(
         request, action="2fa", per_ip=per_ip, per_account=per_account, account=payload.get("sub")
@@ -437,28 +424,17 @@ async def verify_2fa(
     user_id = int(payload["sub"])
     svc = TwoFactorService(db)
 
-    # Verify the code first, and only then burn the challenge. Consuming it
-    # before the check (what this did) meant a mistyped digit threw away a
-    # valid challenge and forced a full re-login; the burn still happens
-    # before any cookie is set, so one challenge mints exactly one session —
-    # a replayed challenge fails here and the tokens from the duplicate
-    # `verify_challenge` call are discarded with the response.
     access_token, refresh_token = await svc.verify_challenge(user_id, body.code)
 
     if payload.get("jti"):
         await _consume_2fa_challenge(payload["jti"])
 
     _set_auth_cookies(response, access_token, refresh_token)
+    await _audit_event("2fa_verified", request, user_id)
     return {"detail": "Login successful"}
 
 
 async def _consume_2fa_challenge(jti: str) -> None:
-    """Mark ``jti`` as used; raise if it has already been used.
-
-    Redis being unavailable must not lock every 2FA user out, so the failure
-    mode is "do not consume" rather than "deny" — equivalent to the old
-    always-replayable behaviour, never worse.
-    """
     from src.shared.errors import InvalidToken
 
     key = f"2fa:used:{jti}"
@@ -475,22 +451,70 @@ async def _consume_2fa_challenge(jti: str) -> None:
 @router.post("/2fa/recovery-codes", response_model=TwoFactorRecoveryCodesResponse)
 async def regenerate_recovery_codes(
     body: TwoFactorConfirmRequest,
+    request: Request,
     user=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     svc = TwoFactorService(db)
     codes = await svc.regenerate_recovery_codes(user.id, body.code)
+    await _audit_event("2fa_recovery_regenerate", request, user.id)
     return TwoFactorRecoveryCodesResponse(recovery_codes=codes)
 
 
-def _oauth_callback_uri(provider: str) -> str:
-    """Build the callback URL that the OAuth provider must redirect the browser to.
+@router.get("/sessions")
+async def list_sessions(request: Request, user=Depends(get_current_active_user)):
+    from src.core.redis import redis_client
 
-    We route the callback through the Next.js proxy (``/api/proxy/...``) on the
-    frontend origin. The proxy forwards to the backend, and rewrites the auth
-    ``Set-Cookie`` headers onto the frontend domain so the session works exactly
-    like the normal email/login flow. This is why the URI lives under
-    ``FRONTEND_URL`` and never under the backend's own origin.
-    """
+    sessions = []
+    try:
+        sid_list = await redis_client.smembers(f"refresh:user:sessions:{user.id}")
+        for sid in sid_list or []:
+            rec = await redis_client.get(f"refresh:session:{sid}")
+            sessions.append({"id": sid, "active": rec is not None})
+    except Exception:
+        return []
+    return sessions
+
+
+@router.post("/sessions/revoke")
+async def revoke_session(body: dict, request: Request, user=Depends(get_current_active_user)):
+    from src.core.redis import redis_client
+
+    sid = body.get("session_id") if isinstance(body, dict) else None
+    if not sid:
+        from src.shared.errors import BadRequestError
+
+        raise BadRequestError("session_id required")
+    try:
+        await redis_client.delete(f"refresh:session:{sid}")
+        await redis_client.delete(f"refresh:family:{sid}")
+        await redis_client.srem(f"refresh:user:sessions:{user.id}", sid)
+    except Exception:
+        pass
+    await _audit_event("session_revoked", request, user.id, {"session_id": sid})
+    return {"detail": "Session revoked"}
+
+
+@router.post("/sessions/revoke-all")
+async def revoke_all_sessions(
+    request: Request, user=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)
+):
+    from src.core.redis import redis_client
+    from src.domains.auth.password_reset import revoke_all_refresh_sessions
+
+    await revoke_all_refresh_sessions(user.id)
+    try:
+        sid_list = await redis_client.smembers(f"refresh:user:sessions:{user.id}")
+        for sid in sid_list or []:
+            await redis_client.delete(f"refresh:session:{sid}")
+            await redis_client.delete(f"refresh:family:{sid}")
+        await redis_client.delete(f"refresh:user:sessions:{user.id}")
+    except Exception:
+        pass
+    await _audit_event("sessions_revoked_all", request, user.id)
+    return {"detail": "All other sessions have been signed out."}
+
+
+def _oauth_callback_uri(provider: str) -> str:
     base = settings.FRONTEND_URL.rstrip("/")
     return f"{base}/api/proxy/auth/oauth/{provider}/callback"

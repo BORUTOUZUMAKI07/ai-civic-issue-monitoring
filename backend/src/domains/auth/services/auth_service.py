@@ -32,22 +32,11 @@ from src.shared.errors import (
 
 logger = logging.getLogger("civicpulse")
 
-# Refresh-token rotation + reuse detection (OAuth 2.0 BCP / RFC 9700): each
-# refresh token carries a stable session id (``sid``) and a unique ``jti``.
-# Redis keeps one record per session holding the CURRENT jti plus the
-# immediately-previous one (short grace window for concurrent 401 retries). If
-# a presented jti matches neither, the token was already rotated out — a
-# replay — so the whole session family is revoked.
 _REFRESH_SESSION_PREFIX = "refresh:session:"
 _REFRESH_REVOKED_PREFIX = "refresh:revoked:"
-# Reuse detection revokes one sign-in *family*, not the whole account. The key
-# is the ``fam`` claim minted at login and carried on every rotation of that
-# sign-in; the user-wide key above is kept for intentional global sign-out
-# (password change/reset) and is checked alongside the family key.
 _REFRESH_FAMILY_REVOKED_PREFIX = "refresh:revoked:family:"
-# One sign-in's sid -> fam mapping, so a family can be revoked by sid alone
-# (logout) and so the user-wide flag can be resolved without scanning.
 _REFRESH_FAMILY_INDEX_PREFIX = "refresh:family:"
+_REFRESH_USER_SESSIONS_PREFIX = "refresh:user:sessions:"
 _REFRESH_TTL = settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400
 _REUSE_GRACE_SECONDS = 30
 
@@ -110,10 +99,8 @@ class AuthService:
         access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
         refresh_token = create_refresh_token({"sub": str(user.id)})
 
-        # A completed password login lifts the post-replay refresh lockout —
-        # otherwise a single replayed token locked the account out of /refresh
-        # for 7 days with no way back in.
         await clear_refresh_family_revocation(user.id)
+        await clear_refresh_revocation(user.id)
         await store_refresh_session(refresh_token)
 
         return access_token, refresh_token
@@ -136,9 +123,6 @@ class AuthService:
 
         user_id = payload.get("sub")
         if not user_id:
-            # `sub` is what ties a refresh token to an account. Silently
-            # treating a missing one as user 0 (or letting `int(None)` raise
-            # a TypeError out as a 500) is worse than rejecting the token.
             raise InvalidToken()
         user = await self.user_repo.get(int(str(user_id)))
         if not user:
@@ -149,23 +133,13 @@ class AuthService:
         if sid and jti:
             if await self._refresh_family_revoked(user.id, fam):
                 raise TokenRevoked()
-            # Carry the family forward across rotation so the whole sign-in can
-            # still be revoked as a unit after any number of renewals. A token
-            # predating `fam` (or one minted by the no-sid path) falls back to a
-            # fresh id, which is still revocable in its own right.
             new_refresh = create_refresh_token({"sub": str(user.id)}, sid=sid, fam=fam)
             new_jti = decode_token(new_refresh).get("jti", "")
             result = await self._rotate_refresh_session(sid, jti, new_jti)
             if result == 0:
-                # Replay: the presented token was already rotated out. Revoke
-                # *this sign-in's* family — the other devices on the account are
-                # untouched, which is the difference a family id buys over the
-                # old user-wide flag.
                 await self._revoke_refresh_family(user.id, fam, sid)
                 raise TokenRevoked()
             if result == -1:
-                # No session record for this sid. Reject rather than rotate — a
-                # missing record isn't proof of replay, so no family revocation.
                 raise TokenRevoked()
         else:
             new_refresh = create_refresh_token({"sub": str(user.id)})
@@ -181,19 +155,6 @@ class AuthService:
         return access_token, new_refresh
 
     async def _refresh_family_revoked(self, user_id: int, fam: str | None) -> bool:
-        """True when this sign-in — or the whole account — has been revoked.
-
-        Two signals are consulted. The user-wide flag is set by an intentional
-        global sign-out (password change/reset via
-        :func:`revoke_all_refresh_sessions`). The family flag is set by reuse
-        detection and kills only the one compromised sign-in. Either one means
-        "do not renew".
-
-        Fails open (``False``) when Redis is unreachable — the flag is a
-        revocation signal, and an outage must not turn every refresh into a
-        500. This matches the rest of the module, whose Redis usage is already
-        best-effort.
-        """
         try:
             if await redis_client.get(f"{_REFRESH_REVOKED_PREFIX}{user_id}"):
                 return True
@@ -205,20 +166,6 @@ class AuthService:
             return False
 
     async def _rotate_refresh_session(self, sid: str, jti: str, new_jti: str) -> int:
-        """Run the rotation/reuse-detection script: 1 ok / 0 replay / -1 no record.
-
-        Redis is the session store behind rotation, and both Redis calls used
-        to sit here unguarded. The ``/auth/refresh`` route only catches
-        ``AppError``, so a Redis outage surfaced as a raw exception and every
-        session renewal returned a 500 — an instance that was otherwise serving
-        traffic correctly logged every user out. Every other Redis-backed
-        behaviour in this module already fails open; refresh now does too.
-
-        Failing open cannot be escalated into a privilege gain: reuse detection
-        is purely defensive, and whoever can reach Redis can already forge the
-        state it checks. When Redis returns, the next successful rotation
-        re-anchors the session record.
-        """
         try:
             result = await redis_client.eval(
                 _ROTATE_REFRESH_LUA,
@@ -236,15 +183,12 @@ class AuthService:
         return int(result)
 
     async def _blacklist_best_effort(self, jti: str, ttl_seconds: int) -> None:
-        """Blacklist a rotated-out token, tolerating Redis being unreachable."""
         try:
             await blacklist_token(jti, ttl_seconds)
         except Exception as e:
             logger.warning("refresh: Redis unavailable, could not blacklist rotated token: %s", e)
 
     async def logout(self, refresh_token: Optional[str], access_token: Optional[str] = None) -> None:
-        # Blacklist the presented refresh token and, when available, the access
-        # token so neither remains usable after sign-out.
         for token in (access_token, refresh_token):
             if not token:
                 continue
@@ -261,32 +205,19 @@ class AuthService:
                     await redis_client.delete(f"{_REFRESH_SESSION_PREFIX}{sid}")
                     fam = payload.get("fam") or await _family_for_sid(sid)
                     if fam:
-                        # Revoke the family too, so a rotated-out token from this
-                        # sign-in cannot be replayed to revive it after logout.
                         await redis_client.setex(f"{_REFRESH_FAMILY_REVOKED_PREFIX}{fam}", _REFRESH_TTL, "1")
                         await redis_client.delete(f"{_REFRESH_FAMILY_INDEX_PREFIX}{sid}")
             except Exception:
-                # Best-effort: a malformed token should not block sign-out and
-                # the cookies are cleared regardless.
                 logger.warning("logout: failed to blacklist a token")
                 continue
 
     async def _revoke_refresh_family(self, user_id: int, fam: str | None, sid: str | None = None) -> None:
-        """Kill refresh tokens for one sign-in family after a replay.
-
-        Scoped to ``fam`` (falling back to the user-wide flag only when the
-        token predates the family claim), so a leaked token ends the one
-        compromised sign-in instead of every device the account is signed in
-        on.
-        """
         try:
             if fam:
                 await redis_client.setex(f"{_REFRESH_FAMILY_REVOKED_PREFIX}{fam}", _REFRESH_TTL, "1")
                 if sid:
                     await redis_client.delete(f"{_REFRESH_SESSION_PREFIX}{sid}")
                 return
-            # No family id on the token: fall back to account-wide revocation,
-            # which is what the pre-`fam` code always did.
             await redis_client.setex(f"{_REFRESH_REVOKED_PREFIX}{user_id}", _REFRESH_TTL, "1")
         except Exception as e:
             logger.warning("refresh: failed to revoke family for user %s: %s", user_id, e)
@@ -298,14 +229,6 @@ class AuthService:
         return user
 
     async def change_password(self, user: User, current_password: str, new_password: str) -> None:
-        """Rotate a user's password after proving knowledge of the current one.
-
-        Mirrors the reset flow: the new hash is written, then every refresh
-        session for the account is revoked so a stolen refresh cookie cannot
-        outlive the password change. Argon2 verification and hashing are both
-        offloaded to a thread, as login and reset already do, so a burst of
-        changes cannot stall the event loop.
-        """
         if not await verify_password_for_login_async(
             current_password, user.password_hash, oauth_provider=user.oauth_provider
         ):
@@ -318,7 +241,6 @@ class AuthService:
 
 
 async def _family_for_sid(sid: str) -> str | None:
-    """Resolve a session id to the family it belongs to, if one is recorded."""
     try:
         value = await redis_client.get(f"{_REFRESH_FAMILY_INDEX_PREFIX}{sid}")
         return value if isinstance(value, str) and value else None
@@ -328,35 +250,26 @@ async def _family_for_sid(sid: str) -> str | None:
 
 
 async def clear_refresh_family_revocation(user_id: int) -> None:
-    """Lift the post-replay lockout once the user has re-authenticated.
-
-    ``refresh:revoked:{user_id}`` is set when a replayed refresh token is
-    detected and gates *every* future refresh for that user — but it was never
-    cleared anywhere, so one replay left the account permanently unable to
-    refresh for the full 7-day TTL, with no recovery path short of waiting it
-    out. Since the flag's job is "no session survives the compromise signal",
-    a fresh interactive login is exactly the event that should lift it: the
-    user has just proven control of their credentials, and any session that
-    existed before is moot because they are starting a new one.
-
-    Best-effort, matching the rest of this module: if Redis is unreachable the
-    login still succeeds and the flag ages out on its own TTL.
-    """
     try:
         await redis_client.delete(f"{_REFRESH_REVOKED_PREFIX}{user_id}")
     except Exception as e:
         logger.warning("refresh: failed to clear revocation flag for user %s: %s", user_id, e)
 
 
+async def clear_refresh_revocation(user_id: int) -> None:
+    try:
+        await redis_client.delete(f"{_REFRESH_REVOKED_PREFIX}{user_id}")
+    except Exception as e:
+        logger.warning("refresh: failed to clear user revocation for user %s: %s", user_id, e)
+
+
 async def store_refresh_session(refresh_token: str) -> None:
-    """Record a freshly-issued refresh token's sid/jti/fam so rotation, reuse
-    detection and per-sign-in revocation have a session anchor. Best-effort: if
-    Redis is down we can't detect reuse, but the token itself is still valid."""
     try:
         payload = decode_token(refresh_token)
         sid = payload.get("sid")
         jti = payload.get("jti")
         fam = payload.get("fam")
+        user_id = payload.get("sub")
         if not sid or not jti:
             return
         record = json.dumps(
@@ -369,8 +282,12 @@ async def store_refresh_session(refresh_token: str) -> None:
         )
         await redis_client.setex(f"{_REFRESH_SESSION_PREFIX}{sid}", _REFRESH_TTL, record)
         if fam:
-            # sid -> fam lookup for logout: given only the presented token's
-            # sid, the family it belongs to can still be revoked as a unit.
             await redis_client.setex(f"{_REFRESH_FAMILY_INDEX_PREFIX}{sid}", _REFRESH_TTL, fam)
+        if user_id and sid:
+            try:
+                await redis_client.sadd(f"{_REFRESH_USER_SESSIONS_PREFIX}{user_id}", sid)
+                await redis_client.expire(f"{_REFRESH_USER_SESSIONS_PREFIX}{user_id}", _REFRESH_TTL)
+            except Exception:
+                pass
     except Exception as e:
         logger.warning("refresh: failed to store session record: %s", e)

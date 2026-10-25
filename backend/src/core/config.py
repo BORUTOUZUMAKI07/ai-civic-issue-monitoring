@@ -282,5 +282,8 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # Trusted proxies for resolving client IP
+    TRUSTED_PROXIES: list[str] = []
+
 
 settings = Settings()
