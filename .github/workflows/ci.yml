@@ -7,6 +7,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   PYTHON_VERSION: "3.12"
   NODE_VERSION: "22"
@@ -80,6 +84,7 @@ jobs:
 
   backend-test:
     name: Backend Tests
+    needs: [backend-lint, backend-typecheck]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -126,6 +131,7 @@ jobs:
   # (read its module docstring before ever adding an advisory to it).
   backend-security:
     name: Backend Security
+    needs: [backend-lint]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -147,6 +153,7 @@ jobs:
   # where Docker is unavailable the tests skip themselves instead of failing.
   backend-integration:
     name: Backend Integration
+    needs: [backend-test]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -168,6 +175,7 @@ jobs:
   # as a P95/error breach here. Images only ship when this is green.
   performance-loadtest:
     name: Performance Load Test
+    needs: [backend-test, backend-integration]
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -290,6 +298,7 @@ jobs:
 
   frontend-test:
     name: Frontend Tests
+    needs: [frontend-lint]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -306,6 +315,7 @@ jobs:
 
   frontend-build:
     name: Frontend Build
+    needs: [frontend-lint, frontend-test]
     runs-on: ubuntu-latest
     defaults:
       run:
