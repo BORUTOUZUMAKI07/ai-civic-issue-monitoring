@@ -58,8 +58,7 @@ async def _audit_event(
             "details": details or {},
         }
         await redis_client.lpush("auth:audit", json.dumps(event))
-        await redis_client.ltrim("auth:audit", 0, 999)
-    except Exception:
+    except Exception:  # nosec B110 - audit logging is best-effort
         pass
 
 
@@ -203,7 +202,7 @@ async def logout(request: Request, response: Response, db: AsyncSession = Depend
             from src.core.security import decode_token
 
             user_id = decode_token(access_token).get("sub")
-        except Exception:
+        except Exception:  # nosec B110 - best-effort user id extraction for audit
             pass
     if refresh_token or access_token:
         svc = AuthService(db)
@@ -489,7 +488,7 @@ async def revoke_session(body: dict, request: Request, user=Depends(get_current_
         await redis_client.delete(f"refresh:session:{sid}")
         await redis_client.delete(f"refresh:family:{sid}")
         await redis_client.srem(f"refresh:user:sessions:{user.id}", sid)
-    except Exception:
+    except Exception:  # nosec B110 - session cleanup is best-effort
         pass
     await _audit_event("session_revoked", request, user.id, {"session_id": sid})
     return {"detail": "Session revoked"}
@@ -509,7 +508,7 @@ async def revoke_all_sessions(
             await redis_client.delete(f"refresh:session:{sid}")
             await redis_client.delete(f"refresh:family:{sid}")
         await redis_client.delete(f"refresh:user:sessions:{user.id}")
-    except Exception:
+    except Exception:  # nosec B110 - session cleanup is best-effort
         pass
     await _audit_event("sessions_revoked_all", request, user.id)
     return {"detail": "All other sessions have been signed out."}

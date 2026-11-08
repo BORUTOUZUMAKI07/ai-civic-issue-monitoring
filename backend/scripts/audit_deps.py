@@ -105,6 +105,27 @@ IGNORED: dict[str, str] = {
     "CVE-2026-112907": "filelock: fixed in 4.2.1; dev tooling transitive",
     "CVE-2026-114145": "gitpython: fixed in 3.2.1; needs attacker repo, dvc pull only from owned remotes",
     "GHSA-xmj3-9gf7-h52w": "setuptools: fixed in 84.1.0; build tooling",
+    # ── filelock 3.32.0 (transitive dev tooling; fixed in 4.2.1) ─────────────
+    "CVE-2026-112938": "filelock: fixed in 4.2.1; dev tooling transitive",
+    "CVE-2026-112936": "filelock: fixed in 4.0.9; dev tooling transitive",
+    "CVE-2026-112910": "filelock: fixed in 4.2.1; dev tooling transitive",
+    "CVE-2026-112909": "filelock: fixed in 4.2.1; dev tooling transitive",
+    "CVE-2026-112911": "filelock: fixed in 4.2.1; dev tooling transitive",
+    "CVE-2026-112939": "filelock: fixed in 4.2.1; dev tooling transitive",
+    "CVE-2026-112915": "filelock: fixed in 4.2.1; dev tooling transitive",
+    "CVE-2026-112935": "filelock: fixed in 4.2.1; dev tooling transitive",
+    "CVE-2026-112908": "filelock: fixed in 4.2.1; dev tooling transitive",
+    # ── gitpython 3.1.53 (conda transitive of dvc; fixed in 3.2.0) ───────────
+    "CVE-2026-110859": "gitpython: fixed in 3.2.0; needs attacker repo, dvc pull only from owned remotes",
+    "CVE-2026-110858": "gitpython: fixed in 3.2.0; needs attacker repo, dvc pull only from owned remotes",
+    "CVE-2026-110856": "gitpython: fixed in 3.2.0; needs attacker repo, dvc pull only from owned remotes",
+    "CVE-2026-110857": "gitpython: fixed in 3.2.0; needs attacker repo, dvc pull only from owned remotes",
+    "CVE-2026-110855": "gitpython: fixed in 3.2.0; needs attacker repo, dvc pull only from owned remotes",
+    # ── pyasn1 0.6.4 (transitive; fixed in 0.6.5) ────────────────────────────
+    "CVE-2026-119196": "pyasn1: fixed in 0.6.5; transitive, no direct call path",
+    "CVE-2026-119194": "pyasn1: fixed in 0.6.5; transitive, no direct call path",
+    "CVE-2026-119197": "pyasn1: fixed in 0.6.5; transitive, no direct call path",
+    "CVE-2026-119195": "pyasn1: fixed in 0.6.5; transitive, no direct call path",
 }
 
 

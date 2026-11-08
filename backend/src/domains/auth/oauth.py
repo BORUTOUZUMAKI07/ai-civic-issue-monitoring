@@ -145,7 +145,7 @@ def get_provider(name: str) -> OAuthProvider:
         return OAuthProvider(
             name="google",
             authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
-            token_url="https://oauth2.googleapis.com/token",
+            token_url="https://oauth2.googleapis.com/token",  # nosec B106 - URL, not a credential
             userinfo_url="https://openidconnect.googleapis.com/v1/userinfo",
             client_id=settings.GOOGLE_CLIENT_ID,
             client_secret=settings.GOOGLE_CLIENT_SECRET,
@@ -156,7 +156,7 @@ def get_provider(name: str) -> OAuthProvider:
         return OAuthProvider(
             name="github",
             authorize_url="https://github.com/login/oauth/authorize",
-            token_url="https://github.com/login/oauth/access_token",
+            token_url="https://github.com/login/oauth/access_token",  # nosec B106 - URL, not a credential
             userinfo_url="https://api.github.com/user",
             client_id=settings.GITHUB_CLIENT_ID,
             client_secret=settings.GITHUB_CLIENT_SECRET,

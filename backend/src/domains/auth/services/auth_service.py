@@ -287,7 +287,7 @@ async def store_refresh_session(refresh_token: str) -> None:
             try:
                 await redis_client.sadd(f"{_REFRESH_USER_SESSIONS_PREFIX}{user_id}", sid)
                 await redis_client.expire(f"{_REFRESH_USER_SESSIONS_PREFIX}{user_id}", _REFRESH_TTL)
-            except Exception:
+            except Exception:  # nosec B110 - session index update is best-effort
                 pass
     except Exception as e:
         logger.warning("refresh: failed to store session record: %s", e)
