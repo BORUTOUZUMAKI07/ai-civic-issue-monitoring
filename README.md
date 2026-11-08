@@ -206,7 +206,7 @@ flowchart TD
     Classify --> Route[route_issue]
     Route --> Decision{needs_escalation?}
     Decision -->|yes| Escalate[escalate_issue]
-    Decision -->|no, analytics<|end|> Analytics[generate_analytics]
+    Decision -->|no analytics<|end|> Analytics[generate_analytics]
     Decision -->|no| Match[match_engineer]
     Escalate --> End([END])
     Analytics --> End
