@@ -357,5 +357,4 @@ DevOps: Pixi, Docker Compose, Prefect Cloud, GitHub Actions, OpenTelemetry.
 ## Documentation
 
 - [`docs/deployment.md`](docs/deployment.md) — deployment runbook
-- [`docs/ddd-backend-refactor-plan.md`](docs/ddd-backend-refactor-plan.md) — backend refactor plan
 - [`docs/adr/`](docs/adr/) — architecture decision records
