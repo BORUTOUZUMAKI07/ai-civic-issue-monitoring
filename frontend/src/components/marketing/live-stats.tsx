@@ -1,7 +1,7 @@
 "use client";
 
 import { usePublicStats } from "@/queries/index";
-import { ScrollReveal } from "@/components/ScrollReveal";
+import { ScrollReveal } from "@/components/shared/ScrollReveal";
 import { CheckCircle2, HardHat, MapPinned, TrendingUp } from "lucide-react";
 
 /**

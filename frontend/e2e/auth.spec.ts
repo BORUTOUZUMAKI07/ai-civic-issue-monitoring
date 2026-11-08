@@ -16,7 +16,7 @@ test.describe("Authentication Flow", () => {
 
   test("should navigate to register from login", async ({ page }) => {
     await page.goto("/login");
-    await page.getByRole("link", { name: /request access/i }).click();
+    await page.getByRole("link", { name: /sign up/i }).click();
     await expect(page).toHaveURL(/.*register/);
   });
 

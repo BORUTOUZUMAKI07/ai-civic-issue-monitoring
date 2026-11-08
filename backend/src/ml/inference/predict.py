@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import threading
@@ -83,9 +84,16 @@ _session = None
 _MODEL_LOAD_LOCK = threading.Lock()
 
 
+_DEVICE_LOCK = threading.Lock()
+
+
 def _get_device():
     global _device
-    if _device is None:
+    if _device is not None:
+        return _device
+    with _DEVICE_LOCK:
+        if _device is not None:
+            return _device
         try:
             import torch
 
@@ -164,11 +172,16 @@ def _get_torch_model():
 
 
 _transform = None
+_TRANSFORM_LOCK = threading.Lock()
 
 
 def _get_transform():
     global _transform
-    if _transform is None:
+    if _transform is not None:
+        return _transform
+    with _TRANSFORM_LOCK:
+        if _transform is not None:
+            return _transform
         from torchvision import transforms
 
         _transform = transforms.Compose(
@@ -260,6 +273,10 @@ def predict_issue(image: Image.Image) -> dict:
 _MONGO_CLIENT: "object | None" = None
 _MONGO_LOCK = threading.Lock()
 
+# Bounded pool for fire-and-forget drift logging. daemon threads would otherwise
+# be created one-per-prediction, which does not scale under upload bursts.
+_DRIFT_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="drift-log")
+
 
 def _get_mongo_client():
     """Return a lazily-created, process-wide MongoClient (reused across predictions).
@@ -303,7 +320,9 @@ def _log_prediction_for_drift(result: dict):
         except Exception as e:
             logger.debug("Drift logging failed (non-fatal): %s", e)
 
-    threading.Thread(target=_write, daemon=True).start()
+    # Bound the fire-and-forget writers so a burst of predictions cannot spawn
+    # an unbounded number of OS threads (one per prediction) under load.
+    _DRIFT_EXECUTOR.submit(_write)
 
 
 def _get_mongo_db():

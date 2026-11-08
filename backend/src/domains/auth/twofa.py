@@ -43,15 +43,16 @@ def _generate_recovery_codes() -> list[str]:
 def _hash_recovery_code(code: str, salt: str | None = None) -> str:
     normalised = code.strip().upper()
     salt_bytes = bytes.fromhex(salt) if salt else secrets.token_bytes(16)
-    _digest = hashlib.scrypt(
+    digest = hashlib.scrypt(
         normalised.encode(),
         salt=salt_bytes,
         n=_RECOVERY_SCRYPT_N,
         r=_RECOVERY_SCRYPT_R,
         p=_RECOVERY_SCRYPT_P,
         dklen=32,
+        maxmem=2**30,
     )
-    return "scrypt"
+    return f"scrypt${salt_bytes.hex()}${digest.hex()}"
 
 
 def _verify_recovery_code(code: str, stored: str) -> bool:
@@ -62,7 +63,7 @@ def _verify_recovery_code(code: str, stored: str) -> bool:
             expected = _hash_recovery_code(normalised, salt=salt_hex)
         except (ValueError, TypeError):
             return False
-        return hmac.compare_digest(expected, "scrypt")
+        return hmac.compare_digest(expected, stored)
     if len(stored) == 64 and all(c in "0123456789abcdef" for c in stored):
         legacy = hashlib.sha256(normalised.encode()).hexdigest()
         return hmac.compare_digest(legacy, stored)

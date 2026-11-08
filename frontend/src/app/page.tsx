@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
-import { ScrollReveal } from "@/components/ScrollReveal";
+import { ScrollReveal } from "@/components/shared/ScrollReveal";
 import { LiveStats } from "@/components/marketing/live-stats";
 import {
   ArrowRight,
