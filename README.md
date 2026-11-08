@@ -50,14 +50,21 @@ flowchart TB
         NR[New Relic / Grafana]
     end
 
-    FE --> Proxy --> API
-    API --> Auth & Issues
-    Issues --> ML & Agents
+    FE --> Proxy
+    Proxy --> API
+    API --> Auth
+    API --> Issues
+    Issues --> ML
+    Issues --> Agents
     Agents --> RAG
-    API --> PG & Redis & Mongo
+    API --> PG
+    API --> Redis
+    API --> Mongo
     ML --> Mongo
-    Prefect --> PG & Mongo
-    API --> OTEL --> NR
+    Prefect --> PG
+    Prefect --> Mongo
+    API --> OTEL
+    OTEL --> NR
 ```
 
 ### Component responsibilities
@@ -189,7 +196,7 @@ flowchart LR
     F --> G[Issue Created]
     G --> H[Embedding Generated]
     H --> I[RAG Context for Agents]
-    I --> J[LangGraph: classify -> route -> match/escalate/analytics]
+    I --> J[LangGraph agent pipeline]
 
     K[Prefect: Drift Detection] --> L[MongoDB predictions]
     L --> K
@@ -202,15 +209,15 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    Start([Input: issue]) --> Classify[classify_issue]
-    Classify --> Route[route_issue]
-    Route --> Decision{needs_escalation?}
-    Decision -->|yes| Escalate[escalate_issue]
-    Decision -->|no analytics<|end|> Analytics[generate_analytics]
-    Decision -->|no| Match[match_engineer]
-    Escalate --> End([END])
-    Analytics --> End
-    Match --> End
+    A[Input issue] --> B[classify_issue]
+    B --> C[route_issue]
+    C --> D{needs escalation}
+    D -->|yes| E[escalate_issue]
+    D -->|analytics| F[generate_analytics]
+    D -->|no| G[match_engineer]
+    E --> H[END]
+    F --> H
+    G --> H
 ```
 
 ## Observability
