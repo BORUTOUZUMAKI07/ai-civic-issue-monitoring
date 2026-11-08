@@ -8,39 +8,249 @@ resolution end-to-end. Scheduled drift detection keeps the model honest.
 
 ![CI](https://github.com/BORUTOUZUMAKI07/ai-civic-issue-monitoring/actions/workflows/ci.yml/badge.svg)
 
+## Table of contents
+
+- [Architecture](#architecture)
+- [Request lifecycle](#request-lifecycle)
+- [Data model](#data-model)
+- [Authentication flow](#authentication-flow)
+- [ML pipeline](#ml-pipeline)
+- [Observability](#observability)
+- [Deployment](#deployment)
+- [Setup](#setup)
+- [Commands](#commands)
+
 ## Architecture
 
-| Component      | Technology                          | Purpose |
-| -------------- | ----------------------------------- | ------- |
-| Backend        | FastAPI (async)                     | REST API, auth, issue lifecycle, ML inference |
-| Frontend       | Next.js 16 (App Router)             | Dashboard, map, admin/review UI |
-| ML Engine      | PyTorch (MobileNetV2) + LangGraph   | Image classification + agent pipeline |
-| Monitoring     | Prefect + statistical drift checks  | Confidence/label drift detection |
-| Orchestration  | Prefect Cloud                       | Drift, SLA, reporting, retraining flows |
-| Observability  | OpenTelemetry (OTLP -> collector)   | Logs, traces, RED metrics |
-| Datastores     | PostgreSQL, Redis/Upstash, MongoDB  | Issues/users, cache/rate-limit, audit/drift |
-| Packaging      | Pixi (conda-forge)                  | Python + native C/C++ deps in one env |
-| Container      | Docker Compose                      | Full-stack orchestration |
+```mermaid
+flowchart TB
+    subgraph Client["Browser"]
+        FE[Next.js 16 App Router]
+        Proxy["/api/proxy (BFF)"]
+    end
 
-## Repository layout
+    subgraph Backend["FastAPI Backend"]
+        API[REST API + Middleware]
+        Auth[Auth Domain]
+        Issues[Issues Domain]
+        ML[ML Inference]
+        Agents[LangGraph Agents]
+        RAG[RAG Retrieval]
+    end
 
+    subgraph Data["Datastores"]
+        PG[(PostgreSQL)]
+        Redis[(Redis / Upstash)]
+        Mongo[(MongoDB)]
+    end
+
+    subgraph Ops["Operations"]
+        Prefect[Prefect Cloud]
+        OTEL[OTel Collector]
+        NR[New Relic / Grafana]
+    end
+
+    FE --> Proxy --> API
+    API --> Auth & Issues
+    Issues --> ML & Agents
+    Agents --> RAG
+    API --> PG & Redis & Mongo
+    ML --> Mongo
+    Prefect --> PG & Mongo
+    API --> OTEL --> NR
 ```
-backend/        FastAPI app, domains, core, agents, ML, tests, migrations
-frontend/       Next.js app (App Router), components, tests, e2e
-prefect/        Prefect flows and deployment config
-docker/         Compose stack + OpenTelemetry collector config
-docs/           Deployment guide and ADRs
-backend/data/   Seed data and evaluation goldens
+
+### Component responsibilities
+
+| Layer | Component | Responsibility |
+| ----- | --------- | -------------- |
+| Frontend | Next.js App Router | Dashboard, map, admin/review, issue reporting |
+| Frontend | BFF proxy (`/api/proxy`) | Auth cookie scoping, path allowlist, body limits |
+| Backend | FastAPI + middleware | RBAC, rate limiting, request logging, metrics |
+| Backend | Auth domain | JWT access/refresh, TOTP 2FA, OAuth, sessions |
+| Backend | Issues domain | Upload, gate, classify, assign, resolve, idempotency |
+| Backend | ML inference | MobileNetV2 (PyTorch/ONNX), drift logging |
+| Backend | LangGraph agents | Classify, route, match, escalate, analytics |
+| Backend | RAG | Vector + BM25 hybrid retrieval over issue history |
+| Data | PostgreSQL | Users, issues, wards, engineers, assignments |
+| Data | Redis | Rate limits, cache, token blacklist, sessions |
+| Data | MongoDB | Audit logs, drift reports, rejected uploads |
+| Ops | Prefect | Drift, SLA, reporting, retraining flows |
+| Ops | OTel collector | Fan-out to New Relic / Grafana |
+
+## Request lifecycle
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant FE as Next.js
+    participant BFF as /api/proxy
+    participant API as FastAPI
+    participant MW as Middleware
+    participant SVC as Issue Service
+    participant ML as ML Inference
+    participant DB as PostgreSQL
+
+    U->>FE: Submit photo + location
+    FE->>BFF: POST /api/proxy/issues (Idempotency-Key)
+    BFF->>API: Forward (auth cookie -> Bearer)
+    API->>MW: RBAC + rate limit + body limit
+    MW->>SVC: create_issue
+    SVC->>ML: predict_issue(image)
+    ML-->>SVC: label, confidence, probabilities
+    SVC->>SVC: gate_decision(vision, description)
+    SVC->>DB: INSERT issue (ward geofence)
+    SVC-->>API: IssueResponse
+    API-->>BFF: JSON
+    BFF-->>FE: JSON (Set-Cookie rewritten)
+    FE-->>U: Show issue card + toast
 ```
 
-## Prerequisites
+## Data model
 
-- [Pixi](https://pixi.sh) (conda-forge) — manages Python and native C/C++ libs
-- Node.js 22 LTS + npm
-- Docker + Docker Compose (optional, for the full stack)
-- PostgreSQL 16, Redis, MongoDB (or use the `dev` Compose profile)
+```mermaid
+erDiagram
+    User ||--o{ Issue : reports
+    User ||--o| Engineer : "has profile"
+    Ward ||--o{ Issue : contains
+    Ward ||--o{ Engineer : "assigned to"
+    Issue ||--o{ Assignment : has
+    Issue ||--o| Resolution : resolved_by
+    Engineer ||--o{ Assignment : receives
+    Issue }o--|| IdempotencyKey : "upload replay"
+
+    User {
+        int id
+        string email
+        string role
+        bool is_active
+        bool two_factor_enabled
+    }
+    Issue {
+        int id
+        enum type
+        float confidence
+        enum status
+        float latitude
+        float longitude
+        int ward_id
+        int reporter_id
+    }
+    Ward {
+        int id
+        string name
+        jsonb polygon
+    }
+    Engineer {
+        int id
+        int user_id
+        int ward_id
+        string specialization
+        int current_workload
+    }
+```
+
+## Authentication flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant API as FastAPI
+    participant Redis as Redis
+
+    C->>API: POST /auth/login (email, password)
+    API->>API: verify password (Argon2)
+    alt 2FA enabled
+        API-->>C: 2fa_challenge token
+        C->>API: POST /auth/2fa/verify (challenge, code)
+    end
+    API->>Redis: store refresh session (sid, fam)
+    API-->>C: Set-Cookie access_token, refresh_token, session_active
+
+    Note over C,API: Access token expires (15 min)
+    C->>API: POST /auth/refresh (cookie)
+    API->>Redis: rotate refresh token (new sid, same fam)
+    API-->>C: new access + refresh cookies
+
+    C->>API: POST /auth/logout
+    API->>Redis: revoke session family
+    API-->>C: clear cookies
+```
+
+## ML pipeline
+
+```mermaid
+flowchart LR
+    A[Image Upload] --> B[Gate: vision + text]
+    B -->|accept| C[MobileNetV2 Inference]
+    B -->|reject| D[Rejected Upload Log]
+    B -->|review_required| E[Admin Review Queue]
+    C --> F[Label + Confidence + Probs]
+    F --> G[Issue Created]
+    G --> H[Embedding Generated]
+    H --> I[RAG Context for Agents]
+    I --> J[LangGraph: classify -> route -> match/escalate/analytics]
+
+    K[Prefect: Drift Detection] --> L[MongoDB predictions]
+    L --> K
+    K -->|drift high| M[Retrain Flow]
+    M --> N[MLflow / DagsHub]
+    N --> O[New model artifact]
+```
+
+### Agent graph
+
+```mermaid
+flowchart TD
+    Start([Input: issue]) --> Classify[classify_issue]
+    Classify --> Route[route_issue]
+    Route --> Decision{needs_escalation?}
+    Decision -->|yes| Escalate[escalate_issue]
+    Decision -->|no, analytics<|end|> Analytics[generate_analytics]
+    Decision -->|no| Match[match_engineer]
+    Escalate --> End([END])
+    Analytics --> End
+    Match --> End
+```
+
+## Observability
+
+```mermaid
+flowchart LR
+    App[FastAPI App] -->|OTLP logs/traces/metrics| Collector[OTel Collector]
+    Collector -->|basic auth| NR[New Relic]
+    Collector -->|config flag| Grafana[Grafana]
+    App -->|structured JSON logs| stdout
+```
+
+Three layers: app instruments (FastAPI, httpx, SQLAlchemy, HTTP middleware) export over OTLP to a Layer-2 collector that owns the vendor key and fans out to any OTLP sink. No Prometheus scrape path.
+
+## Deployment
+
+```mermaid
+flowchart TB
+    Dev[Developer] -->|push| GH[GitHub]
+    GH -->|CI| Lint[Lint + Typecheck]
+    Lint --> Tests[Tests + Integration]
+    Tests --> Build[Docker Build]
+    Build --> GHCR[GHCR Registry]
+    GHCR -->|opt-in tag| DH[DockerHub]
+    GHCR -->|manual deploy| Host[Production Host]
+    Host --> Compose[Docker Compose]
+    Compose --> Backend[Backend Container]
+    Compose --> Frontend[Frontend Container]
+    Compose --> Collector[OTel Collector]
+```
 
 ## Setup
+
+### Prerequisites
+
+- [Pixi](https://pixi.sh) (conda-forge)
+- Node.js 22 LTS + npm
+- Docker + Docker Compose (optional)
+
+### Install
 
 ```bash
 git clone https://github.com/BORUTOUZUMAKI07/ai-civic-issue-monitoring.git
@@ -50,49 +260,32 @@ pixi install
 cd frontend && npm install && cd ..
 
 cp backend/.env.example backend/.env
-# edit backend/.env: SECRET_KEY, DATABASE_URL, REDIS_URL, MONGODB_URI, ...
+# edit backend/.env: SECRET_KEY, DATABASE_URL, REDIS_URL, MONGODB_URI
 
-pixi run setup          # pre-commit hooks
+pixi run setup
 ```
 
-Two additional env files are scoped to their own component:
-`prefect/.env.example -> prefect/.env` and `docker/.env.example -> docker/.env`.
-
-### First admin account
-
-The public API only registers `field_worker`/`viewer`. Create the first
-`super_admin` directly against the database:
+### First admin
 
 ```bash
 ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='<12+ chars>' ADMIN_ROLE=super_admin pixi run create-admin
 ```
 
-Idempotent — re-running promotes/updates the existing account.
-
-## Running
-
-Local development:
+### Run
 
 ```bash
-pixi run dev            # backend on :8000
-pixi run frontend       # frontend on :3000
+pixi run dev            # backend :8000
+pixi run frontend       # frontend :3000
 ```
 
-Full stack with Docker:
+Or full stack:
 
 ```bash
 cp docker/.env.example docker/.env   # set SECRET_KEY
 docker compose -f docker/docker-compose.yml --profile dev up --build
 ```
 
-Access:
-
-| Service            | URL                          |
-| ------------------ | ---------------------------- |
-| Frontend dashboard | http://localhost:3000        |
-| Backend API docs   | http://localhost:8000/docs   |
-
-## Development commands
+## Commands
 
 Backend:
 
@@ -122,7 +315,7 @@ pixi run frontend-test  # vitest
 Data (DVC):
 
 ```bash
-dvc pull                # training data + model artifacts
+dvc pull
 dvc add models/model.onnx && dvc push
 ```
 
@@ -140,19 +333,9 @@ dvc add models/model.onnx && dvc push
 - Real-time issue stream over WebSocket
 - Admin review queue, user management, engineer roster
 - Dashboard stats, heatmap, public aggregate stats
-- Drift detection (confidence/label distribution) via Prefect
+- Drift detection via Prefect
 - SLA monitoring and daily reports
 - OTLP observability to a Layer-2 collector
-
-## Prefect flows
-
-| Flow              | Schedule        | Purpose |
-| ----------------- | --------------- | ------- |
-| drift-detection   | Daily 2 AM UTC  | Model accuracy/distribution drift |
-| sla-monitoring    | Hourly          | Issue resolution SLA compliance |
-| daily-report      | Daily 8 AM UTC  | Daily issue summary |
-| audit-log-archival| Monthly         | Archive old audit logs |
-| retrain-model     | Weekly + event  | Drift-triggered retraining via MLflow/DagsHub |
 
 ## Tech stack
 
@@ -163,12 +346,6 @@ Frontend: Next.js 16, React 19, Tailwind CSS v4, shadcn/ui (Radix), TanStack
 Query, Leaflet, Recharts.
 
 DevOps: Pixi, Docker Compose, Prefect Cloud, GitHub Actions, OpenTelemetry.
-
-## CI/CD
-
-CI builds, tests, scans, and publishes container images. Publishing to
-DockerHub and the manual Deploy workflow are opt-in. See
-[`docs/deployment.md`](docs/deployment.md).
 
 ## Documentation
 
