@@ -80,3 +80,13 @@ class TwoFactorAlreadyEnabled(BadRequestError):
 class InvalidRecoveryCode(UnauthorizedError):
     def __init__(self):
         super().__init__(detail="Invalid recovery code.")
+
+
+class EmailNotVerified(UnauthorizedError):
+    def __init__(self, detail: str = "Email address is not verified."):
+        super().__init__(detail=detail)
+
+
+class EmailVerificationTokenInvalid(BadRequestError):
+    def __init__(self, detail: str = "Email verification link is invalid or has expired."):
+        super().__init__(detail=detail)

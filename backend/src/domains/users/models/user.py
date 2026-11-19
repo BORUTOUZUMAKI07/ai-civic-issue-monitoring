@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Enum, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.shared.base import Base
@@ -31,6 +31,9 @@ class User(Base):
     totp_secret: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
     two_factor_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     recovery_codes: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    totp_last_counter: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=True)
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
 
     # OAuth identity. A user is bound to exactly one (provider, sub) pair; when
     # ``oauth_provider`` is set the account has NO usable password and password

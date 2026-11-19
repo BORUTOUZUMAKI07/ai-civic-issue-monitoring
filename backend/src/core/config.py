@@ -199,6 +199,20 @@ class Settings(BaseSettings):
     PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 60
     PASSWORD_RESET_EMAIL_SUBJECT: str = "CivicPulse password reset"
 
+    # --- Email verification ---
+    # Off by default so existing deployments/users are not locked out on upgrade.
+    # When enabled, newly registered accounts must verify before login succeeds.
+    EMAIL_VERIFICATION_REQUIRED: bool = False
+    EMAIL_VERIFY_TOKEN_EXPIRE_MINUTES: int = 60
+    EMAIL_VERIFY_EMAIL_SUBJECT: str = "Verify your CivicPulse account"
+
+    # --- Encryption / TOTP ---
+    # Used to encrypt sensitive values at rest (e.g. TOTP secrets). If left
+    # unset, a stable key is derived from SECRET_KEY so existing deployments do
+    # not need an extra env var; set explicitly in production for key separation.
+    ENCRYPTION_KEY: str = ""
+    TOTP_VALID_WINDOW: int = 1
+
     # --- Frontend ---
     FRONTEND_URL: str = "http://localhost:3000"
 

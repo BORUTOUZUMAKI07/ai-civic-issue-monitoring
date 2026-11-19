@@ -1,5 +1,7 @@
 from src.shared.errors.auth import (
     EmailAlreadyExists,
+    EmailNotVerified,
+    EmailVerificationTokenInvalid,
     InvalidCredentials,
     InvalidRecoveryCode,
     InvalidToken,
@@ -43,6 +45,8 @@ __all__ = [
     "RateLimitError",
     "InternalError",
     "EmailAlreadyExists",
+    "EmailNotVerified",
+    "EmailVerificationTokenInvalid",
     "InvalidCredentials",
     "InvalidRecoveryCode",
     "InvalidTwoFactorCode",

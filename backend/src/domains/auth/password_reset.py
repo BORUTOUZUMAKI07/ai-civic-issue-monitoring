@@ -6,9 +6,9 @@ from uuid import uuid4
 
 import jwt
 
+from src.core import redis as redis_module
 from src.core.config import settings
 from src.core.email import send_email
-from src.core.redis import redis_client
 from src.core.security import hash_password_async
 from src.domains.users.repositories.user_repository import UserRepository
 from src.shared.errors import PasswordResetTokenInvalid
@@ -104,7 +104,7 @@ async def _consume_reset_jti(jti: str) -> bool:
     key = f"{_RESET_JTI_PREFIX}{jti}"
     ttl = settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES * 60
     try:
-        was_new = await redis_client.set(key, "1", ex=ttl, nx=True)
+        was_new = await redis_module.redis_client.set(key, "1", ex=ttl, nx=True)
         return not bool(was_new)
     except Exception as exc:
         logger.warning("password_reset: could not persist token consumption (%s)", exc)
@@ -114,6 +114,6 @@ async def _consume_reset_jti(jti: str) -> bool:
 async def revoke_all_refresh_sessions(user_id: int) -> None:
     try:
         ttl = settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400
-        await redis_client.setex(f"refresh:revoked:{user_id}", ttl, "1")
+        await redis_module.redis_client.setex(f"refresh:revoked:{user_id}", ttl, "1")
     except Exception as exc:
         logger.warning("password_reset: could not revoke sessions for user %s (%s)", user_id, exc)

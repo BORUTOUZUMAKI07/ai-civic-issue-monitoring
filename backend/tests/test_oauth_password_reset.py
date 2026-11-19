@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -14,6 +13,7 @@ from src.domains.auth.oauth import (
     decode_oauth_state,
     encode_oauth_state,
     get_provider,
+    store_oauth_state,
 )
 from src.domains.auth.password_reset import create_password_reset_token, decode_password_reset_token
 from src.shared.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid, PasswordResetTokenInvalid
@@ -153,9 +153,7 @@ async def test_fetch_user_github_without_verified_email_is_unverified() -> None:
         ]
     )
     with patch("src.domains.auth.oauth.httpx.AsyncClient", return_value=fake):
-        profile = await get_provider("github").fetch_user(
-            "code-1", "http://localhost:3000/auth/oauth/github/callback"
-        )
+        profile = await get_provider("github").fetch_user("code-1", "http://localhost:3000/auth/oauth/github/callback")
     assert profile["verified"] is False
     # Never accept an unverified GitHub address as the account email.
     assert profile["email"] == ""
@@ -187,9 +185,7 @@ async def test_fetch_user_google_unverified_claim_is_false() -> None:
         ]
     )
     with patch("src.domains.auth.oauth.httpx.AsyncClient", return_value=fake):
-        profile = await get_provider("google").fetch_user(
-            "code-1", "http://localhost:3000/auth/oauth/google/callback"
-        )
+        profile = await get_provider("google").fetch_user("code-1", "http://localhost:3000/auth/oauth/google/callback")
     assert profile["verified"] is False
 
 
@@ -400,8 +396,8 @@ async def test_forgot_password_existing_user_smtp_failure(client: AsyncClient) -
     from unittest.mock import patch
 
     from src.core.database import AsyncSessionLocal, engine
-    from src.models.base import Base
     from src.domains.users.models.user import User, UserRole
+    from src.models.base import Base
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -428,9 +424,7 @@ async def test_forgot_password_existing_user_smtp_failure(client: AsyncClient) -
                 json={"email": "existing@civicpulse.com"},
             )
         assert response.status_code == 200
-        assert response.json() == {
-            "detail": "If that email is registered, a reset link has been sent."
-        }
+        assert response.json() == {"detail": "If that email is registered, a reset link has been sent."}
         assert fake_send.called
     finally:
         settings.SMTP_HOST = old_host
@@ -470,14 +464,18 @@ async def test_oauth_providers_endpoint(client: AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_oauth_callback_sets_cookies_via_200_html(client: AsyncClient) -> None:
     """The callback must return a 200 page that carries the auth cookies (not a
-    302), matching the reliable email/login cookie path through the proxy."""
+    302), matching the reliable email/login cookie path through the proxy.
+
+    Hardened flow: state/PKCE bundle is stored server-side (Redis) as a one-time
+    value and the nonce is bound to the browser via the oauth_state cookie.
+    """
     old_google_id = settings.GOOGLE_CLIENT_ID
     old_google_secret = settings.GOOGLE_CLIENT_SECRET
     old_frontend = settings.FRONTEND_URL
     settings.GOOGLE_CLIENT_ID = "client-123"
     settings.GOOGLE_CLIENT_SECRET = "secret-abc"
     settings.FRONTEND_URL = "http://localhost:3000"
-    state, _verifier, nonce = encode_oauth_state("google", "/dashboard")
+    state_id, _verifier, nonce = await store_oauth_state("google", "/dashboard")
     try:
         with patch(
             "src.domains.auth.oauth.OAuthProvider.fetch_user",
@@ -492,7 +490,7 @@ async def test_oauth_callback_sets_cookies_via_200_html(client: AsyncClient) -> 
             ),
         ):
             response = await client.get(
-                f"/api/v1/auth/oauth/google/callback?code=fake&state={state}",
+                f"/api/v1/auth/oauth/google/callback?code=fake&state={state_id}",
                 cookies={"oauth_state": nonce},
                 follow_redirects=False,
             )
@@ -521,10 +519,10 @@ async def test_oauth_callback_rejects_missing_state_cookie(client: AsyncClient) 
     old_google_secret = settings.GOOGLE_CLIENT_SECRET
     settings.GOOGLE_CLIENT_ID = "client-123"
     settings.GOOGLE_CLIENT_SECRET = "secret-abc"
-    state, _verifier, _nonce = encode_oauth_state("google", "/dashboard")
+    state_id, _verifier, _nonce = await store_oauth_state("google", "/dashboard")
     try:
         response = await client.get(
-            f"/api/v1/auth/oauth/google/callback?code=attacker-code&state={state}",
+            f"/api/v1/auth/oauth/google/callback?code=attacker-code&state={state_id}",
             follow_redirects=False,
         )
         assert response.status_code == 400
@@ -539,10 +537,10 @@ async def test_oauth_callback_rejects_mismatched_state_cookie(client: AsyncClien
     old_google_secret = settings.GOOGLE_CLIENT_SECRET
     settings.GOOGLE_CLIENT_ID = "client-123"
     settings.GOOGLE_CLIENT_SECRET = "secret-abc"
-    state, _verifier, _nonce = encode_oauth_state("google", "/dashboard")
+    state_id, _verifier, _nonce = await store_oauth_state("google", "/dashboard")
     try:
         response = await client.get(
-            f"/api/v1/auth/oauth/google/callback?code=attacker-code&state={state}",
+            f"/api/v1/auth/oauth/google/callback?code=attacker-code&state={state_id}",
             cookies={"oauth_state": "attacker-controlled-nonce"},
             follow_redirects=False,
         )
@@ -595,6 +593,7 @@ async def test_oauth_authorize_pages_to_provider_and_binds_session(client: Async
         settings.GOOGLE_CLIENT_SECRET = old_google_secret
 
 
+@pytest.mark.asyncio
 async def test_oauth_authorize_navigates_with_raw_query_separators(client: AsyncClient) -> None:
     """The provider URL must reach the browser with real ``&`` separators.
 
