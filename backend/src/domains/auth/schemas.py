@@ -32,6 +32,14 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(min_length=6, max_length=128)
 
 
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
 class ChangePasswordRequest(BaseModel):
     current_password: str
     # Matches the client-side floor in ``frontend/src/lib/schemas.ts``.
@@ -50,6 +58,7 @@ class UserResponse(BaseModel):
     is_active: bool
     created_at: str
     two_factor_enabled: bool = False
+    email_verified: bool = True
 
 
 class TwoFactorVerifyRequest(BaseModel):

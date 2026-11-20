@@ -5,16 +5,22 @@ import hmac
 import json
 import logging
 import secrets
+from datetime import datetime, timezone
 
 import pyotp
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.config import settings
 from src.core.security import (
     create_2fa_challenge_token,
+    decrypt_secret,
+    encrypt_secret,
+    looks_like_encrypted_secret,
     verify_password_for_login_async,
 )
 from src.domains.users.repositories.user_repository import UserRepository
 from src.shared.errors import (
+    EmailNotVerified,
     InvalidCredentials,
     InvalidTwoFactorCode,
     TwoFactorAlreadyEnabled,
@@ -74,6 +80,50 @@ def _store_recovery_codes(codes: list[str]) -> str:
     return json.dumps([_hash_recovery_code(c) for c in codes])
 
 
+def _read_totp_secret(stored: str | None) -> str | None:
+    if not stored:
+        return None
+    # Backward compatibility: existing plaintext base32 secrets may remain until
+    # first successful verification/write, or if migration could not encrypt.
+    if looks_like_encrypted_secret(stored):
+        try:
+            return decrypt_secret(stored)
+        except Exception:
+            return None
+    return stored
+
+
+def _store_totp_secret(secret: str) -> str:
+    return encrypt_secret(secret)
+
+
+def _matching_totp_counter(totp: pyotp.TOTP, code: str) -> int | None:
+    """Return the matched TOTP time-step counter, or None if invalid.
+
+    Mirrors Nexus replay protection: the accepted counter is recorded so the same
+    (or an earlier) step cannot be redeemed again.
+    """
+    now = datetime.now(timezone.utc)
+    interval = int(getattr(totp, "interval", 30) or 30)
+    window = max(int(getattr(settings, "TOTP_VALID_WINDOW", 1) or 1), 0)
+    for offset in range(-window, window + 1):
+        candidate_time = datetime.fromtimestamp(now.timestamp() + offset * interval, tz=timezone.utc)
+        try:
+            if hmac.compare_digest(str(totp.at(candidate_time)), str(code)):
+                return int(totp.timecode(candidate_time))
+        except Exception:  # nosec B112 - invalid/malformed candidate should not abort window scan
+            continue
+    return None
+
+
+def _accept_totp_counter(user, counter: int) -> bool:
+    last = getattr(user, "totp_last_counter", None)
+    if isinstance(last, int) and counter <= last:
+        return False
+    user.totp_last_counter = counter
+    return True
+
+
 class TwoFactorService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -90,7 +140,9 @@ class TwoFactorService:
         totp = pyotp.TOTP(secret)
         provisioning_uri = totp.provisioning_uri(name=user.email, issuer_name="CivicPulse")
 
-        user.totp_secret = secret
+        # Store encrypted at rest; keep a pending (not-yet-enabled) secret.
+        user.totp_secret = _store_totp_secret(secret)
+        user.totp_last_counter = None
         await self.db.commit()
 
         return secret, provisioning_uri
@@ -101,15 +153,19 @@ class TwoFactorService:
             raise UserNotFound()
         if user.two_factor_enabled:
             raise TwoFactorAlreadyEnabled()
-        if not user.totp_secret:
+        secret = _read_totp_secret(user.totp_secret)
+        if not secret:
             raise TwoFactorNotEnabled()
 
-        totp = pyotp.TOTP(user.totp_secret)
-        if not totp.verify(code, valid_window=1):
+        totp = pyotp.TOTP(secret)
+        counter = _matching_totp_counter(totp, code.strip())
+        if counter is None or not _accept_totp_counter(user, counter):
             raise InvalidTwoFactorCode()
 
         recovery_codes = _generate_recovery_codes()
         user.two_factor_enabled = True
+        # Ensure secret is stored encrypted going forward (migrates legacy plaintext).
+        user.totp_secret = _store_totp_secret(secret)
         user.recovery_codes = _store_recovery_codes(recovery_codes)
         await self.db.commit()
 
@@ -121,15 +177,18 @@ class TwoFactorService:
             raise UserNotFound()
         if not user.two_factor_enabled:
             raise TwoFactorNotEnabled()
-        if not user.totp_secret:
+        secret = _read_totp_secret(user.totp_secret)
+        if not secret:
             raise TwoFactorNotEnabled()
 
-        totp = pyotp.TOTP(user.totp_secret)
-        if not totp.verify(code, valid_window=1):
+        totp = pyotp.TOTP(secret)
+        counter = _matching_totp_counter(totp, code.strip())
+        if counter is None or not _accept_totp_counter(user, counter):
             raise InvalidTwoFactorCode()
 
         user.two_factor_enabled = False
         user.totp_secret = None
+        user.totp_last_counter = None
         user.recovery_codes = None
         await self.db.commit()
 
@@ -143,6 +202,8 @@ class TwoFactorService:
             from src.shared.errors import UnauthorizedError
 
             raise UnauthorizedError(detail="Account is deactivated.")
+        if getattr(settings, "EMAIL_VERIFICATION_REQUIRED", False) and not getattr(user, "email_verified", True):
+            raise EmailNotVerified()
 
         if user.two_factor_enabled:
             return create_2fa_challenge_token(user.id)
@@ -171,9 +232,15 @@ class TwoFactorService:
         code_clean = code.strip().upper()
 
         totp_ok = False
-        if user.totp_secret:
-            totp = pyotp.TOTP(user.totp_secret)
-            totp_ok = totp.verify(code_clean, valid_window=1)
+        secret = _read_totp_secret(user.totp_secret)
+        if secret:
+            totp = pyotp.TOTP(secret)
+            counter = _matching_totp_counter(totp, code_clean)
+            if counter is not None and _accept_totp_counter(user, counter):
+                # Migrate legacy plaintext secret to encrypted form on successful use.
+                if user.totp_secret and not looks_like_encrypted_secret(user.totp_secret):
+                    user.totp_secret = _store_totp_secret(secret)
+                totp_ok = True
 
         if not totp_ok:
             if not user.recovery_codes:
@@ -191,6 +258,7 @@ class TwoFactorService:
                     continue
                 if _verify_recovery_code(code_clean, stored):
                     matched_index = i
+                    break
             if matched_index < 0:
                 raise InvalidTwoFactorCode()
 
@@ -205,6 +273,9 @@ class TwoFactorService:
             store_refresh_session,
         )
 
+        if totp_ok:
+            await self.db.commit()
+
         access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
         refresh_token = create_refresh_token({"sub": str(user.id)})
         await clear_refresh_family_revocation(user.id)
@@ -218,14 +289,18 @@ class TwoFactorService:
             raise UserNotFound()
         if not user.two_factor_enabled:
             raise TwoFactorNotEnabled()
-        if not user.totp_secret:
+        secret = _read_totp_secret(user.totp_secret)
+        if not secret:
             raise TwoFactorNotEnabled()
 
-        totp = pyotp.TOTP(user.totp_secret)
-        if not totp.verify(code, valid_window=1):
+        totp = pyotp.TOTP(secret)
+        counter = _matching_totp_counter(totp, code.strip())
+        if counter is None or not _accept_totp_counter(user, counter):
             raise InvalidTwoFactorCode()
 
         recovery_codes = _generate_recovery_codes()
+        if user.totp_secret and not looks_like_encrypted_secret(user.totp_secret):
+            user.totp_secret = _store_totp_secret(secret)
         user.recovery_codes = _store_recovery_codes(recovery_codes)
         await self.db.commit()
 

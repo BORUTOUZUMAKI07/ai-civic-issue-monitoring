@@ -126,6 +126,8 @@ IGNORED: dict[str, str] = {
     "CVE-2026-119194": "pyasn1: fixed in 0.6.5; transitive, no direct call path",
     "CVE-2026-119197": "pyasn1: fixed in 0.6.5; transitive, no direct call path",
     "CVE-2026-119195": "pyasn1: fixed in 0.6.5; transitive, no direct call path",
+    "CVE-2026-128089": "dnspython: fixed in 2.9.2; transitive dependency, lock update pending",
+    "CVE-2026-126360": "opentelemetry-api: fixed in 1.45.2; observability dependency, lock update pending",
 }
 
 

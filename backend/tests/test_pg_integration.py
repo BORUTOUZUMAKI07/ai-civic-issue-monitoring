@@ -1,4 +1,4 @@
-"""
+﻿"""
 Real-Postgres integration tests (marker: ``integration``).
 ==========================================================
 
@@ -6,22 +6,23 @@ These tests need Docker. They are deliberately excluded from the default
 ``test-ci`` run (``-m 'not integration'``) and executed on their own by the
 ``test-integration`` pixi task and the ``backend-integration`` CI job.
 
-Why a real database at all? The schema features that SQLite cannot express —
+Why a real database at all? The schema features that SQLite cannot express â€”
 the ``JSONB`` columns, the ``issuetype`` enum, the ``ON DELETE`` rules
 introduced by migrations 005/007/008, and the ``idempotency_keys`` table from
-009 — are exactly the ones worth proving
+009 â€” are exactly the ones worth proving
 against PostgreSQL. The suite never trusts that a migration chain "probably
 applied"; it runs the real ``alembic upgrade head`` against a fresh
 ``postgres:16-alpine`` container and asserts on the catalog plus the runtime
 behaviour. It also runs ``alembic check`` (``test_migrations_match_the_models``)
-so a model that was never migrated — or a column migrated with the wrong
-nullability, as migration 001 did — fails the build instead of drifting
+so a model that was never migrated â€” or a column migrated with the wrong
+nullability, as migration 001 did â€” fails the build instead of drifting
 unnoticed.
 
 Whenever Docker is unavailable (no daemon, image pull failure), every test in
-this module skips itself rather than failing — that keeps the gate honest on
+this module skips itself rather than failing â€” that keeps the gate honest on
 machines without Docker without marking the module broken.
 """
+
 from __future__ import annotations
 
 import os
@@ -39,9 +40,10 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 pytestmark = pytest.mark.integration
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Fixtures
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
 
 @pytest.fixture(scope="module")
 def pg():
@@ -72,7 +74,7 @@ def migrated_pg_url(pg) -> str:
 
     ``alembic upgrade head`` runs in its own interpreter (as production does),
     reading ``ASYNC_DATABASE_URI`` from the environment the same way the
-    deployed migration step does — this is the exact command the backend runs
+    deployed migration step does â€” this is the exact command the backend runs
     against Aiven, just pointed at the throwaway container instead.
     """
     url = pg.get_connection_url()
@@ -100,8 +102,7 @@ def migrated_pg_url(pg) -> str:
     )
     if proc.returncode != 0:
         raise AssertionError(
-            f"alembic upgrade head failed (rc={proc.returncode})\n"
-            f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+            f"alembic upgrade head failed (rc={proc.returncode})\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
         )
     return url
 
@@ -140,25 +141,20 @@ async def conn(pg_engine):
         yield connection
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Schema-level assertions (the catalog)
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
 
 async def test_alembic_reached_head(pg_engine) -> None:
-    """The full chain 001→010 applied; the head revision is 010."""
+    """The full chain 001->011 applied; the head revision is 011_auth_hardening_email_gdpr."""
     async with pg_engine.connect() as c:
         version = await c.scalar(text("SELECT version_num FROM alembic_version"))
-    assert version == "010"
+    assert version == "011_auth_hardening_email_gdpr"
 
     async with pg_engine.connect() as c:
         tables = {
-            row[0]
-            for row in await c.execute(
-                text(
-                    "SELECT tablename FROM pg_tables "
-                    "WHERE schemaname = 'public'"
-                )
-            )
+            row[0] for row in await c.execute(text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'"))
         }
     assert {
         "users",
@@ -177,7 +173,7 @@ async def test_migrations_match_the_models(migrated_pg_url) -> None:
     The ``migrated_pg_url`` fixture has already applied the real chain to the
     container, so comparing the live schema with ``Base.metadata`` catches the
     two ways a change can go missing: a model edited without a migration, and a
-    migration column created with the wrong nullability (both happened here —
+    migration column created with the wrong nullability (both happened here â€”
     migration 001 left nineteen columns nullable that the models call NOT NULL,
     which is what migration 010 fixes). Without this, drift only shows up as a
     silent ``alembic check`` failure nobody runs.
@@ -271,15 +267,16 @@ async def test_fk_on_delete_actions_match_migration_008(pg_engine) -> None:
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Behavioural assertions (what the schema lets the app do)
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
 
 async def _seed_ward_user_engineer(conn) -> tuple[int, int]:
     """Insert one ward, one reporting user and one engineer; return (ward_id, engineer_id)."""
     ward_id = (
         await conn.execute(
-            # asyncpg has no native dict binding — `type_=JSONB` makes SQLAlchemy
+            # asyncpg has no native dict binding â€” `type_=JSONB` makes SQLAlchemy
             # json-encode on the way in (and json-decode on the way out).
             text(
                 "INSERT INTO wards (name, polygon, center_lat, center_lon) "
@@ -291,8 +288,8 @@ async def _seed_ward_user_engineer(conn) -> tuple[int, int]:
     user_id = (
         await conn.execute(
             text(
-                "INSERT INTO users (email, password_hash, full_name) "
-                "VALUES ('engineer@civicpulse.test', 'x', 'Eng') RETURNING id"
+                "INSERT INTO users (email, password_hash, full_name, email_verified) "
+                "VALUES ('engineer@civicpulse.test', 'x', 'Eng', true) RETURNING id"
             )
         )
     ).scalar_one()
@@ -310,8 +307,8 @@ async def _seed_issue(conn, ward_id: int, *, probabilities: dict | None = None) 
     reporter_id = (
         await conn.execute(
             text(
-                "INSERT INTO users (email, password_hash, full_name) "
-                "VALUES ('reporter@civicpulse.test', 'x', 'Rpt') RETURNING id"
+                "INSERT INTO users (email, password_hash, full_name, email_verified) "
+                "VALUES ('reporter@civicpulse.test', 'x', 'Rpt', true) RETURNING id"
             )
         )
     ).scalar_one()
@@ -320,7 +317,7 @@ async def _seed_issue(conn, ward_id: int, *, probabilities: dict | None = None) 
             text(
                 "INSERT INTO issues "
                 "(issue_type, confidence, severity, status, latitude, longitude, "
-                " description, image_url, probabilities, \"metadata\", ward_id, reporter_id) "
+                ' description, image_url, probabilities, "metadata", ward_id, reporter_id) '
                 "VALUES ('pothole', :confidence, :severity, 'reported', :lat, :lon, "
                 " :description, 'photo.png', :prob, :meta, :ward, :reporter) RETURNING id"
             ).bindparams(
@@ -349,7 +346,9 @@ async def _seed_assignment_and_resolution(conn, issue_id: int, engineer_id: int)
         {"i": issue_id, "e": engineer_id},
     )
     await conn.execute(
-        text("INSERT INTO resolutions (issue_id, engineer_id, before_image_url, after_image_url) VALUES (:i, :e, 'a.png', 'b.png')"),
+        text(
+            "INSERT INTO resolutions (issue_id, engineer_id, before_image_url, after_image_url) VALUES (:i, :e, 'a.png', 'b.png')"
+        ),
         {"i": issue_id, "e": engineer_id},
     )
 
@@ -363,8 +362,8 @@ async def test_jsonb_roundtrip(conn) -> None:
     row = (
         await conn.execute(
             text(
-                "SELECT probabilities, \"metadata\", "
-                "jsonb_typeof(probabilities) AS ptype, jsonb_typeof(\"metadata\") AS mtype, "
+                'SELECT probabilities, "metadata", '
+                'jsonb_typeof(probabilities) AS ptype, jsonb_typeof("metadata") AS mtype, '
                 "probabilities ->> 'pothole' AS pothole_prob "
                 "FROM issues WHERE id = :id"
             ),
@@ -386,9 +385,7 @@ async def test_delete_issue_cascades_children(conn) -> None:
     await conn.execute(text("DELETE FROM issues WHERE id = :id"), {"id": issue_id})
 
     remaining = (
-        await conn.execute(
-            text("SELECT (SELECT count(*) FROM assignments) + (SELECT count(*) FROM resolutions)")
-        )
+        await conn.execute(text("SELECT (SELECT count(*) FROM assignments) + (SELECT count(*) FROM resolutions)"))
     ).scalar_one()
     assert remaining == 0
 

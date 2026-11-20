@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core import redis as redis_module
 from src.core.config import settings
-from src.core.redis import redis_client
 from src.core.security import (
     blacklist_token,
     create_access_token,
@@ -23,6 +24,7 @@ from src.domains.users.models.user import User, UserRole
 from src.domains.users.repositories.user_repository import UserRepository
 from src.shared.errors import (
     EmailAlreadyExists,
+    EmailNotVerified,
     InvalidCredentials,
     InvalidToken,
     TokenRevoked,
@@ -39,6 +41,25 @@ _REFRESH_FAMILY_INDEX_PREFIX = "refresh:family:"
 _REFRESH_USER_SESSIONS_PREFIX = "refresh:user:sessions:"
 _REFRESH_TTL = settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400
 _REUSE_GRACE_SECONDS = 30
+
+
+class _RedisClientProxy:
+    """Resolve Redis client dynamically.
+
+    - If tests patch ``auth_service.redis_client`` directly, that override wins.
+    - Otherwise delegate to the live ``src.core.redis.redis_client`` so fixtures
+      that patch the core module (fakeredis) are respected.
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        mod = sys.modules[__name__]
+        client = mod.__dict__.get("redis_client")
+        if client is self or client is None:
+            client = redis_module.redis_client
+        return getattr(client, name)
+
+
+redis_client: Any = _RedisClientProxy()
 
 _ROTATE_REFRESH_LUA = """
 local rec = redis.call('GET', KEYS[1])
@@ -79,13 +100,24 @@ class AuthService:
             raise EmailAlreadyExists()
 
         user_role = UserRole(role) if role in [r.value for r in UserRole] else UserRole.field_worker
+        requires_verification = bool(getattr(settings, "EMAIL_VERIFICATION_REQUIRED", False))
         user = User(
             email=email,
             password_hash=await hash_password_async(password),
             full_name=full_name,
             role=user_role,
+            email_verified=not requires_verification,
+            email_verified_at=None,
         )
-        return await self.user_repo.create(user)
+        created = await self.user_repo.create(user)
+        if requires_verification:
+            try:
+                from src.domains.auth.email_verification import send_verification_email
+
+                await send_verification_email(self.db, created)
+            except Exception:
+                logger.warning("register: failed to send verification email for user %s", created.id)
+        return created
 
     async def login(self, email: str, password: str) -> tuple[str, str]:
         user = await self.user_repo.get_by_email(email)
@@ -95,6 +127,8 @@ class AuthService:
             raise InvalidCredentials()
         if not user.is_active:
             raise UnauthorizedError(detail="Account is deactivated.")
+        if getattr(settings, "EMAIL_VERIFICATION_REQUIRED", False) and not getattr(user, "email_verified", True):
+            raise EmailNotVerified()
 
         access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
         refresh_token = create_refresh_token({"sub": str(user.id)})

@@ -1,3 +1,4 @@
+import logging
 import secrets
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -6,12 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.config import settings
 from src.core.database import get_db
 from src.core.security import create_ws_ticket
+from src.domains.auth.email_verification import send_verification_email, verify_email_token
 from src.domains.auth.oauth import (
     code_challenge,
-    decode_oauth_bundle,
-    encode_oauth_state,
+    consume_oauth_state,
     get_provider,
     login_with_provider,
+    store_oauth_state,
 )
 from src.domains.auth.password_reset import reset_password, send_password_reset_email
 from src.domains.auth.rate_limit import (
@@ -25,12 +27,14 @@ from src.domains.auth.schemas import (
     ForgotPasswordRequest,
     LoginRequest,
     RegisterRequest,
+    ResendVerificationRequest,
     ResetPasswordRequest,
     TwoFactorConfirmRequest,
     TwoFactorEnableResponse,
     TwoFactorRecoveryCodesResponse,
     TwoFactorVerifyRequest,
     UserResponse,
+    VerifyEmailRequest,
     WsTicketResponse,
 )
 from src.domains.auth.services.auth_service import AuthService
@@ -39,26 +43,51 @@ from src.domains.users.deps import get_current_active_user, get_current_user
 from src.shared.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid
 from src.shared.errors.base import AppError
 
+logger = logging.getLogger("civicpulse")
+
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
 async def _audit_event(
     action: str, request: Request, user_id: int | str | None = None, details: dict | None = None
 ) -> None:
+    event = {
+        "action": action,
+        "user_id": user_id,
+        "ip": request.client.host if request.client else "unknown",
+        "ua": request.headers.get("user-agent"),
+        "details": details or {},
+    }
     try:
         import json
 
         from src.core.redis import redis_client
 
-        event = {
-            "action": action,
-            "user_id": user_id,
-            "ip": request.client.host if request.client else "unknown",
-            "ua": request.headers.get("user-agent"),
-            "details": details or {},
-        }
-        await redis_client.lpush("auth:audit", json.dumps(event))
+        await redis_client.lpush("auth:audit", json.dumps(event, default=str))
+        await redis_client.ltrim("auth:audit", 0, 999)
     except Exception:  # nosec B110 - audit logging is best-effort
+        pass
+    # Durable/compliance-oriented audit trail in MongoDB when available.
+    try:
+        from datetime import datetime, timezone
+
+        from src.documents.audit_log import AuditLogDocument
+
+        uid: int | None = None
+        if user_id is not None:
+            try:
+                uid = int(user_id)
+            except Exception:
+                uid = None
+        await AuditLogDocument(
+            action=action,
+            user_id=uid,
+            resource_type="auth",
+            resource_id=str(user_id) if user_id is not None else None,
+            metadata={"ip": event["ip"], "ua": event["ua"], **(details or {})},
+            timestamp=datetime.now(timezone.utc),
+        ).insert()
+    except Exception:  # nosec B110 - durable audit is best-effort
         pass
 
 
@@ -129,6 +158,7 @@ async def register(body: RegisterRequest, request: Request, db: AsyncSession = D
         is_active=user.is_active,
         created_at=user.created_at.isoformat(),
         two_factor_enabled=user.two_factor_enabled,
+        email_verified=getattr(user, "email_verified", True),
     )
 
 
@@ -234,11 +264,11 @@ async def oauth_authorize(
     if not oauth.configured:
         raise OAuthNotConfigured(provider)
 
-    state, code_verifier, nonce = encode_oauth_state(provider, redirect)
+    state_id, code_verifier, nonce = await store_oauth_state(provider, redirect)
     redirect_uri = _oauth_callback_uri(provider)
     uri = oauth.authorize_uri(
         redirect_uri,
-        state=state,
+        state=state_id,
         code_challenge=code_challenge(code_verifier),
     )
 
@@ -258,7 +288,7 @@ async def oauth_authorize(
     html_response.set_cookie(
         "oauth_state",
         nonce,
-        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        max_age=600,
         httponly=True,
         samesite="lax",
         secure=settings.COOKIE_SECURE,
@@ -281,7 +311,7 @@ async def oauth_callback(
     if not code:
         raise OAuthError("OAuth callback missing authorization code.")
 
-    bundle = decode_oauth_bundle(provider, state)
+    bundle = await consume_oauth_state(provider, state)
     redirect_target = bundle["redirect"]
 
     cookie_nonce = request.cookies.get("oauth_state")
@@ -346,7 +376,34 @@ async def me(user=Depends(get_current_user)):
         is_active=user.is_active,
         created_at=user.created_at.isoformat(),
         two_factor_enabled=user.two_factor_enabled,
+        email_verified=getattr(user, "email_verified", True),
     )
+
+
+@router.post("/verify-email")
+async def verify_email(body: VerifyEmailRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    user = await verify_email_token(db, body.token)
+    await _audit_event("email_verified", request, user.id)
+    return {"detail": "Email verified. You can now sign in."}
+
+
+@router.post("/resend-verification")
+async def resend_verification(body: ResendVerificationRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    per_ip, per_account = forgot_password_limits()
+    await enforce_auth_rate_limit(
+        request, action="resend_verification", per_ip=per_ip, per_account=per_account, account=body.email
+    )
+    from src.domains.users.repositories.user_repository import UserRepository
+
+    user = await UserRepository(db).get_by_email(body.email)
+    if user and not getattr(user, "email_verified", True):
+        try:
+            await send_verification_email(db, user)
+        except Exception:
+            # Best-effort: do not leak account state or fail the request if email
+            # delivery is temporarily unavailable.
+            logger.warning("resend_verification: failed to send verification email")
+    return {"detail": "If that email is registered and unverified, a verification link has been sent."}
 
 
 @router.post("/change-password")
@@ -512,6 +569,94 @@ async def revoke_all_sessions(
         pass
     await _audit_event("sessions_revoked_all", request, user.id)
     return {"detail": "All other sessions have been signed out."}
+
+
+@router.get("/account/export")
+async def export_account(user=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import func, select
+
+    from src.domains.issues.models.issue import Issue
+
+    issues_count = (
+        await db.execute(select(func.count()).select_from(Issue).where(Issue.reporter_id == user.id))
+    ).scalar_one()
+    return {
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role.value,
+            "is_active": user.is_active,
+            "email_verified": getattr(user, "email_verified", True),
+            "two_factor_enabled": getattr(user, "two_factor_enabled", False),
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+        },
+        "issues_reported_count": int(issues_count or 0),
+    }
+
+
+@router.delete("/account")
+async def delete_account(
+    request: Request,
+    response: Response,
+    user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from src.core.security import blacklist_token, decode_token
+    from src.domains.auth.password_reset import revoke_all_refresh_sessions
+
+    # Best-effort revoke sessions/refresh tokens.
+    await revoke_all_refresh_sessions(user.id)
+    try:
+        from src.core.redis import redis_client
+
+        sid_list = await redis_client.smembers(f"refresh:user:sessions:{user.id}")
+        for sid in sid_list or []:
+            await redis_client.delete(f"refresh:session:{sid}")
+            await redis_client.delete(f"refresh:family:{sid}")
+        await redis_client.delete(f"refresh:user:sessions:{user.id}")
+    except Exception:  # nosec B110 - best-effort
+        pass
+
+    # Blacklist current access token if present.
+    access_token = request.cookies.get("access_token")
+    if access_token:
+        try:
+            payload = decode_token(access_token)
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            if jti and exp:
+                import time
+
+                ttl = int(exp) - int(time.time())
+                if ttl > 0:
+                    await blacklist_token(jti, ttl)
+        except Exception:  # nosec B110 - best-effort
+            pass
+
+    # Anonymize and deactivate the account in-place to satisfy GDPR erasure while
+    # preserving referential integrity for civic records (e.g. reported issues).
+    anon_email = f"deleted+{user.id}+{secrets.token_hex(8)}@invalid.local"
+    user.email = anon_email
+    user.full_name = "Deleted User"
+    user.is_active = False
+    user.email_verified = False
+    user.email_verified_at = None
+    user.two_factor_enabled = False
+    user.totp_secret = None
+    user.totp_last_counter = None
+    user.recovery_codes = None
+    user.oauth_provider = None
+    user.oauth_sub = None
+    # Set an unusable password hash.
+    from src.core.security import hash_password_async
+
+    user.password_hash = await hash_password_async(secrets.token_urlsafe(32))
+    await db.commit()
+
+    await _audit_event("account_deleted", request, user.id)
+    _clear_auth_cookies(response)
+    return {"detail": "Account deleted."}
 
 
 def _oauth_callback_uri(provider: str) -> str:

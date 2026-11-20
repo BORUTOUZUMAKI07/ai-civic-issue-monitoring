@@ -22,13 +22,17 @@ export default function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await registerMutation.mutateAsync({
+      const user = await registerMutation.mutateAsync({
         email,
         password,
         full_name: fullName,
         role: "field_worker",
       });
-      toast.success("Account created! Please sign in.");
+      if (user.email_verified === false) {
+        toast.success("Account created! Check your email to verify your account, then sign in.");
+      } else {
+        toast.success("Account created! Please sign in.");
+      }
       router.push("/login");
     } catch (error: unknown) {
       toast.error(error instanceof Error ? error.message : "Registration failed");

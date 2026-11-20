@@ -110,6 +110,7 @@ export interface User {
   is_active: boolean;
   created_at: string;
   two_factor_enabled: boolean;
+  email_verified?: boolean;
 }
 
 export interface Issue {
@@ -219,6 +220,19 @@ export const auth = {
       method: "POST",
       body: JSON.stringify({ token, new_password: newPassword }),
     }),
+  verifyEmail: (token: string) =>
+    apiFetch<{ detail: string }>("/auth/verify-email", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
+  resendVerification: (email: string) =>
+    apiFetch<{ detail: string }>("/auth/resend-verification", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+  exportAccount: () => apiFetch<Record<string, unknown>>("/auth/account/export"),
+  deleteAccount: () =>
+    apiFetch<{ detail: string }>("/auth/account", { method: "DELETE" }),
   changePassword: (currentPassword: string, newPassword: string) =>
     apiFetch<{ detail: string }>("/auth/change-password", {
       method: "POST",
@@ -249,6 +263,16 @@ export const auth = {
       method: "POST",
       body: JSON.stringify({ code }),
     }),
+
+  // Sessions
+  sessions: () => apiFetch<{ id: string; active: boolean }[]>("/auth/sessions"),
+  revokeSession: (sessionId: string) =>
+    apiFetch<{ detail: string }>("/auth/sessions/revoke", {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId }),
+    }),
+  revokeAllSessions: () =>
+    apiFetch<{ detail: string }>("/auth/sessions/revoke-all", { method: "POST" }),
 };
 
 export interface IssueListParams {

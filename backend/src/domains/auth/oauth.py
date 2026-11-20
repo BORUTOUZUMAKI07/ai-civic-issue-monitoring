@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import logging
 import secrets
+from datetime import datetime, timedelta, timezone
+from typing import Any
 from urllib.parse import urlencode
 
 import httpx
 import jwt
 from sqlalchemy import select
 
+import src.core.redis as redis_module
 from src.core.config import settings
 from src.core.security import (
     create_access_token,
@@ -22,21 +26,36 @@ from src.shared.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid
 
 logger = logging.getLogger("civicpulse")
 
+_OAUTH_STATE_PREFIX = "oauth:state:"
+_OAUTH_STATE_TTL = 600
 
-def _unusable_password() -> str:
-    return secrets.token_urlsafe(32)
 
+class OAuthProfile(dict):
+    """Provider identity payload with attribute access for new code."""
 
-async def get_user_by_oauth_identity(db, provider: str, sub: str) -> User | None:
-    if not sub:
-        return None
-    stmt = select(User).where(User.oauth_provider == provider, User.oauth_sub == sub)
-    result = await db.execute(stmt)
-    user: User | None = result.scalar_one_or_none()
-    return user
+    def __init__(self, sub: str, email: str | None = None, name: str | None = None, email_verified: bool = False):
+        email_norm = (email or "").lower() if email else ""
+        super().__init__(
+            provider_id=str(sub or ""),
+            sub=str(sub or ""),
+            email=email_norm,
+            name=name or "",
+            verified=bool(email_verified),
+            email_verified=bool(email_verified),
+        )
+        self.sub = str(sub or "")
+        self.email = email_norm or None
+        self.name = name or ""
+        self.email_verified = bool(email_verified)
+
+    @property
+    def provider(self) -> str | None:
+        return self.get("provider")  # type: ignore[return-value]
 
 
 class OAuthProvider:
+    """OAuth provider client (generic, configurable)."""
+
     def __init__(
         self,
         *,
@@ -57,6 +76,8 @@ class OAuthProvider:
         self.client_secret = client_secret
         self.scope = scope
         self.client_kwargs = client_kwargs
+        # GitHub emails endpoint (kept for compatibility/tests that inspect instances)
+        self.emails_url = "https://api.github.com/user/emails"
 
     @property
     def configured(self) -> bool:
@@ -86,7 +107,7 @@ class OAuthProvider:
                     params[k] = v
         return f"{self.authorize_url}?{urlencode(params)}"
 
-    async def fetch_user(self, code: str, redirect_uri: str, code_verifier: str | None = None) -> dict:
+    async def fetch_user(self, code: str, redirect_uri: str, code_verifier: str | None = None) -> dict[str, Any]:
         data = {
             "code": code,
             "client_id": self.client_id,
@@ -114,7 +135,7 @@ class OAuthProvider:
             user_json = user_resp.json()
             if self.name == "github":
                 emails_resp = await client.get(
-                    "https://api.github.com/user/emails",
+                    self.emails_url,
                     headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
                 )
                 if emails_resp.status_code >= 400:
@@ -124,20 +145,160 @@ class OAuthProvider:
                     (r.get("email") for r in records if r.get("primary") and r.get("verified")), None
                 )
                 verified_email = primary_verified or next((r.get("email") for r in records if r.get("verified")), None)
-                return {
+                email = (verified_email or "").lower()
+                profile: dict[str, Any] = {
                     "provider": "github",
                     "provider_id": str(user_json.get("id")),
-                    "email": (verified_email or "").lower(),
+                    "email": email,
                     "name": user_json.get("name") or user_json.get("login") or "",
                     "verified": bool(verified_email),
                 }
-            return {
+                profile["sub"] = profile["provider_id"]
+                profile["email_verified"] = profile["verified"]
+                return profile
+
+            # Google / OIDC
+            email_verified = bool(user_json.get("email_verified", False))
+            email = (user_json.get("email") or "").lower()
+            if email and not email_verified:
+                # Do not trust an unverified email for identity/linking.
+                email = ""
+            profile = {
                 "provider": "google",
                 "provider_id": str(user_json.get("sub")),
-                "email": (user_json.get("email") or "").lower(),
-                "name": user_json.get("name") or user_json.get("email", ""),
-                "verified": bool(user_json.get("email_verified", False)),
+                "email": email,
+                "name": user_json.get("name") or (email or user_json.get("email", "")),
+                "verified": bool(email_verified and email),
             }
+            profile["sub"] = profile["provider_id"]
+            profile["email_verified"] = profile["verified"]
+            return profile
+
+
+def _unusable_password() -> str:
+    return secrets.token_urlsafe(32)
+
+
+async def get_user_by_oauth_identity(db, provider: str, sub: str) -> User | None:
+    if not sub:
+        return None
+    stmt = select(User).where(User.oauth_provider == provider, User.oauth_sub == sub)
+    result = await db.execute(stmt)
+    user: User | None = result.scalar_one_or_none()
+    return user
+
+
+def _profile_field(profile: Any, key: str, default: Any = None) -> Any:
+    if isinstance(profile, dict):
+        return profile.get(key, default)
+    return getattr(profile, key, default)
+
+
+async def login_with_provider(db, provider: OAuthProvider, profile: dict | Any) -> tuple[User, str, str]:
+    """Authenticate or provision a user from an OAuth identity.
+
+    Compatible with both dict profiles (legacy/tests) and OAuthProfile-like objects.
+    """
+    repo = UserRepository(db)
+    email = (_profile_field(profile, "email") or "") or None
+    if isinstance(email, str):
+        email = email.lower() or None
+    verified = bool(_profile_field(profile, "verified", _profile_field(profile, "email_verified", False)))
+    provider_name = _profile_field(profile, "provider") or provider.name
+    provider_sub = str(_profile_field(profile, "provider_id") or _profile_field(profile, "sub") or "")
+    name = _profile_field(profile, "name") or ""
+
+    if not provider_sub:
+        raise OAuthError("OAuth provider did not return a stable user id.")
+
+    user = await get_user_by_oauth_identity(db, provider_name, provider_sub)
+    created_here = False
+
+    if user is None:
+        candidate = await repo.get_by_email(email) if email else None
+        if candidate is not None:
+            if candidate.oauth_provider and candidate.oauth_provider != provider_name:
+                logger.warning(
+                    "oauth: refusing to link %s identity to %s already bound to %s",
+                    provider_name,
+                    email,
+                    candidate.oauth_provider,
+                )
+                raise OAuthError("This email is already registered with a different sign-in method.")
+            has_local_password = bool(candidate.password_hash) and candidate.oauth_provider is None
+            if has_local_password and not verified:
+                logger.warning(
+                    "oauth: refusing to link unverified %s email %s into password-protected account",
+                    provider_name,
+                    email,
+                )
+                raise OAuthError(
+                    "This email already belongs to a password-protected account. Sign in with that password instead."
+                )
+            user = candidate
+
+        if user is None:
+            user = User(
+                email=email or f"{provider_name}_{provider_sub}@oauth.invalid",
+                password_hash=await hash_password_async(_unusable_password()),
+                full_name=name or (email.split("@", 1)[0] if email else f"{provider_name.title()} User"),
+                role=UserRole.field_worker,
+                oauth_provider=provider_name,
+                oauth_sub=provider_sub or None,
+                email_verified=bool(verified and email),
+                email_verified_at=datetime.now(timezone.utc) if (verified and email) else None,
+            )
+            user = await repo.create(user)
+            created_here = True
+        else:
+            changed = False
+            user.oauth_provider = provider_name
+            if provider_sub and user.oauth_sub != provider_sub:
+                user.oauth_sub = provider_sub
+                changed = True
+            if name and name != user.full_name:
+                user.full_name = name
+                changed = True
+            if verified and email and not getattr(user, "email_verified", True):
+                user.email_verified = True
+                user.email_verified_at = datetime.now(timezone.utc)
+                changed = True
+            # Ensure binding fields persist even if no other visible field changed.
+            await db.commit()
+            await db.refresh(user)
+            _ = changed
+    else:
+        changed = False
+        if name and name != user.full_name:
+            user.full_name = name
+            changed = True
+        if verified and email and not getattr(user, "email_verified", True):
+            user.email_verified = True
+            user.email_verified_at = datetime.now(timezone.utc)
+            changed = True
+        if changed:
+            await db.commit()
+            await db.refresh(user)
+
+    if not user.is_active:
+        from src.shared.errors import UnauthorizedError
+
+        raise UnauthorizedError(detail="Account is deactivated.")
+
+    access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
+    refresh_token = create_refresh_token({"sub": str(user.id)})
+
+    from src.domains.auth.services.auth_service import (
+        clear_refresh_family_revocation,
+        clear_refresh_revocation,
+        store_refresh_session,
+    )
+
+    await clear_refresh_family_revocation(user.id)
+    await clear_refresh_revocation(user.id)
+    await store_refresh_session(refresh_token)
+    logger.debug("oauth: signed in %s (created=%s)", user.email, created_here)
+    return user, access_token, refresh_token
 
 
 def get_provider(name: str) -> OAuthProvider:
@@ -161,11 +322,25 @@ def get_provider(name: str) -> OAuthProvider:
             client_id=settings.GITHUB_CLIENT_ID,
             client_secret=settings.GITHUB_CLIENT_SECRET,
             scope="read:user user:email",
-            client_kwargs="prompt=select_account",
+            client_kwargs="",
         )
     raise OAuthNotConfigured(name)
 
 
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def code_challenge(verifier: str) -> str:
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return _b64url(digest)
+
+
+def _now_plus(minutes: int) -> datetime:
+    return datetime.now(timezone.utc) + timedelta(minutes=minutes)
+
+
+# --- Legacy JWT-based state helpers (compat; tests may still use them) ---
 def encode_oauth_state(provider: str, redirect: str) -> tuple[str, str, str]:
     nonce = secrets.token_urlsafe(32)
     verifier = secrets.token_urlsafe(64)
@@ -185,12 +360,7 @@ def encode_oauth_state(provider: str, redirect: str) -> tuple[str, str, str]:
     return state, verifier, nonce
 
 
-def code_challenge(verifier: str) -> str:
-    digest = hashlib.sha256(verifier.encode("ascii")).digest()
-    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
-
-
-def _decode_oauth_payload(provider: str, state: str) -> dict:
+def _decode_oauth_payload(provider: str, state: str) -> dict[str, Any]:
     try:
         payload = jwt.decode(state, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     except Exception:
@@ -214,90 +384,66 @@ def decode_oauth_state(provider: str, state: str) -> str:
     return str(_decode_oauth_payload(provider, state)["redirect"])
 
 
-def decode_oauth_bundle(provider: str, state: str) -> dict:
+def decode_oauth_bundle(provider: str, state: str) -> dict[str, Any]:
     return _decode_oauth_payload(provider, state)
 
 
-def _now_plus(minutes: int):
-    from datetime import datetime, timedelta, timezone
+# --- Hardened server-side one-time state/PKCE storage (production flow) ---
+async def store_oauth_state(provider: str, redirect: str) -> tuple[str, str, str]:
+    """Create and persist a one-time OAuth state/PKCE bundle in Redis.
 
-    return datetime.now(timezone.utc) + timedelta(minutes=minutes)
+    Returns (state_id, code_verifier, nonce). The state_id is placed in the
+    authorize URL; the nonce is stored in an HttpOnly cookie for binding.
+    """
+    verifier = secrets.token_urlsafe(64)
+    nonce = secrets.token_urlsafe(32)
+    state_id = secrets.token_urlsafe(24)
+    safe_redirect = (
+        redirect
+        if isinstance(redirect, str)
+        and redirect.startswith("/")
+        and "://" not in redirect
+        and not redirect.startswith("//")
+        else "/dashboard"
+    )
+    bundle = {
+        "provider": provider,
+        "redirect": safe_redirect,
+        "verifier": verifier,
+        "nonce": nonce,
+    }
+    try:
+        await redis_module.redis_client.setex(f"{_OAUTH_STATE_PREFIX}{state_id}", _OAUTH_STATE_TTL, json.dumps(bundle))
+    except Exception as exc:
+        logger.error("oauth: failed to persist state: %s", exc)
+        raise OAuthError("Could not start OAuth sign-in. Please try again.")
+    return state_id, verifier, nonce
 
 
-async def login_with_provider(db, provider: OAuthProvider, profile: dict) -> tuple[User, str, str]:
-    repo = UserRepository(db)
-    email = profile.get("email")
-    if not email:
-        raise OAuthError("Your {provider} account has no email address.".format(provider=provider.name))
-
-    provider_name = profile.get("provider") or provider.name
-    provider_sub = str(profile.get("provider_id") or "")
-
-    user = await get_user_by_oauth_identity(db, provider_name, provider_sub)
-    created_here = False
-
-    if user is None:
-        candidate = await repo.get_by_email(email)
-        if candidate is not None:
-            if candidate.oauth_provider and candidate.oauth_provider != provider_name:
-                logger.warning(
-                    "oauth: refusing to link %s identity to %s already bound to %s",
-                    provider_name,
-                    email,
-                    candidate.oauth_provider,
-                )
-                raise OAuthError("This email is already registered with a different sign-in method.")
-            has_local_password = bool(candidate.password_hash) and candidate.oauth_provider is None
-            if has_local_password and not profile.get("verified"):
-                logger.warning(
-                    "oauth: refusing to link unverified %s email %s into password-protected account",
-                    provider_name,
-                    email,
-                )
-                raise OAuthError(
-                    "This email already belongs to a password-protected account. Sign in with that password instead."
-                )
-            user = candidate
-
-        if user is None:
-            user = User(
-                email=email,
-                password_hash=await hash_password_async(_unusable_password()),
-                full_name=profile.get("name") or email.split("@", 1)[0],
-                role=UserRole.field_worker,
-                oauth_provider=provider_name,
-                oauth_sub=provider_sub or None,
-            )
-            user = await repo.create(user)
-            created_here = True
-        else:
-            user.oauth_provider = provider_name
-            if provider_sub:
-                user.oauth_sub = provider_sub
-            if profile.get("name") and profile["name"] != user.full_name:
-                user.full_name = profile["name"]
-            await db.commit()
-            await db.refresh(user)
-    else:
-        changed = False
-        if profile.get("name") and profile["name"] != user.full_name:
-            user.full_name = profile["name"]
-            changed = True
-        if changed:
-            await db.commit()
-            await db.refresh(user)
-
-    if not user.is_active:
-        from src.shared.errors import UnauthorizedError
-
-        raise UnauthorizedError(detail="Account is deactivated.")
-
-    access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
-    refresh_token = create_refresh_token({"sub": str(user.id)})
-
-    from src.domains.auth.services.auth_service import clear_refresh_family_revocation, store_refresh_session
-
-    await clear_refresh_family_revocation(user.id)
-    await store_refresh_session(refresh_token)
-    logger.debug("oauth: signed in %s (created=%s)", user.email, created_here)
-    return user, access_token, refresh_token
+async def consume_oauth_state(provider: str, state_id: str) -> dict[str, Any]:
+    """Load and delete a one-time OAuth state bundle. Raises on missing/invalid."""
+    key = f"{_OAUTH_STATE_PREFIX}{state_id}"
+    try:
+        raw = await redis_module.redis_client.get(key)
+        await redis_module.redis_client.delete(key)
+    except Exception as exc:
+        logger.warning("oauth: failed to consume state: %s", exc)
+        raise OAuthStateInvalid()
+    if not raw:
+        raise OAuthStateInvalid()
+    try:
+        if isinstance(raw, (bytes, bytearray)):
+            raw = raw.decode("utf-8")
+        payload = json.loads(raw) if isinstance(raw, str) else raw
+    except Exception:
+        raise OAuthStateInvalid()
+    if not isinstance(payload, dict) or payload.get("provider") != provider:
+        raise OAuthStateInvalid()
+    redirect = payload.get("redirect") or "/dashboard"
+    if not isinstance(redirect, str) or not redirect.startswith("/") or "://" in redirect or redirect.startswith("//"):
+        redirect = "/dashboard"
+    return {
+        "redirect": redirect,
+        "code_verifier": payload.get("verifier") or "",
+        "nonce": payload.get("nonce") or "",
+    }

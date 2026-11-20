@@ -38,7 +38,9 @@ import {
   CheckCircle,
   Copy,
   KeyRound,
+  LogOut,
   Mail,
+  Monitor,
   Radio,
   ShieldCheck,
   TriangleAlert,
@@ -247,6 +249,8 @@ export default function SettingsPage() {
               <TwoFactorSection />
             </CardContent>
           </Card>
+
+          <SessionsSection />
         </TabsContent>
 
         <TabsContent value="ml" className="mt-4 space-y-4">
@@ -571,6 +575,82 @@ function TwoFactorSection() {
         }
       }}
     />
+  );
+}
+
+function SessionsSection() {
+  const queryClient = useQueryClient();
+  const { data: sessions, isLoading } = useQuery<{ id: string; active: boolean }[]>({
+    queryKey: ["auth-sessions"],
+    queryFn: () => auth.sessions(),
+  });
+  const revokeOne = useMutation({
+    mutationFn: (sessionId: string) => auth.revokeSession(sessionId),
+    onSuccess: () => {
+      toast.success("Session revoked");
+      queryClient.invalidateQueries({ queryKey: ["auth-sessions"] });
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
+  });
+  const revokeAll = useMutation({
+    mutationFn: () => auth.revokeAllSessions(),
+    onSuccess: () => {
+      toast.success("Other sessions signed out");
+      queryClient.invalidateQueries({ queryKey: ["auth-sessions"] });
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Monitor className="h-4 w-4" />
+          Active sessions
+        </CardTitle>
+        <CardDescription>
+          Manage devices and sessions that can access your account.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading sessions…</p>
+        ) : !sessions || sessions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No active sessions found.</p>
+        ) : (
+          sessions.map((s) => (
+            <div key={s.id} className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium truncate">Session {s.id.slice(0, 8)}…</p>
+                <p className="text-xs text-muted-foreground">
+                  {s.active ? "Active refresh session" : "Inactive"}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => revokeOne.mutate(s.id)}
+                disabled={revokeOne.isPending}
+              >
+                Revoke
+              </Button>
+            </div>
+          ))
+        )}
+        <div className="pt-2">
+          <Button
+            variant="destructive"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => revokeAll.mutate()}
+            disabled={revokeAll.isPending}
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            {revokeAll.isPending ? "Signing out…" : "Sign out all sessions"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

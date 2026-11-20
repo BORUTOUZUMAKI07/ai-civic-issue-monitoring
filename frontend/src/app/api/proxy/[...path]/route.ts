@@ -27,6 +27,22 @@ const MAX_JSON_BODY_BYTES = 1024 * 1024
 
 type RouteContext = { params: Promise<{ path: string[] }> }
 
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"])
+
+function isCrossOriginRequest(request: NextRequest): boolean {
+  if (!MUTATING_METHODS.has(request.method)) return false
+  const origin = request.headers.get("origin")
+  if (!origin) return false
+  const host =
+    request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() || request.headers.get("host")
+  if (!host) return false
+  try {
+    return new URL(origin).host !== host
+  } catch {
+    return false
+  }
+}
+
 export async function GET(request: NextRequest, context: RouteContext) {
   return proxy(request, context)
 }
@@ -143,6 +159,10 @@ function isPublicRoute(key: string): boolean {
 
 async function proxy(request: NextRequest, context: RouteContext) {
   try {
+    if (isCrossOriginRequest(request)) {
+      return NextResponse.json({ detail: "Cross-origin request rejected." }, { status: 403 })
+    }
+
     const { path } = await context.params
     const accessToken = request.cookies.get("access_token")?.value
     const refreshToken = request.cookies.get("refresh_token")?.value

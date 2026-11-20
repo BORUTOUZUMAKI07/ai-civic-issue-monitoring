@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
 
 import jwt
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from jwt import ExpiredSignatureError, InvalidTokenError
 from passlib.context import CryptContext
 
@@ -15,6 +19,47 @@ from src.shared.errors import InvalidToken, TokenExpired
 JWTError = InvalidTokenError
 
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+
+
+def _encryption_key() -> bytes:
+    """32-byte AES key derived from ENCRYPTION_KEY or, if unset, SECRET_KEY.
+
+    SHA-256 gives a full-entropy 32-byte key regardless of input format/length.
+    """
+    material = settings.ENCRYPTION_KEY or settings.SECRET_KEY
+    return hashlib.sha256(material.encode()).digest()
+
+
+def encrypt_secret(plain_text: str) -> str:
+    """Encrypt a secret with AES-256-GCM and return base64(nonce+ciphertext)."""
+    aesgcm = AESGCM(_encryption_key())
+    nonce = os.urandom(12)
+    ciphertext = aesgcm.encrypt(nonce, plain_text.encode(), None)
+    return base64.b64encode(nonce + ciphertext).decode()
+
+
+def decrypt_secret(encrypted_text: str) -> str:
+    """Decrypt a base64(nonce+ciphertext) AES-256-GCM payload."""
+    aesgcm = AESGCM(_encryption_key())
+    raw = base64.b64decode(encrypted_text.encode())
+    if len(raw) < 13:
+        raise ValueError("invalid encrypted payload")
+    nonce, ciphertext = raw[:12], raw[12:]
+    return aesgcm.decrypt(nonce, ciphertext, None).decode()
+
+
+def looks_like_encrypted_secret(value: str) -> bool:
+    """Heuristic: encrypted payloads are base64 blobs, not base32 TOTP secrets."""
+    if not value:
+        return False
+    # pyotp base32 secrets are A-Z2-7 (and sometimes padding); encrypted form is base64.
+    if all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567=" for c in value.upper().replace(" ", "")):
+        return False
+    try:
+        raw = base64.b64decode(value.encode(), validate=True)
+    except Exception:
+        return False
+    return len(raw) >= 28  # 12-byte nonce + 16-byte GCM tag + >=0 data (secret non-empty)
 
 
 def hash_password(password: str) -> str:
