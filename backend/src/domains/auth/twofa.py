@@ -111,7 +111,7 @@ def _matching_totp_counter(totp: pyotp.TOTP, code: str) -> int | None:
         try:
             if hmac.compare_digest(str(totp.at(candidate_time)), str(code)):
                 return int(totp.timecode(candidate_time))
-        except Exception:
+        except Exception:  # nosec B112 - invalid/malformed candidate should not abort window scan
             continue
     return None
 

@@ -1,3 +1,4 @@
+import logging
 import secrets
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -41,6 +42,8 @@ from src.domains.auth.twofa import TwoFactorService
 from src.domains.users.deps import get_current_active_user, get_current_user
 from src.shared.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid
 from src.shared.errors.base import AppError
+
+logger = logging.getLogger("civicpulse")
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -397,7 +400,9 @@ async def resend_verification(body: ResendVerificationRequest, request: Request,
         try:
             await send_verification_email(db, user)
         except Exception:
-            pass
+            # Best-effort: do not leak account state or fail the request if email
+            # delivery is temporarily unavailable.
+            logger.warning("resend_verification: failed to send verification email")
     return {"detail": "If that email is registered and unverified, a verification link has been sent."}
 
 

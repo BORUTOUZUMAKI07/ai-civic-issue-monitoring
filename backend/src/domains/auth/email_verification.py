@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from uuid import uuid4
 
 import jwt
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core import redis as redis_module
 from src.core.config import settings
@@ -51,7 +53,7 @@ def build_verify_link(token: str) -> str:
     return f"{base}/verify-email?token={token}"
 
 
-async def send_verification_email(db, user) -> bool:
+async def send_verification_email(db: AsyncSession, user: Any) -> bool:
     if getattr(user, "email_verified", True):
         return True
     token = create_email_verification_token(user.id)
@@ -72,7 +74,7 @@ async def send_verification_email(db, user) -> bool:
     return True
 
 
-async def verify_email_token(db, token: str):
+async def verify_email_token(db: AsyncSession, token: str) -> Any:
     user_id, jti = decode_email_verification_token(token)
     if jti and await _consume_verify_jti(jti):
         raise EmailVerificationTokenInvalid()
