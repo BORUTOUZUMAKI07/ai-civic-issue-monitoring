@@ -40,7 +40,7 @@ from src.domains.auth.schemas import (
 from src.domains.auth.services.auth_service import AuthService
 from src.domains.auth.twofa import TwoFactorService
 from src.domains.users.deps import get_current_active_user, get_current_user
-from src.shared.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid
+from src.shared.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid, RefreshTokenReuse
 from src.shared.errors.base import AppError
 
 logger = logging.getLogger("civicpulse")
@@ -210,12 +210,46 @@ async def refresh(request: Request, response: Response, db: AsyncSession = Depen
     svc = AuthService(db)
     try:
         access_token, new_refresh_token = await svc.refresh(refresh_token)
+    except RefreshTokenReuse:
+        claims = _claims_from_token(refresh_token)
+        await _audit_event(
+            "refresh_reuse_detected",
+            request,
+            claims.get("sub"),
+            {
+                "outcome": "failure",
+                "session_id": claims.get("sid"),
+                "family_id": claims.get("fam"),
+            },
+        )
+        _clear_auth_cookies(response)
+        return JSONResponse(status_code=401, content={"detail": "Refresh token rejected"})
     except AppError:
         _clear_auth_cookies(response)
         return JSONResponse(status_code=401, content={"detail": "Refresh token rejected"})
 
     _set_auth_cookies(response, access_token, new_refresh_token)
+    claims = _claims_from_token(refresh_token)
+    await _audit_event(
+        "refresh",
+        request,
+        claims.get("sub"),
+        {"outcome": "success", "session_id": claims.get("sid"), "family_id": claims.get("fam")},
+    )
     return {"detail": "Refresh successful"}
+
+
+def _claims_from_token(token: str | None) -> dict:
+    """Best-effort JWT claims for audit only; never used for authorization."""
+    if not token:
+        return {}
+    try:
+        from src.core.security import decode_token
+
+        claims = decode_token(token)
+        return claims if isinstance(claims, dict) else {}
+    except Exception:  # nosec B110 - a malformed token still gets an audit row
+        return {}
 
 
 @router.post("/logout")

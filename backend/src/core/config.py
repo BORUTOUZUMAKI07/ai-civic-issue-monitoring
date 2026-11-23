@@ -110,6 +110,12 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    # A refresh token may be presented once more within this window after it has
+    # been rotated. That tolerates two browser tabs racing to refresh without
+    # turning a harmless race into a full logout; beyond it the reuse is treated
+    # as theft and the token family is revoked (see AuthService.refresh).
+    REFRESH_REUSE_GRACE_SECONDS: int = 30
+    REFRESH_REVOKE_ON_REUSE: bool = True
     # `iss`/`aud` are pinned into every token this service mints and verified on
     # decode. A shared HS256 key is symmetric, so the signature alone cannot say
     # *which* service issued a token: a token minted by any other system sharing
@@ -205,6 +211,14 @@ class Settings(BaseSettings):
     EMAIL_VERIFICATION_REQUIRED: bool = False
     EMAIL_VERIFY_TOKEN_EXPIRE_MINUTES: int = 60
     EMAIL_VERIFY_EMAIL_SUBJECT: str = "Verify your CivicPulse account"
+
+    # --- Audit / compliance ---
+    # Durable audit documents older than this are archived (not deleted) by the
+    # monthly Prefect flow so the hot collection stays bounded while evidence is
+    # retained. Exposed in the compliance report rather than hardcoded there.
+    AUDIT_LOG_RETENTION_DAYS: int = 90
+    # Short-lived one-time code used by the OAuth callback -> frontend handoff.
+    OAUTH_HANDOFF_TTL_SECONDS: int = 120
 
     # --- Encryption / TOTP ---
     # Used to encrypt sensitive values at rest (e.g. TOTP secrets). If left
