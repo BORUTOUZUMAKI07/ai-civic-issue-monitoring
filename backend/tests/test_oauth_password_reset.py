@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from unittest.mock import AsyncMock, patch
 
@@ -9,6 +10,9 @@ from httpx import AsyncClient
 from src.core.config import settings
 from src.domains.auth.oauth import (
     code_challenge,
+    consume_oauth_handoff,
+    consume_oauth_state,
+    create_oauth_handoff,
     decode_oauth_bundle,
     decode_oauth_state,
     encode_oauth_state,
@@ -16,7 +20,13 @@ from src.domains.auth.oauth import (
     store_oauth_state,
 )
 from src.domains.auth.password_reset import create_password_reset_token, decode_password_reset_token
-from src.shared.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid, PasswordResetTokenInvalid
+from src.shared.errors import (
+    InvalidToken,
+    OAuthError,
+    OAuthNotConfigured,
+    OAuthStateInvalid,
+    PasswordResetTokenInvalid,
+)
 
 
 def test_oauth_state_round_trip() -> None:
@@ -462,12 +472,11 @@ async def test_oauth_providers_endpoint(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_oauth_callback_sets_cookies_via_200_html(client: AsyncClient) -> None:
-    """The callback must return a 200 page that carries the auth cookies (not a
-    302), matching the reliable email/login cookie path through the proxy.
+async def test_oauth_callback_hands_off_one_time_code_and_exchanges(client: AsyncClient) -> None:
+    """The callback redirect carries only a random code — never tokens or state.
 
-    Hardened flow: state/PKCE bundle is stored server-side (Redis) as a one-time
-    value and the nonce is bound to the browser via the oauth_state cookie.
+    Cookies are established by the subsequent /oauth/exchange call, and the code
+    is single-use so a replay cannot mint a second session.
     """
     old_google_id = settings.GOOGLE_CLIENT_ID
     old_google_secret = settings.GOOGLE_CLIENT_SECRET
@@ -483,7 +492,7 @@ async def test_oauth_callback_sets_cookies_via_200_html(client: AsyncClient) -> 
                 return_value={
                     "provider": "google",
                     "provider_id": "12345",
-                    "email": "oauth@civicpulse.com",
+                    "email": "oauth-handoff@civicpulse.com",
                     "name": "OAuth User",
                     "verified": True,
                 }
@@ -498,13 +507,33 @@ async def test_oauth_callback_sets_cookies_via_200_html(client: AsyncClient) -> 
         assert "text/html" in response.headers.get("content-type", "")
         assert response.headers.get("cache-control") == "no-store"
         body = response.text
-        assert "http://localhost:3000/dashboard" in body
+        assert "http://localhost:3000/login?code=" in body
+        match = re.search(r"code=([A-Za-z0-9_-]{16,128})", body)
+        assert match is not None
+        handoff = match.group(1)
+        # No credential may appear in the redirect or in the callback response.
+        assert "access_token" not in body and "refresh_token" not in body
         set_cookie = "; ".join(response.headers.get_list("set-cookie", []))
-        assert "access_token=" in set_cookie
-        assert "refresh_token=" in set_cookie
-        assert "session_active=1" in set_cookie
-        # The one-shot session-binding cookie is consumed on success.
+        assert "access_token=" not in set_cookie
+        assert "refresh_token=" not in set_cookie
         assert "oauth_state=" in set_cookie and "Max-Age=0" in set_cookie
+
+        exchanged = await client.post(
+            "/api/v1/auth/oauth/exchange", json={"code": handoff}
+        )
+        assert exchanged.status_code == 200
+        payload = exchanged.json()
+        assert payload["redirect"] == "/dashboard"
+        assert payload["user"]["email"] == "oauth-handoff@civicpulse.com"
+        exchanged_cookies = "; ".join(exchanged.headers.get_list("set-cookie", []))
+        assert "access_token=" in exchanged_cookies
+        assert "refresh_token=" in exchanged_cookies
+        assert "session_active=1" in exchanged_cookies
+
+        replay = await client.post(
+            "/api/v1/auth/oauth/exchange", json={"code": handoff}
+        )
+        assert replay.status_code == 401
     finally:
         settings.GOOGLE_CLIENT_ID = old_google_id
         settings.GOOGLE_CLIENT_SECRET = old_google_secret
@@ -629,3 +658,46 @@ async def test_oauth_authorize_navigates_with_raw_query_separators(client: Async
     finally:
         settings.GOOGLE_CLIENT_ID = old_google_id
         settings.GOOGLE_CLIENT_SECRET = old_google_secret
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# One-time handoff / atomic state consumption
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_oauth_state_consumption_is_atomic() -> None:
+    """Two concurrent callbacks must not both read the same one-time state."""
+    state_id, _verifier, _nonce = await store_oauth_state("google", "/issues")
+
+    results = await asyncio.gather(
+        consume_oauth_state("google", state_id),
+        consume_oauth_state("google", state_id),
+        return_exceptions=True,
+    )
+    successes = [r for r in results if isinstance(r, dict)]
+    failures = [r for r in results if isinstance(r, Exception)]
+    assert len(successes) == 1
+    assert len(failures) == 1
+    assert isinstance(failures[0], OAuthStateInvalid)
+
+
+@pytest.mark.asyncio
+async def test_oauth_handoff_is_single_use_and_rejects_probes() -> None:
+    code = await create_oauth_handoff("refresh-token-value", "/issues?filter=open")
+    handoff = await consume_oauth_handoff(code)
+    assert handoff == {"refresh_token": "refresh-token-value", "redirect": "/issues?filter=open"}
+
+    with pytest.raises(InvalidToken):
+        await consume_oauth_handoff(code)
+    with pytest.raises(InvalidToken):
+        await consume_oauth_handoff("")
+    with pytest.raises(InvalidToken):
+        await consume_oauth_handoff("oauth:state:forged-key")
+
+
+@pytest.mark.asyncio
+async def test_oauth_exchange_rejects_invalid_code_without_cookies(client: AsyncClient) -> None:
+    response = await client.post("/api/v1/auth/oauth/exchange", json={"code": "a" * 32})
+    assert response.status_code == 401
+    assert "access_token=" not in "; ".join(response.headers.get_list("set-cookie", []))

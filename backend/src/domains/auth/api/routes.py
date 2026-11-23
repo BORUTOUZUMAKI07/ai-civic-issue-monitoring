@@ -10,7 +10,9 @@ from src.core.security import create_ws_ticket
 from src.domains.auth.email_verification import send_verification_email, verify_email_token
 from src.domains.auth.oauth import (
     code_challenge,
+    consume_oauth_handoff,
     consume_oauth_state,
+    create_oauth_handoff,
     get_provider,
     login_with_provider,
     store_oauth_state,
@@ -26,6 +28,7 @@ from src.domains.auth.schemas import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
     LoginRequest,
+    OauthExchangeRequest,
     RegisterRequest,
     ResendVerificationRequest,
     ResetPasswordRequest,
@@ -344,8 +347,13 @@ async def oauth_callback(
     except Exception:
         await _audit_event("oauth_login", request, None, {"provider": provider})
 
+    # The refresh token stays server-side. The browser receives only a random
+    # one-time code, so no credential or OAuth state leaks through the redirect
+    # URL (access logs, history, Referer). The redirect target is stored with
+    # the handoff and returned later by /oauth/exchange.
+    handoff = await create_oauth_handoff(refresh_token, redirect_target)
     frontend = settings.FRONTEND_URL.rstrip("/")
-    target = f"{frontend}{redirect_target}"
+    target = f"{frontend}/login?code={handoff}"
     escaped = target.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
     html = (
         '<!doctype html><html><head><meta charset="utf-8">'
@@ -358,9 +366,65 @@ async def oauth_callback(
     from fastapi.responses import HTMLResponse
 
     html_response = HTMLResponse(content=html, status_code=200, headers={"Cache-Control": "no-store"})
-    _set_auth_cookies(html_response, access_token, refresh_token)
     html_response.delete_cookie("oauth_state", path="/", httponly=True, samesite="lax", secure=settings.COOKIE_SECURE)
     return html_response
+
+
+@router.post("/oauth/exchange")
+async def oauth_exchange(
+    body: OauthExchangeRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """Redeem the one-time callback code and establish the browser session."""
+    from fastapi.responses import JSONResponse
+
+    per_ip, per_account = login_limits()
+    await enforce_auth_rate_limit(
+        request, action="oauth_exchange", per_ip=per_ip, per_account=per_account, account=body.code
+    )
+
+    try:
+        handoff = await consume_oauth_handoff(body.code)
+        claims = _claims_from_token(handoff["refresh_token"])
+        access_token, refresh_token = await AuthService(db).refresh(handoff["refresh_token"])
+    except AppError:
+        await _audit_event("oauth_exchange", request, None, {"outcome": "failure"}, status="failure")
+        _clear_auth_cookies(response)
+        return JSONResponse(
+            status_code=401, content={"detail": "OAuth sign-in code is invalid or has expired."}
+        )
+
+    _set_auth_cookies(response, access_token, refresh_token)
+    user_id = claims.get("sub")
+    await _audit_event("oauth_exchange", request, user_id, {"outcome": "success"})
+
+    user_payload = None
+    if user_id is not None:
+        try:
+            from src.domains.users.repositories.user_repository import UserRepository
+
+            user = await UserRepository(db).get(int(str(user_id)))
+            if user:
+                user_payload = {
+                    "id": user.id,
+                    "email": user.email,
+                    "full_name": user.full_name,
+                    "role": user.role.value,
+                    "is_active": user.is_active,
+                    "created_at": user.created_at.isoformat(),
+                    "two_factor_enabled": user.two_factor_enabled,
+                    "email_verified": getattr(user, "email_verified", True),
+                }
+        except Exception:  # nosec B110 - session is already established
+            user_payload = None
+
+    return {
+        "detail": "Login successful",
+        "redirect": handoff["redirect"],
+        "user": user_payload,
+    }
 
 
 @router.post("/forgot-password")

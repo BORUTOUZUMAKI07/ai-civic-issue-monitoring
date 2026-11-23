@@ -99,6 +99,7 @@ class _FallbackFakeRedis:
 
     async def ping(self): return True
     async def get(self, key): return self._store.get(key)
+    async def getdel(self, key): return self._store.pop(key, None)
     async def setex(self, key, ttl, value): self._store[key] = value; return True
     async def delete(self, key): self._store.pop(key, None); return 1
     async def incr(self, key): self._store[key] = int(self._store.get(key, 0)) + 1; return self._store[key]

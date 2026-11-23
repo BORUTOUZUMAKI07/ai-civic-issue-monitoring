@@ -37,6 +37,7 @@ SECURITY_ACTIONS = frozenset(
         "login",
         "login_2fa_challenge",
         "oauth_login",
+        "oauth_exchange",
         "2fa_verified",
         "2fa_enabled",
         "2fa_disabled",

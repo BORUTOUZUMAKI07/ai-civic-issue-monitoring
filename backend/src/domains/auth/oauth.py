@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import logging
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -22,12 +23,22 @@ from src.core.security import (
 )
 from src.domains.users.models.user import User, UserRole
 from src.domains.users.repositories.user_repository import UserRepository
-from src.shared.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid
+from src.shared.errors import InvalidToken, OAuthError, OAuthNotConfigured, OAuthStateInvalid
 
 logger = logging.getLogger("civicpulse")
 
 _OAUTH_STATE_PREFIX = "oauth:state:"
 _OAUTH_STATE_TTL = 600
+_OAUTH_HANDOFF_PREFIX = "oauth:handoff:"
+
+# Codes are generated with token_urlsafe, so anything outside this alphabet is
+# an attempted key-injection / probe and can be rejected before touching Redis.
+_TOKEN_ID_RE = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
+
+
+async def _atomic_getdel(key: str):
+    """GETDEL is one Redis command; a get()+delete() pair races under awaits."""
+    return await redis_module.redis_client.getdel(key)
 
 
 class OAuthProfile(dict):
@@ -421,11 +432,12 @@ async def store_oauth_state(provider: str, redirect: str) -> tuple[str, str, str
 
 
 async def consume_oauth_state(provider: str, state_id: str) -> dict[str, Any]:
-    """Load and delete a one-time OAuth state bundle. Raises on missing/invalid."""
+    """Atomically consume a one-time OAuth state bundle. Raises on replay/invalid."""
+    if not _TOKEN_ID_RE.fullmatch(state_id or ""):
+        raise OAuthStateInvalid()
     key = f"{_OAUTH_STATE_PREFIX}{state_id}"
     try:
-        raw = await redis_module.redis_client.get(key)
-        await redis_module.redis_client.delete(key)
+        raw = await _atomic_getdel(key)
     except Exception as exc:
         logger.warning("oauth: failed to consume state: %s", exc)
         raise OAuthStateInvalid()
@@ -447,3 +459,61 @@ async def consume_oauth_state(provider: str, state_id: str) -> dict[str, Any]:
         "code_verifier": payload.get("verifier") or "",
         "nonce": payload.get("nonce") or "",
     }
+
+
+# --- One-time callback -> frontend handoff ---------------------------------
+def _safe_redirect(value: str | None) -> str:
+    """Only same-origin absolute paths may be returned to the browser."""
+    if (
+        isinstance(value, str)
+        and value.startswith("/")
+        and not value.startswith("//")
+        and "://" not in value
+        and "\\" not in value
+    ):
+        return value
+    return "/dashboard"
+
+
+async def create_oauth_handoff(refresh_token: str, redirect: str) -> str:
+    """Store the OAuth result under a random code; return only that code.
+
+    The callback URL carries `?code=<random>` instead of tokens or state. Access
+    logs, browser history and Referer headers therefore never see a credential.
+    """
+    code = secrets.token_urlsafe(32)
+    payload = {"refresh_token": refresh_token, "redirect": _safe_redirect(redirect)}
+    ttl = max(1, int(settings.OAUTH_HANDOFF_TTL_SECONDS))
+    try:
+        await redis_module.redis_client.setex(
+            f"{_OAUTH_HANDOFF_PREFIX}{code}", ttl, json.dumps(payload)
+        )
+    except Exception as exc:
+        logger.error("oauth: failed to store handoff: %s", exc)
+        raise OAuthError("Could not finish OAuth sign-in. Please try again.")
+    return code
+
+
+async def consume_oauth_handoff(code: str) -> dict[str, str]:
+    """Consume a handoff exactly once. Replay raises InvalidToken."""
+    if not _TOKEN_ID_RE.fullmatch(code or ""):
+        raise InvalidToken()
+    try:
+        raw = await _atomic_getdel(f"{_OAUTH_HANDOFF_PREFIX}{code}")
+    except Exception as exc:
+        logger.warning("oauth: failed to consume handoff: %s", exc)
+        raise InvalidToken()
+    if not raw:
+        raise InvalidToken()
+    try:
+        if isinstance(raw, (bytes, bytearray)):
+            raw = raw.decode("utf-8")
+        payload = json.loads(raw) if isinstance(raw, str) else raw
+    except Exception:
+        raise InvalidToken()
+    if not isinstance(payload, dict):
+        raise InvalidToken()
+    refresh_token = payload.get("refresh_token")
+    if not isinstance(refresh_token, str) or not refresh_token:
+        raise InvalidToken()
+    return {"refresh_token": refresh_token, "redirect": _safe_redirect(payload.get("redirect"))}

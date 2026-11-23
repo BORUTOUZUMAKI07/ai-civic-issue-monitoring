@@ -54,7 +54,11 @@ async function rawFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     res.status === 401 &&
     !path.startsWith("/auth/login") &&
     !path.startsWith("/auth/register") &&
-    !path.startsWith("/auth/refresh")
+    !path.startsWith("/auth/refresh") &&
+    // A replayed/expired handoff code is a bad one-time secret, not an expired
+    // session. Refreshing here would overwrite the cookies of any signed-in
+    // user and replace the real error with "Session expired".
+    !path.startsWith("/auth/oauth/exchange")
   ) {
     if (!refreshPromise) {
       refreshPromise = tryRefresh().finally(() => {
@@ -242,6 +246,12 @@ export const auth = {
   oauthAuthorizeUrl: (provider: "google" | "github", redirect?: string) =>
     `${API_BASE}/auth/oauth/${provider}/authorize${redirect ? `?redirect=${encodeURIComponent(redirect)}` : ""}`,
   oauthProviders: () => apiFetch<{ google: boolean; github: boolean }>("/auth/oauth/providers"),
+  /** Redeem the one-time code from the OAuth callback redirect. */
+  exchangeOauth: (code: string) =>
+    apiFetch<{ detail: string; redirect: string; user: User | null }>("/auth/oauth/exchange", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
 
   // 2FA
   twofaVerify: (challenge: string, code: string) =>
@@ -273,6 +283,69 @@ export const auth = {
     }),
   revokeAllSessions: () =>
     apiFetch<{ detail: string }>("/auth/sessions/revoke-all", { method: "POST" }),
+};
+
+/** Admin-only compliance reporting over the durable audit trail. */
+export interface AuditEvent {
+  id: string;
+  action: string;
+  user_id: number | null;
+  status: string;
+  resource_type: string;
+  resource_id: string | null;
+  ip: string | null;
+  user_agent: string | null;
+  metadata: Record<string, unknown>;
+  timestamp: string;
+}
+
+export interface AuditReport {
+  generated_at: string;
+  period_days: number;
+  degraded: boolean;
+  summary: Record<string, number>;
+  events_by_action: Array<{ action: string; count: number }>;
+  events_by_day: Array<{ date: string; count: number }>;
+  security_events: Record<string, unknown>;
+  gdpr_lifecycle: Record<string, unknown>;
+  controls: Record<string, unknown>;
+  retention: Record<string, unknown>;
+}
+
+export interface AuditEventParams {
+  action?: string;
+  user_id?: number;
+  status?: "success" | "failure";
+  start?: string;
+  end?: string;
+  skip?: number;
+  limit?: number;
+}
+
+function auditQuery(params: AuditEventParams = {}): string {
+  const q = new URLSearchParams();
+  if (params.action) q.set("action", params.action);
+  if (params.user_id !== undefined) q.set("user_id", String(params.user_id));
+  if (params.status) q.set("status", params.status);
+  if (params.start) q.set("start", params.start);
+  if (params.end) q.set("end", params.end);
+  if (params.skip !== undefined) q.set("skip", String(params.skip));
+  if (params.limit !== undefined) q.set("limit", String(params.limit));
+  return q.toString();
+}
+
+export const adminAudit = {
+  events: (params?: AuditEventParams) => {
+    const q = auditQuery(params);
+    return apiFetch<{ items: AuditEvent[]; total: number; degraded: boolean }>(
+      `/admin/audit/events${q ? `?${q}` : ""}`
+    );
+  },
+  report: (days: number = 30) => apiFetch<AuditReport>(`/admin/audit/report?days=${days}`),
+  exportUrl: (params?: AuditEventParams) => {
+    const q = auditQuery(params);
+    return `${API_BASE}/admin/audit/export.csv${q ? `?${q}` : ""}`;
+  },
 };
 
 export interface IssueListParams {

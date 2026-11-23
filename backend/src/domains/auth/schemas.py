@@ -23,6 +23,12 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+class OauthExchangeRequest(BaseModel):
+    # One-time code handed to the frontend by the OAuth callback. Bounds stop a
+    # caller from probing arbitrary Redis keys with oversized input.
+    code: str = Field(min_length=16, max_length=128)
+
+
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
