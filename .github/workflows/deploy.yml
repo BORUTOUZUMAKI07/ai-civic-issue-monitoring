@@ -49,11 +49,13 @@ jobs:
       enabled: ${{ steps.gate.outputs.enabled }}
       environment: ${{ steps.gate.outputs.environment }}
       ref: ${{ steps.gate.outputs.ref }}
+      smoke_enabled: ${{ steps.gate.outputs.smoke_enabled }}
     steps:
       - name: Gate on DEPLOY_ENABLED and resolve ref
         id: gate
         env:
           DEPLOY_ENABLED: ${{ vars.DEPLOY_ENABLED }}
+          SMOKE_BASE_URL: ${{ vars.SMOKE_BASE_URL }}
           INPUT_ENVIRONMENT: ${{ inputs.environment }}
           INPUT_REF: ${{ inputs.ref }}
         run: |
@@ -61,6 +63,11 @@ jobs:
           REF="${INPUT_REF:-${GITHUB_SHA}}"
           echo "environment=${INPUT_ENVIRONMENT:-staging}" >> "$GITHUB_OUTPUT"
           echo "ref=${REF}" >> "$GITHUB_OUTPUT"
+          if [ -n "${SMOKE_BASE_URL}" ]; then
+            echo "smoke_enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "smoke_enabled=false" >> "$GITHUB_OUTPUT"
+          fi
           if [ "${DEPLOY_ENABLED}" = "true" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
@@ -73,6 +80,8 @@ jobs:
     needs: resolve
     if: needs.resolve.outputs.enabled == 'true'
     runs-on: ubuntu-latest
+    outputs:
+      deployed: ${{ steps.creds.outputs.enabled }}
     # To require manual approval (e.g. before production), create GitHub
     # Environments named "staging" / "production" with required reviewers and
     # uncomment the next line:
@@ -137,3 +146,12 @@ jobs:
 
           rm -f "$KEY_FILE"
           ssh-agent -k > /dev/null || true
+
+  smoke:
+    name: Deployed smoke
+    needs: [resolve, deploy]
+    if: needs.resolve.outputs.smoke_enabled == 'true' && needs.deploy.outputs.deployed == 'true'
+    uses: ./.github/workflows/smoke.yml
+    with:
+      base_url: ${{ vars.SMOKE_BASE_URL }}
+    secrets: inherit

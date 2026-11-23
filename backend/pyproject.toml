@@ -33,6 +33,9 @@ dependencies = [
     "argon2-cffi>=23.1.0",
     "python-multipart>=0.0.18",
     "email-validator>=2.2.0",
+    # email-validator resolves dnspython transitively; the explicit floor keeps
+    # the production image off 2.9.0 (CVE-2026-128089).
+    "dnspython>=2.9.2",
     "httpx>=0.28.0",
     # Retries with exponential backoff for outbound LLM + SMTP calls; a single
     # slow/failed upstream should not turn into a slow/failed request.
@@ -101,6 +104,9 @@ ml = [
 # instrumentation packages are version-paired with the SDK (SDK 1.x <->
 # 0.x-b instrumentation) and are registered from src/core/observability.py.
 observability = [
+    # 1.45.1 is affected by CVE-2026-126360; pin the API floor even though the
+    # SDK/exporter would otherwise resolve it transitively.
+    "opentelemetry-api>=1.45.2",
     "opentelemetry-sdk>=1.28.0",
     "opentelemetry-exporter-otlp-proto-http>=1.28.0",
     "opentelemetry-instrumentation-fastapi>=0.50b0",

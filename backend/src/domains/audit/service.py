@@ -24,8 +24,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from src.core.config import settings
-from src.domains.audit.events import mask_ip, redact_metadata
 from src.documents.audit_log import AuditLogDocument
+from src.domains.audit.events import mask_ip, redact_metadata
 
 logger = logging.getLogger("civicpulse")
 
@@ -71,7 +71,7 @@ class AuditReportService:
         status: str | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
-    ):
+    ) -> Any:
         conditions = []
         if action:
             conditions.append(AuditLogDocument.action == action)
@@ -114,16 +114,9 @@ class AuditReportService:
         limit: int = 50,
     ) -> dict[str, Any]:
         try:
-            query = self._build_query(
-                action=action, user_id=user_id, status=status, start=start, end=end
-            )
+            query = self._build_query(action=action, user_id=user_id, status=status, start=start, end=end)
             total = await query.count()
-            docs = (
-                await query.sort(-AuditLogDocument.timestamp)
-                .skip(skip)
-                .limit(limit)
-                .to_list()
-            )
+            docs = await query.sort("-timestamp").skip(skip).limit(limit).to_list()
             return {
                 "items": [self._serialize(doc, mask=True) for doc in docs],
                 "total": total,
@@ -137,9 +130,7 @@ class AuditReportService:
         since = datetime.now(timezone.utc) - timedelta(days=days)
         available = True
         try:
-            docs = await AuditLogDocument.find(
-                AuditLogDocument.timestamp >= since
-            ).to_list()
+            docs = await AuditLogDocument.find(AuditLogDocument.timestamp >= since).to_list()
         except Exception as exc:  # nosec B110 - Mongo is optional at read time
             logger.warning("audit: report unavailable: %s", exc)
             docs = []
@@ -162,21 +153,13 @@ class AuditReportService:
                 "failure_events": by_status.get("failure", 0),
                 "unique_users": len({doc.user_id for doc in docs if doc.user_id is not None}),
             },
-            "events_by_action": [
-                {"action": name, "count": count} for name, count in by_action.most_common()
-            ],
-            "events_by_day": [
-                {"date": day, "count": count} for day, count in sorted(by_day.items())
-            ],
+            "events_by_action": [{"action": name, "count": count} for name, count in by_action.most_common()],
+            "events_by_day": [{"date": day, "count": count} for day, count in sorted(by_day.items())],
             "security_events": {
                 "total": len(security),
                 "by_action": dict(Counter(doc.action for doc in security)),
                 "reuse_detected": sum(1 for doc in security if doc.action == "refresh_reuse_detected"),
-                "failures": sum(
-                    1
-                    for doc in security
-                    if (getattr(doc, "status", "success") or "success") == "failure"
-                ),
+                "failures": sum(1 for doc in security if (getattr(doc, "status", "success") or "success") == "failure"),
             },
             "gdpr_lifecycle": {
                 "total": len(gdpr),
@@ -209,10 +192,8 @@ class AuditReportService:
         """Return a bounded CSV snapshot. Max 10k rows keeps exports predictable."""
         try:
             docs = (
-                await self._build_query(
-                    action=action, user_id=user_id, status=status, start=start, end=end
-                )
-                .sort(-AuditLogDocument.timestamp)
+                await self._build_query(action=action, user_id=user_id, status=status, start=start, end=end)
+                .sort("-timestamp")
                 .limit(10_000)
                 .to_list()
             )

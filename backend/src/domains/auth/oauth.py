@@ -485,9 +485,7 @@ async def create_oauth_handoff(refresh_token: str, redirect: str) -> str:
     payload = {"refresh_token": refresh_token, "redirect": _safe_redirect(redirect)}
     ttl = max(1, int(settings.OAUTH_HANDOFF_TTL_SECONDS))
     try:
-        await redis_module.redis_client.setex(
-            f"{_OAUTH_HANDOFF_PREFIX}{code}", ttl, json.dumps(payload)
-        )
+        await redis_module.redis_client.setex(f"{_OAUTH_HANDOFF_PREFIX}{code}", ttl, json.dumps(payload))
     except Exception as exc:
         logger.error("oauth: failed to store handoff: %s", exc)
         raise OAuthError("Could not finish OAuth sign-in. Please try again.")

@@ -1,0 +1,50 @@
+name: Deployed smoke
+
+# Runs the real-CivicPulse checks against a deployed URL through the Next.js BFF.
+# Called by deploy.yml after a successful deployment, and also runnable by hand.
+
+on:
+  workflow_call:
+    inputs:
+      base_url:
+        description: "Public frontend origin to smoke (https://host, no trailing path)"
+        required: true
+        type: string
+    secrets:
+      SMOKE_EMAIL:
+        required: true
+      SMOKE_PASSWORD:
+        required: true
+      SMOKE_ADMIN_EMAIL:
+        required: false
+      SMOKE_ADMIN_PASSWORD:
+        required: false
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Public frontend origin to smoke (https://host, no trailing path)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke ${{ inputs.base_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run deployed smoke checks
+        env:
+          SMOKE_BASE_URL: ${{ inputs.base_url }}
+          SMOKE_EMAIL: ${{ secrets.SMOKE_EMAIL }}
+          SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
+          SMOKE_ADMIN_EMAIL: ${{ secrets.SMOKE_ADMIN_EMAIL }}
+          SMOKE_ADMIN_PASSWORD: ${{ secrets.SMOKE_ADMIN_PASSWORD }}
+        run: python scripts/deployed_smoke.py

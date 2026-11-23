@@ -392,9 +392,7 @@ async def oauth_exchange(
     except AppError:
         await _audit_event("oauth_exchange", request, None, {"outcome": "failure"}, status="failure")
         _clear_auth_cookies(response)
-        return JSONResponse(
-            status_code=401, content={"detail": "OAuth sign-in code is invalid or has expired."}
-        )
+        return JSONResponse(status_code=401, content={"detail": "OAuth sign-in code is invalid or has expired."})
 
     _set_auth_cookies(response, access_token, refresh_token)
     user_id = claims.get("sub")
@@ -648,9 +646,7 @@ async def revoke_all_sessions(
 
 
 @router.get("/account/export")
-async def export_account(
-    request: Request, user=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)
-):
+async def export_account(request: Request, user=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
     from sqlalchemy import func, select
 
     from src.domains.issues.models.issue import Issue

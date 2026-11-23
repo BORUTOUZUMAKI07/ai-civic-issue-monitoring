@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel
@@ -20,13 +21,13 @@ class AuditReportResponse(BaseModel):
     generated_at: str
     period_days: int
     degraded: bool
-    summary: dict
-    events_by_action: list[dict]
-    events_by_day: list[dict]
-    security_events: dict
-    gdpr_lifecycle: dict
-    controls: dict
-    retention: dict
+    summary: dict[str, Any]
+    events_by_action: list[dict[str, Any]]
+    events_by_day: list[dict[str, Any]]
+    security_events: dict[str, Any]
+    gdpr_lifecycle: dict[str, Any]
+    controls: dict[str, Any]
+    retention: dict[str, Any]
 
 
 def _parse_datetime(value: str | None, label: str) -> datetime | None:
@@ -47,7 +48,7 @@ def _filters(
     status: str | None,
     start: str | None,
     end: str | None,
-) -> dict:
+) -> dict[str, Any]:
     parsed_start = _parse_datetime(start, "start")
     parsed_end = _parse_datetime(end, "end")
     if parsed_start and parsed_end and parsed_start > parsed_end:
@@ -71,7 +72,7 @@ async def list_audit_events(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     user: User = Depends(get_current_active_user),
-):
+) -> dict[str, Any]:
     require_admin(user)
     return await AuditReportService().list_events(
         **_filters(action, user_id, status, start, end), skip=skip, limit=limit
@@ -82,7 +83,7 @@ async def list_audit_events(
 async def audit_report(
     days: int = Query(30, ge=1, le=365),
     user: User = Depends(get_current_active_user),
-):
+) -> dict[str, Any]:
     require_admin(user)
     return await AuditReportService().build_report(days=days)
 
@@ -95,11 +96,9 @@ async def export_audit_events(
     start: str | None = Query(None),
     end: str | None = Query(None),
     user: User = Depends(get_current_active_user),
-):
+) -> Response:
     require_admin(user)
-    content = await AuditReportService().export_csv(
-        **_filters(action, user_id, status, start, end)
-    )
+    content = await AuditReportService().export_csv(**_filters(action, user_id, status, start, end))
     return Response(
         content=content,
         media_type="text/csv; charset=utf-8",
