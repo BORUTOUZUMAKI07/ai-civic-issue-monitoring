@@ -49,46 +49,24 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
 async def _audit_event(
-    action: str, request: Request, user_id: int | str | None = None, details: dict | None = None
+    action: str,
+    request: Request,
+    user_id: int | str | None = None,
+    details: dict | None = None,
+    *,
+    status: str = "success",
 ) -> None:
-    event = {
-        "action": action,
-        "user_id": user_id,
-        "ip": request.client.host if request.client else "unknown",
-        "ua": request.headers.get("user-agent"),
-        "details": details or {},
-    }
-    try:
-        import json
+    """Thin wrapper so every auth handler shares one redaction policy."""
+    from src.domains.audit.events import emit_audit_event
 
-        from src.core.redis import redis_client
-
-        await redis_client.lpush("auth:audit", json.dumps(event, default=str))
-        await redis_client.ltrim("auth:audit", 0, 999)
-    except Exception:  # nosec B110 - audit logging is best-effort
-        pass
-    # Durable/compliance-oriented audit trail in MongoDB when available.
-    try:
-        from datetime import datetime, timezone
-
-        from src.documents.audit_log import AuditLogDocument
-
-        uid: int | None = None
-        if user_id is not None:
-            try:
-                uid = int(user_id)
-            except Exception:
-                uid = None
-        await AuditLogDocument(
-            action=action,
-            user_id=uid,
-            resource_type="auth",
-            resource_id=str(user_id) if user_id is not None else None,
-            metadata={"ip": event["ip"], "ua": event["ua"], **(details or {})},
-            timestamp=datetime.now(timezone.utc),
-        ).insert()
-    except Exception:  # nosec B110 - durable audit is best-effort
-        pass
+    await emit_audit_event(
+        action,
+        user_id=user_id,
+        ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        details=details,
+        status=status,
+    )
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
@@ -606,7 +584,9 @@ async def revoke_all_sessions(
 
 
 @router.get("/account/export")
-async def export_account(user=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
+async def export_account(
+    request: Request, user=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)
+):
     from sqlalchemy import func, select
 
     from src.domains.issues.models.issue import Issue
@@ -614,6 +594,8 @@ async def export_account(user=Depends(get_current_active_user), db: AsyncSession
     issues_count = (
         await db.execute(select(func.count()).select_from(Issue).where(Issue.reporter_id == user.id))
     ).scalar_one()
+    # GDPR Art. 15 — record that a subject accessed their own data.
+    await _audit_event("account_export", request, user.id)
     return {
         "user": {
             "id": user.id,
