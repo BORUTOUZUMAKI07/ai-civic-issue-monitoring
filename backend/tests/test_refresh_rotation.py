@@ -5,11 +5,12 @@ import json
 import pytest
 import pytest_asyncio
 
+from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 from src.core.security import create_refresh_token, hash_password
 from src.domains.auth.services.auth_service import AuthService
 from src.domains.users.models.user import User, UserRole
-from src.shared.errors import UserNotFound
+from src.shared.errors import RefreshTokenReuse, UserNotFound
 
 
 class _FakeSessionStore:
@@ -47,12 +48,21 @@ class _FakeSessionStore:
 
     async def eval(self, _script: str, _numkeys: int, *args):
         # args: session_key, presented_jti, new_jti, grace, ttl, now
-        key, presented, new_jti, _grace, _ttl, _now = args
+        key, presented, new_jti, grace, _ttl, now = args
         rec = self.records.get(key)
         if rec is None:
             return -1
-        if rec["jti"] == presented or rec.get("prev_jti") == presented:
+        grace_seconds = int(grace)
+        now_ts = int(now)
+        is_current = rec["jti"] == presented
+        is_recent_previous = (
+            rec.get("prev_jti") == presented
+            and grace_seconds > 0
+            and (now_ts - int(rec.get("prev_at") or 0)) <= grace_seconds
+        )
+        if is_current or is_recent_previous:
             rec["prev_jti"] = rec["jti"]
+            rec["prev_at"] = now_ts
             rec["jti"] = new_jti
             return 1
         return 0
@@ -176,3 +186,97 @@ async def test_replay_revokes_only_the_replayed_signin(fake_store) -> None:
         svc = AuthService(session)
         with pytest.raises(Exception):
             await svc.refresh(device_a2)
+
+
+async def _make_user(email: str) -> None:
+    async with AsyncSessionLocal() as session:
+        session.add(
+            User(
+                email=email,
+                password_hash=hash_password("TestPass123!"),
+                full_name="Parity User",
+                role=UserRole.field_worker,
+                is_active=True,
+            )
+        )
+        try:
+            await session.commit()
+        except Exception:
+            await session.rollback()
+
+
+def test_refresh_parity_defaults() -> None:
+    assert settings.REFRESH_REUSE_GRACE_SECONDS == 30
+    assert settings.REFRESH_REVOKE_ON_REUSE is True
+
+
+@pytest.mark.asyncio
+async def test_reuse_inside_grace_rotates_again(fake_store) -> None:
+    """Two tabs refreshing within the grace window both get a valid pair."""
+    await _make_user("grace-inside@civicpulse.com")
+    async with AsyncSessionLocal() as session:
+        _, first = await AuthService(session).login("grace-inside@civicpulse.com", "TestPass123!")
+
+    async with AsyncSessionLocal() as session:
+        _, second = await AuthService(session).refresh(first)
+
+    # The winner blacklists the rotated-out jti; a racing tab still presents it.
+    fake_store.blacklist.clear()
+    async with AsyncSessionLocal() as session:
+        _, third = await AuthService(session).refresh(first)
+
+    assert second != first
+    assert third not in {first, second}
+
+
+@pytest.mark.asyncio
+async def test_reuse_outside_grace_revokes_only_its_family(fake_store) -> None:
+    await _make_user("grace-outside@civicpulse.com")
+    async with AsyncSessionLocal() as session:
+        svc = AuthService(session)
+        _, device_a = await svc.login("grace-outside@civicpulse.com", "TestPass123!")
+        _, device_b = await svc.login("grace-outside@civicpulse.com", "TestPass123!")
+
+    async with AsyncSessionLocal() as session:
+        _, device_a2 = await AuthService(session).refresh(device_a)
+
+    fake_store.blacklist.clear()
+    for key, rec in fake_store.records.items():
+        rec["prev_at"] = 0
+        rec["prev_jti"] = None
+
+    with pytest.raises(RefreshTokenReuse):
+        async with AsyncSessionLocal() as session:
+            await AuthService(session).refresh(device_a)
+
+    assert any(key.startswith("refresh:revoked:family:") for key in fake_store.revoked)
+    # The other sign-in is untouched.
+    async with AsyncSessionLocal() as session:
+        _, device_b2 = await AuthService(session).refresh(device_b)
+    assert device_b2
+    with pytest.raises(Exception):
+        async with AsyncSessionLocal() as session:
+            await AuthService(session).refresh(device_a2)
+
+
+@pytest.mark.asyncio
+async def test_revoke_on_reuse_can_be_disabled(fake_store, monkeypatch) -> None:
+    """Operators can keep strict single-use without nuking the whole family."""
+    monkeypatch.setattr(settings, "REFRESH_REVOKE_ON_REUSE", False)
+    await _make_user("grace-disabled@civicpulse.com")
+    async with AsyncSessionLocal() as session:
+        _, first = await AuthService(session).login("grace-disabled@civicpulse.com", "TestPass123!")
+
+    async with AsyncSessionLocal() as session:
+        await AuthService(session).refresh(first)
+
+    fake_store.blacklist.clear()
+    for rec in fake_store.records.values():
+        rec["prev_at"] = 0
+        rec["prev_jti"] = None
+
+    with pytest.raises(RefreshTokenReuse):
+        async with AsyncSessionLocal() as session:
+            await AuthService(session).refresh(first)
+
+    assert not any(key.startswith("refresh:revoked:family:") for key in fake_store.revoked)

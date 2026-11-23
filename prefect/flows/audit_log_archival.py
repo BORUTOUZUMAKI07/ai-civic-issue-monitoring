@@ -11,13 +11,18 @@ from prefect import flow, get_run_logger, task
 from connections import get_mongo_uri
 
 MONGO_DB = "civicpulse_analytics"
-COLLECTIONS = ["drift_reports", "sla_reports", "escalation_logs"]
+# `audit_logs` is compliance evidence: it is archived to a cold collection,
+# never deleted. The report's retention policy mirrors this list in the API.
+COLLECTIONS = ["drift_reports", "sla_reports", "escalation_logs", "audit_logs"]
 
 
 @task(retries=2, retry_delay_seconds=60)
 def archive_old_logs(uri: str, cutoff_days: int = 90) -> int:
     logger = get_run_logger()
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=cutoff_days)).isoformat()
+    # Store a real BSON datetime, not an ISO string: comparing a string against
+    # the datetimes Beanie writes never matches, so the old flow silently
+    # archived nothing even though it reported success.
+    cutoff = datetime.now(timezone.utc) - timedelta(days=cutoff_days)
     total = 0
 
     from pymongo import MongoClient
@@ -39,7 +44,7 @@ def archive_old_logs(uri: str, cutoff_days: int = 90) -> int:
 
 @flow(
     name="audit-log-archival",
-    description="Archive old drift reports and escalation logs to cold storage",
+    description="Archive old audit events, drift reports and escalation logs to cold storage",
     log_prints=True,
 )
 def audit_log_archival_flow() -> int:

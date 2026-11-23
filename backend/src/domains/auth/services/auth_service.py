@@ -27,6 +27,7 @@ from src.shared.errors import (
     EmailNotVerified,
     InvalidCredentials,
     InvalidToken,
+    RefreshTokenReuse,
     TokenRevoked,
     UnauthorizedError,
     UserNotFound,
@@ -40,7 +41,11 @@ _REFRESH_FAMILY_REVOKED_PREFIX = "refresh:revoked:family:"
 _REFRESH_FAMILY_INDEX_PREFIX = "refresh:family:"
 _REFRESH_USER_SESSIONS_PREFIX = "refresh:user:sessions:"
 _REFRESH_TTL = settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400
-_REUSE_GRACE_SECONDS = 30
+
+
+def _reuse_grace_seconds() -> int:
+    """Read at call time so config overrides in tests/deployments are honoured."""
+    return max(0, int(settings.REFRESH_REUSE_GRACE_SECONDS))
 
 
 class _RedisClientProxy:
@@ -171,8 +176,13 @@ class AuthService:
             new_jti = decode_token(new_refresh).get("jti", "")
             result = await self._rotate_refresh_session(sid, jti, new_jti)
             if result == 0:
-                await self._revoke_refresh_family(user.id, fam, sid)
-                raise TokenRevoked()
+                # Outside the grace window this is theft, not a racing tab.
+                # The switch exists for operators who need strict single-use
+                # without tearing down every device in the family; the default
+                # keeps the blast radius confined to this sign-in.
+                if bool(settings.REFRESH_REVOKE_ON_REUSE):
+                    await self._revoke_refresh_family(user.id, fam, sid)
+                raise RefreshTokenReuse()
             if result == -1:
                 raise TokenRevoked()
         else:
@@ -207,7 +217,7 @@ class AuthService:
                 f"{_REFRESH_SESSION_PREFIX}{sid}",
                 jti,
                 new_jti,
-                str(_REUSE_GRACE_SECONDS),
+                str(_reuse_grace_seconds()),
                 str(_REFRESH_TTL),
                 str(int(time.time())),
             )

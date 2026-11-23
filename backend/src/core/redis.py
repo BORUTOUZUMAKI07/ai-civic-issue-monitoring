@@ -43,6 +43,15 @@ class UpstashRedisAdapter:
     async def delete(self, key: str):
         return await self._client.delete(key)
 
+    async def getdel(self, key: str):
+        """Atomic GET+DEL — one round trip, so only one caller can win.
+
+        Used for one-time OAuth state and handoff codes. A plain get() followed
+        by delete() leaves an await window in which two concurrent callbacks both
+        read the same secret and both establish a session.
+        """
+        return await self._client.execute(["GETDEL", key])
+
     async def incr(self, key: str):
         return await self._client.incr(key)
 

@@ -46,6 +46,18 @@ class TokenRevoked(UnauthorizedError):
         super().__init__(detail="Token has been revoked.")
 
 
+class RefreshTokenReuse(TokenRevoked):
+    """A rotated refresh token was presented again outside the reuse grace.
+
+    Subclasses ``TokenRevoked`` so existing 401 handling still applies, while
+    giving the auth route a distinct signal to audit as a security event.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.detail = "Refresh token has already been used."
+
+
 class InvalidToken(UnauthorizedError):
     def __init__(self):
         super().__init__(detail="Invalid or expired token.")

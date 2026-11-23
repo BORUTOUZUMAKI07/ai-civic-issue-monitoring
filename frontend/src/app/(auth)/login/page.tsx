@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useState } from "react"
+import { Suspense, useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { useForm } from "react-hook-form"
@@ -25,6 +25,38 @@ function LoginForm() {
   const [totpCode, setTotpCode] = useState("")
   const [totpError, setTotpError] = useState<string | null>(null)
   const [isVerifying, setIsVerifying] = useState(false)
+  const [isExchanging, setIsExchanging] = useState(false)
+  const [oauthError, setOauthError] = useState<string | null>(null)
+  const redeemedCode = useRef<string | null>(null)
+  const oauthCode = searchParams.get("code")
+
+  // The callback redirects here with a one-time code instead of tokens. Redeem
+  // it exactly once: React StrictMode mounts effects twice in development, and
+  // the code is consumed atomically server-side, so a second attempt would
+  // always fail.
+  useEffect(() => {
+    if (!oauthCode || redeemedCode.current === oauthCode) return
+    redeemedCode.current = oauthCode
+    let cancelled = false
+    void (async () => {
+      setIsExchanging(true)
+      setOauthError(null)
+      try {
+        const res = await auth.exchangeOauth(oauthCode)
+        if (cancelled) return
+        if (res.user) queryClient.setQueryData(["me"], res.user)
+        else await queryClient.invalidateQueries({ queryKey: ["me"] })
+        router.replace(safeInternalPath(res.redirect))
+      } catch (err: unknown) {
+        if (!cancelled) setOauthError(getErrorMessage(err, "OAuth sign-in failed"))
+      } finally {
+        if (!cancelled) setIsExchanging(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [oauthCode, queryClient, router])
 
   const { register, handleSubmit, setError, formState: { errors, isSubmitting } } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
@@ -82,6 +114,16 @@ function LoginForm() {
       </div>
 
       <div className="rounded-2xl border border-border/80 bg-card p-6 shadow-lift sm:p-7">
+        {isExchanging && (
+          <div role="status" className="mb-4 rounded-lg border bg-muted/50 px-4 py-3 text-center text-sm">
+            Completing sign-in…
+          </div>
+        )}
+        {oauthError && (
+          <div role="alert" className="mb-4 rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3">
+            <p className="text-center text-sm text-destructive">{oauthError}</p>
+          </div>
+        )}
         {challenge ? (
           /* ---- 2FA code entry ---- */
           <form onSubmit={onVerifyTotp} className="space-y-4">
@@ -129,7 +171,7 @@ function LoginForm() {
           </form>
         ) : (
           /* ---- normal login ---- */
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" aria-busy={isExchanging}>
             {errors.root && (
               <div className="rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3">
                 <p className="text-center text-sm text-destructive">{errors.root.message}</p>
@@ -156,7 +198,7 @@ function LoginForm() {
               {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
             </div>
 
-            <Button type="submit" className="h-10 w-full" disabled={isSubmitting}>
+            <Button type="submit" className="h-10 w-full" disabled={isSubmitting || isExchanging}>
               {isSubmitting ? "Signing in\u2026" : "Sign In"}
             </Button>
           </form>

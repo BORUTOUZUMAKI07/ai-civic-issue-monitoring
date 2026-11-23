@@ -28,6 +28,7 @@ from src.core.observability import (
 )
 from src.core.redis import check_redis_health, init_redis
 from src.domains.admin.api.routes import router as admin_router
+from src.domains.audit.api.routes import router as audit_router
 from src.domains.auth.api.routes import router as auth_router
 from src.domains.dashboard.api.routes import router as dashboard_router
 from src.domains.engineers.api.routes import router as engineers_router
@@ -192,6 +193,7 @@ def create_app(lifespan_override=None):
     app.include_router(dashboard_router, prefix="/api/v1")
     app.include_router(notifications_router, prefix="/api/v1")
     app.include_router(admin_router, prefix="/api/v1")
+    app.include_router(audit_router, prefix="/api/v1")
     app.include_router(ml_router, prefix="/api/v1")
 
     # NOTE: uploads are served by the authenticated route

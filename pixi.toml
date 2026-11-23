@@ -51,6 +51,12 @@ passlib = {version = ">=1.7.4", extras = ["argon2"]}
 argon2-cffi = ">=23.1.0"
 python-multipart = ">=0.0.18"
 email-validator = ">=2.2.0"
+# email-validator pulls dnspython transitively; pin the floor here so the
+# resolver cannot select 2.9.0 (CVE-2026-128089) in any environment.
+dnspython = ">=2.9.2"
+# Observability is an optional extra in backend/pyproject.toml but a direct
+# pixi dependency here: 1.45.1 is affected by CVE-2026-126360.
+opentelemetry-api = ">=1.45.2"
 httpx = ">=0.28.0"
 # Pillow decodes untrusted uploads (image validation + ML preprocessing), so
 # the 13.0.0 fixes matter even though the extension allowlist blocks the

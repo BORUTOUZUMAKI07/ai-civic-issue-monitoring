@@ -99,6 +99,7 @@ class _FallbackFakeRedis:
 
     async def ping(self): return True
     async def get(self, key): return self._store.get(key)
+    async def getdel(self, key): return self._store.pop(key, None)
     async def setex(self, key, ttl, value): self._store[key] = value; return True
     async def delete(self, key): self._store.pop(key, None); return 1
     async def incr(self, key): self._store[key] = int(self._store.get(key, 0)) + 1; return self._store[key]
@@ -182,53 +183,77 @@ async def client(db_engine) -> AsyncGenerator[AsyncClient, None]:
 # 7. Auth fixtures (JWT tokens backed by SQLite users)
 # ─────────────────────────────────────────────────────────────────────────────
 
-@pytest_asyncio.fixture
-async def auth_headers(db_engine) -> dict:
+async def _ensure_fixture_user(*, user_id: int, email: str, full_name: str, role) -> None:
+    """Make the fixed-ID auth fixtures authoritative in the shared test DB.
+
+    The SQLite engine is session-scoped and registration tests consume real
+    auto-increment IDs, so ``id=1``/``id=2`` are usually already taken by the
+    time a later test asks for these headers. A plain ``session.add()`` then
+    rolls back on the primary-key conflict and the token resolves to whatever
+    user happens to own that ID (for example a ``field_worker`` for the admin
+    token), producing order-dependent 403s. Upsert instead, with fixture-only
+    emails so a user registered by another test cannot collide on ``email``.
+    """
     from src.core.database import AsyncSessionLocal
-    from src.core.security import create_access_token
-    from src.models.user import User, UserRole
+    from src.models.user import User
 
     async with AsyncSessionLocal() as session:
-        user = User(
-            id=1,
-            email="test@civicpulse.com",
-            password_hash="unused",
-            full_name="Test User",
-            role=UserRole.field_worker,
-            is_active=True,
-        )
-        session.add(user)
-        try:
-            await session.commit()
-        except Exception:
-            await session.rollback()
+        user = await session.get(User, user_id)
+        if user is None:
+            session.add(
+                User(
+                    id=user_id,
+                    email=email,
+                    password_hash="unused",
+                    full_name=full_name,
+                    role=role,
+                    is_active=True,
+                    email_verified=True,
+                )
+            )
+        else:
+            user.email = email
+            user.password_hash = "unused"
+            user.full_name = full_name
+            user.role = role
+            user.is_active = True
+            user.email_verified = True
+            user.oauth_provider = None
+            user.oauth_sub = None
+            user.totp_secret = None
+            user.two_factor_enabled = False
+            user.recovery_codes = None
+            user.totp_last_counter = None
+        await session.commit()
 
-    token = create_access_token({"sub": "1", "role": "field_worker"})
+
+@pytest_asyncio.fixture
+async def auth_headers(db_engine) -> dict:
+    from src.core.security import create_access_token
+    from src.models.user import UserRole
+
+    await _ensure_fixture_user(
+        user_id=1,
+        email="fixture-user@civicpulse.test",
+        full_name="Test User",
+        role=UserRole.field_worker,
+    )
+    token = create_access_token({"sub": "1", "role": UserRole.field_worker.value})
     return {"Authorization": f"Bearer {token}"}
 
 
 @pytest_asyncio.fixture
 async def admin_headers(db_engine) -> dict:
-    from src.core.database import AsyncSessionLocal
     from src.core.security import create_access_token
-    from src.models.user import User, UserRole
+    from src.models.user import UserRole
 
-    async with AsyncSessionLocal() as session:
-        user = User(
-            id=2,
-            email="admin@civicpulse.com",
-            password_hash="unused",
-            full_name="Admin User",
-            role=UserRole.admin,
-            is_active=True,
-        )
-        session.add(user)
-        try:
-            await session.commit()
-        except Exception:
-            await session.rollback()
-
-    token = create_access_token({"sub": "2", "role": "admin"})
+    await _ensure_fixture_user(
+        user_id=2,
+        email="fixture-admin@civicpulse.test",
+        full_name="Admin User",
+        role=UserRole.admin,
+    )
+    token = create_access_token({"sub": "2", "role": UserRole.admin.value})
     return {"Authorization": f"Bearer {token}"}
 
 

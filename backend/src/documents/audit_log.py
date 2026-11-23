@@ -10,6 +10,9 @@ class AuditLogDocument(Document):
     user_id: Optional[int] = None
     resource_type: str
     resource_id: Optional[str] = None
+    # "success" | "failure" — compliance reports need outcome counts, not just
+    # action counts. Default keeps documents written by older code valid.
+    status: str = "success"
     metadata: dict = Field(default_factory=dict)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

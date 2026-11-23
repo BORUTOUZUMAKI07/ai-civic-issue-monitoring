@@ -10,7 +10,9 @@ from src.core.security import create_ws_ticket
 from src.domains.auth.email_verification import send_verification_email, verify_email_token
 from src.domains.auth.oauth import (
     code_challenge,
+    consume_oauth_handoff,
     consume_oauth_state,
+    create_oauth_handoff,
     get_provider,
     login_with_provider,
     store_oauth_state,
@@ -26,6 +28,7 @@ from src.domains.auth.schemas import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
     LoginRequest,
+    OauthExchangeRequest,
     RegisterRequest,
     ResendVerificationRequest,
     ResetPasswordRequest,
@@ -40,7 +43,7 @@ from src.domains.auth.schemas import (
 from src.domains.auth.services.auth_service import AuthService
 from src.domains.auth.twofa import TwoFactorService
 from src.domains.users.deps import get_current_active_user, get_current_user
-from src.shared.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid
+from src.shared.errors import OAuthError, OAuthNotConfigured, OAuthStateInvalid, RefreshTokenReuse
 from src.shared.errors.base import AppError
 
 logger = logging.getLogger("civicpulse")
@@ -49,46 +52,24 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
 async def _audit_event(
-    action: str, request: Request, user_id: int | str | None = None, details: dict | None = None
+    action: str,
+    request: Request,
+    user_id: int | str | None = None,
+    details: dict | None = None,
+    *,
+    status: str = "success",
 ) -> None:
-    event = {
-        "action": action,
-        "user_id": user_id,
-        "ip": request.client.host if request.client else "unknown",
-        "ua": request.headers.get("user-agent"),
-        "details": details or {},
-    }
-    try:
-        import json
+    """Thin wrapper so every auth handler shares one redaction policy."""
+    from src.domains.audit.events import emit_audit_event
 
-        from src.core.redis import redis_client
-
-        await redis_client.lpush("auth:audit", json.dumps(event, default=str))
-        await redis_client.ltrim("auth:audit", 0, 999)
-    except Exception:  # nosec B110 - audit logging is best-effort
-        pass
-    # Durable/compliance-oriented audit trail in MongoDB when available.
-    try:
-        from datetime import datetime, timezone
-
-        from src.documents.audit_log import AuditLogDocument
-
-        uid: int | None = None
-        if user_id is not None:
-            try:
-                uid = int(user_id)
-            except Exception:
-                uid = None
-        await AuditLogDocument(
-            action=action,
-            user_id=uid,
-            resource_type="auth",
-            resource_id=str(user_id) if user_id is not None else None,
-            metadata={"ip": event["ip"], "ua": event["ua"], **(details or {})},
-            timestamp=datetime.now(timezone.utc),
-        ).insert()
-    except Exception:  # nosec B110 - durable audit is best-effort
-        pass
+    await emit_audit_event(
+        action,
+        user_id=user_id,
+        ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        details=details,
+        status=status,
+    )
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
@@ -210,12 +191,46 @@ async def refresh(request: Request, response: Response, db: AsyncSession = Depen
     svc = AuthService(db)
     try:
         access_token, new_refresh_token = await svc.refresh(refresh_token)
+    except RefreshTokenReuse:
+        claims = _claims_from_token(refresh_token)
+        await _audit_event(
+            "refresh_reuse_detected",
+            request,
+            claims.get("sub"),
+            {
+                "outcome": "failure",
+                "session_id": claims.get("sid"),
+                "family_id": claims.get("fam"),
+            },
+        )
+        _clear_auth_cookies(response)
+        return JSONResponse(status_code=401, content={"detail": "Refresh token rejected"})
     except AppError:
         _clear_auth_cookies(response)
         return JSONResponse(status_code=401, content={"detail": "Refresh token rejected"})
 
     _set_auth_cookies(response, access_token, new_refresh_token)
+    claims = _claims_from_token(refresh_token)
+    await _audit_event(
+        "refresh",
+        request,
+        claims.get("sub"),
+        {"outcome": "success", "session_id": claims.get("sid"), "family_id": claims.get("fam")},
+    )
     return {"detail": "Refresh successful"}
+
+
+def _claims_from_token(token: str | None) -> dict:
+    """Best-effort JWT claims for audit only; never used for authorization."""
+    if not token:
+        return {}
+    try:
+        from src.core.security import decode_token
+
+        claims = decode_token(token)
+        return claims if isinstance(claims, dict) else {}
+    except Exception:  # nosec B110 - a malformed token still gets an audit row
+        return {}
 
 
 @router.post("/logout")
@@ -332,8 +347,13 @@ async def oauth_callback(
     except Exception:
         await _audit_event("oauth_login", request, None, {"provider": provider})
 
+    # The refresh token stays server-side. The browser receives only a random
+    # one-time code, so no credential or OAuth state leaks through the redirect
+    # URL (access logs, history, Referer). The redirect target is stored with
+    # the handoff and returned later by /oauth/exchange.
+    handoff = await create_oauth_handoff(refresh_token, redirect_target)
     frontend = settings.FRONTEND_URL.rstrip("/")
-    target = f"{frontend}{redirect_target}"
+    target = f"{frontend}/login?code={handoff}"
     escaped = target.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
     html = (
         '<!doctype html><html><head><meta charset="utf-8">'
@@ -346,9 +366,63 @@ async def oauth_callback(
     from fastapi.responses import HTMLResponse
 
     html_response = HTMLResponse(content=html, status_code=200, headers={"Cache-Control": "no-store"})
-    _set_auth_cookies(html_response, access_token, refresh_token)
     html_response.delete_cookie("oauth_state", path="/", httponly=True, samesite="lax", secure=settings.COOKIE_SECURE)
     return html_response
+
+
+@router.post("/oauth/exchange")
+async def oauth_exchange(
+    body: OauthExchangeRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """Redeem the one-time callback code and establish the browser session."""
+    from fastapi.responses import JSONResponse
+
+    per_ip, per_account = login_limits()
+    await enforce_auth_rate_limit(
+        request, action="oauth_exchange", per_ip=per_ip, per_account=per_account, account=body.code
+    )
+
+    try:
+        handoff = await consume_oauth_handoff(body.code)
+        claims = _claims_from_token(handoff["refresh_token"])
+        access_token, refresh_token = await AuthService(db).refresh(handoff["refresh_token"])
+    except AppError:
+        await _audit_event("oauth_exchange", request, None, {"outcome": "failure"}, status="failure")
+        _clear_auth_cookies(response)
+        return JSONResponse(status_code=401, content={"detail": "OAuth sign-in code is invalid or has expired."})
+
+    _set_auth_cookies(response, access_token, refresh_token)
+    user_id = claims.get("sub")
+    await _audit_event("oauth_exchange", request, user_id, {"outcome": "success"})
+
+    user_payload = None
+    if user_id is not None:
+        try:
+            from src.domains.users.repositories.user_repository import UserRepository
+
+            user = await UserRepository(db).get(int(str(user_id)))
+            if user:
+                user_payload = {
+                    "id": user.id,
+                    "email": user.email,
+                    "full_name": user.full_name,
+                    "role": user.role.value,
+                    "is_active": user.is_active,
+                    "created_at": user.created_at.isoformat(),
+                    "two_factor_enabled": user.two_factor_enabled,
+                    "email_verified": getattr(user, "email_verified", True),
+                }
+        except Exception:  # nosec B110 - session is already established
+            user_payload = None
+
+    return {
+        "detail": "Login successful",
+        "redirect": handoff["redirect"],
+        "user": user_payload,
+    }
 
 
 @router.post("/forgot-password")
@@ -572,7 +646,7 @@ async def revoke_all_sessions(
 
 
 @router.get("/account/export")
-async def export_account(user=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
+async def export_account(request: Request, user=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
     from sqlalchemy import func, select
 
     from src.domains.issues.models.issue import Issue
@@ -580,6 +654,8 @@ async def export_account(user=Depends(get_current_active_user), db: AsyncSession
     issues_count = (
         await db.execute(select(func.count()).select_from(Issue).where(Issue.reporter_id == user.id))
     ).scalar_one()
+    # GDPR Art. 15 — record that a subject accessed their own data.
+    await _audit_event("account_export", request, user.id)
     return {
         "user": {
             "id": user.id,
