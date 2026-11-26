@@ -62,19 +62,23 @@ class UpstashRedisAdapter:
         cmd = ["EVAL", script, str(numkeys)] + list(args)
         return await self._client.execute(cmd)
 
+    async def publish(self, channel: str, message: str):
+        """PUBLISH over Upstash REST. Subscribe still needs a real Redis URL."""
+        return await self._client.execute(["PUBLISH", channel, message])
+
 
 def _build_redis_client() -> Any:
     """Pick the Redis backend from settings, once, at import time.
 
-    The production path is Upstash REST — the app is compose/Render-deployed
-    with UPSTASH_REDIS_REST_URL + _TOKEN set, and the adapter exposes the same
-    method surface the rest of this module needs.
+    Production uses the Upstash TCP `rediss://` URL in REDIS_URL. That is a
+    native Redis connection, so `redis.asyncio.Redis` provides PUBLISH/SUBSCRIBE
+    as well as the ordinary verbs (get/set/setex/ping/delete/incr/expire/eval).
 
-    When Upstash credentials are absent the client falls back to a plain Redis
-    connection from REDIS_URL (see ADR-0005): a local `redis` container or any
-    self-hosted Redis. `redis.asyncio.Redis` already speaks the same verbs
-    (get/set/setex/ping/delete/incr/expire/eval), so the rest of this module is
-    unchanged, and tests keep patching `redis_client` wholesale with fakeredis.
+    The old REST adapter is kept for compatibility with deployments that set
+    UPSTASH_REDIS_REST_URL + _TOKEN, but REST cannot SUBSCRIBE, so it silently
+    disables cross-instance WebSocket fan-out. Leave those two variables unset
+    in production. Local dev falls back to REDIS_URL (the compose `redis`
+    service by default); tests patch `redis_client` wholesale with fakeredis.
     """
     upstash_url = (settings.UPSTASH_REDIS_REST_URL or "").strip()
     upstash_token = (settings.UPSTASH_REDIS_REST_TOKEN or "").strip()
@@ -87,6 +91,11 @@ def _build_redis_client() -> Any:
 
 
 redis_client: Any = _build_redis_client()
+
+# Single channel for all real-time issue events. Every backend instance
+# publishes here and every instance with connected WebSockets subscribes here,
+# so an event raised on instance A reaches clients attached to instance B.
+ISSUE_UPDATES_CHANNEL = "civicpulse:issue-updates"
 
 _RETRY_DELAYS = [1, 2, 4, 8, 16]
 
@@ -104,6 +113,36 @@ async def init_redis():
             else:
                 logger.error("Redis failed to connect after %d attempts", len(_RETRY_DELAYS))
                 raise
+
+
+def create_pubsub() -> Any | None:
+    """Return a live pub/sub object, or ``None`` if subscriptions are impossible.
+
+    Upstash REST is request/response only; its adapter can PUBLISH but cannot
+    SUBSCRIBE. Production therefore uses the Upstash TCP `rediss://` URL in
+    REDIS_URL, which does support SUBSCRIBE. The subscriber is optional: without
+    it an instance can still deliver events to its own connected clients.
+    """
+    try:
+        return redis_client.pubsub()  # type: ignore[attr-defined]
+    except Exception as exc:
+        logger.warning("Redis pub/sub unavailable, WebSocket fan-out is local only: %s", exc)
+        return None
+
+
+async def publish_message(channel: str, message: dict[str, Any]) -> bool:
+    """Publish a JSON message. Returns ``False`` and keeps going on failure.
+
+    Same fail-open rule as the other Redis-backed features: an outage must not
+    turn a successful issue creation into a 500. Local clients are still served
+    by the caller even when this returns ``False``.
+    """
+    try:
+        await redis_client.publish(channel, json.dumps(message, default=str))  # type: ignore[attr-defined]
+        return True
+    except Exception as exc:
+        logger.warning("Redis publish to %s failed: %s", channel, exc)
+        return False
 
 
 RATE_LIMIT_BUCKET_LUA = """

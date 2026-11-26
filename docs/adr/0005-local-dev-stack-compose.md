@@ -40,12 +40,14 @@ exactly this.
    `create_async_engine` at import. Letting the validator do the conversion is
    both a fix and a simplification.
 4. **Plain-Redis support in `src/core/redis.py`.** When
-   `UPSTASH_REDIS_REST_URL`/`TOKEN` are both set (production), the Upstash REST
-   adapter is used exactly as before. When they are empty, the client is built
-   from `REDIS_URL` (e.g. the local `redis` service) via `redis.asyncio`. The
-   method surface (`get`/`set`/`setex`/`ping`/`delete`/`incr`/`expire`/`eval`)
-   matches, so `src/core/redis.py` needs no per-call changes and tests keep
-   patching `redis_client` with fakeredis unchanged.
+   `UPSTASH_REDIS_REST_URL`/`TOKEN` are both set (legacy REST deployments), the
+   Upstash REST adapter is used. Otherwise the client is built from `REDIS_URL`
+   via `redis.asyncio`: the local `redis` service in dev, or the Upstash **TCP**
+   `rediss://` URL in production. Native TCP is required for `SUBSCRIBE`, so
+   REST variables must stay unset in production. The method surface
+   (`get`/`set`/`setex`/`ping`/`delete`/`incr`/`expire`/`eval`) matches, so
+   `src/core/redis.py` needs no per-call changes and tests keep patching
+   `redis_client` with fakeredis unchanged.
 5. **Keep the real secrets required**: `SECRET_KEY` has *no* compose default —
    `${SECRET_KEY:?SECRET_KEY must be set (see docker/.env.example)}` fails fast
    at interpolation when the var is missing, in dev and production alike. A

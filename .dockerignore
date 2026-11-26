@@ -10,10 +10,13 @@ ENV/
 .gitignore
 .dockerignore
 
-# Data & Models (Should be mounted via volumes)
+# Data & Models
+# Everything local stays out of images except the trained ONNX weights, which
+# are baked into /app/models/model.onnx for production inference.
 data/
 external_data/
-models/
+models/*
+!models/model.onnx
 outputs/
 reports/
 logs/

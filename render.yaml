@@ -1,0 +1,61 @@
+# Render Blueprint for CivicPulse — free-tier deployment.
+#
+# Create the Blueprint in the Render dashboard, connect the GitHub repo, and
+# choose branch `main`. Render prompts for every `sync: false` value at first
+# creation. Later Blueprint syncs ignore those values; change them in the
+# service's Environment tab instead.
+#
+# See docs/production-deployment.md for the exact value for each prompt.
+
+services:
+  # Free web service. Render free services are limited to one instance and spin
+  # down after 15 minutes idle; the first request after idle takes ~1 minute.
+  # Redis is Upstash free over TCP (REDIS_URL), not a paid Render Key Value.
+  - type: web
+    name: civicpulse-api
+    runtime: docker
+    region: ohio
+    plan: free
+    healthCheckPath: /health
+    dockerContext: .
+    dockerfilePath: ./backend/Dockerfile
+    # preDeployCommand is paid-only on Render, so run migrations here instead.
+    # Alembic upgrade head is idempotent: on an already-migrated DB it is a no-op.
+    dockerCommand: '/bin/sh -c "python -m alembic -c /app/alembic.ini upgrade head && exec uvicorn src.main:app --host 0.0.0.0 --port $PORT"'
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: FRONTEND_URL
+        value: https://civicpulse.vercel.app
+      - key: CORS_ORIGINS
+        value: https://civicpulse.vercel.app
+      - key: STORAGE_BACKEND
+        value: s3
+      - key: NEON_STORAGE_BUCKET
+        value: uploads
+      - key: AWS_REGION
+        value: us-east-2
+      - key: MONGODB_DB
+        value: civicpulse_analytics
+      - key: NEW_RELIC_ENABLED
+        value: "false"
+
+      # Paste these at Blueprint creation; never commit them.
+      - key: DATABASE_URL
+        sync: false # Neon pooled Postgres URL
+      - key: REDIS_URL
+        sync: false # Upstash TCP rediss:// URL — leave REST vars UNSET
+      - key: MONGODB_URI
+        sync: false # MongoDB Atlas SRV URI
+      - key: SECRET_KEY
+        sync: false # fresh 32+ character JWT signing secret
+
+      # Neon Object Storage. Bucket stays private; app reads through authed proxy.
+      - key: AWS_ENDPOINT_URL_S3
+        sync: false # Neon Storage endpoint for branch production
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false

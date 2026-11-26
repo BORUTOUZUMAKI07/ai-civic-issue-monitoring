@@ -28,6 +28,17 @@ from starlette.datastructures import UploadFile
 
 from src.shared.errors import ImageTooLargeError
 
+# Canonical MIME type for every accepted extension. The presign endpoint uses
+# this exact value so the browser's PUT signature matches what S3 expects;
+# validation uses the key set so both upload paths accept the same formats.
+UPLOAD_CONTENT_TYPES: dict[str, str] = {
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "webp": "image/webp",
+    "heic": "image/heic",
+}
+
 # The accepted file size, and the multipart envelope around it (boundary
 # markers, part headers) plus the up-to-1 MB text fields the form parser
 # allows. Anything larger cannot be a legal request, so it is refused whole.

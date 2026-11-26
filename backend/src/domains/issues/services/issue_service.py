@@ -31,11 +31,11 @@ from src.shared.errors import (
     InvalidImageError,
     IssueNotFound,
 )
-from src.shared.uploads import MAX_IMAGE_PIXELS, MAX_UPLOAD_BYTES
+from src.shared.uploads import MAX_IMAGE_PIXELS, MAX_UPLOAD_BYTES, UPLOAD_CONTENT_TYPES
 
 pillow_heif.register_heif_opener()
 
-ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic"}
+ALLOWED_EXTENSIONS = set(UPLOAD_CONTENT_TYPES)
 
 
 class IssueService:

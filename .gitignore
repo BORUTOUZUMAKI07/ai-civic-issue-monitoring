@@ -75,7 +75,8 @@ Thumbs.db
 /optuna_data
 
 # --- Uploads ---
-uploads/
+# Ignore only runtime upload directories, not source packages named uploads.
+/uploads/
 
 # --- Tests & Coverage ---
 .pytest_cache/

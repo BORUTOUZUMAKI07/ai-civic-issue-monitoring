@@ -45,13 +45,17 @@ def hash_request(
     description: str,
     force_submit: bool,
     filename: str,
-    content: bytes,
+    content: bytes | None,
+    *,
+    image_url: str | None = None,
 ) -> str:
     """Stable SHA-256 fingerprint of the logical upload request.
 
     Includes the image bytes' own digest so reusing a key with a different
-    photo is caught, not just a different description.
+    photo is caught, not just a different description. Direct uploads carry no
+    bytes over the wire, so their storage key stands in for that digest.
     """
+    content_digest = hashlib.sha256(content).hexdigest() if content is not None else f"url:{image_url or ''}"
     payload = "\n".join(
         [
             str(user_id),
@@ -60,7 +64,8 @@ def hash_request(
             description,
             str(force_submit),
             filename,
-            hashlib.sha256(content).hexdigest(),
+            image_url or "",
+            content_digest,
         ]
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()

@@ -7,6 +7,7 @@ dist/
 .mypy_cache/
 .pytest_cache/
 logs/
-uploads/
+# Only the runtime upload directory; src/domains/uploads is application code.
+/uploads/
 *.db
 .env

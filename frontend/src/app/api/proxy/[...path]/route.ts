@@ -79,6 +79,9 @@ const ALLOWED_PREFIXES = new Set([
   "notifications",
   "admin",
   "ml",
+  // Only the small JSON presign handshake crosses this proxy. Image bytes go
+  // straight from the browser to Neon Object Storage with a signed PUT URL.
+  "uploads",
 ])
 
 /**

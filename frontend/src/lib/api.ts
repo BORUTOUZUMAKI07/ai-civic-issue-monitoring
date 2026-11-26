@@ -106,6 +106,50 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   return rawFetch<T>(path, options);
 }
 
+interface PresignResponse {
+  method: "PUT";
+  upload_url: string;
+  image_url: string;
+  upload_token: string;
+  required_headers: Record<string, string>;
+  expires_in: number;
+}
+
+/** Ask the backend for a one-file signed PUT URL; null means use legacy multipart. */
+async function requestPresign(
+  file: File,
+  purpose: "issue" | "resolution",
+  idempotencyKey?: string
+): Promise<PresignResponse | null> {
+  try {
+    return await apiFetch<PresignResponse>("/uploads/presign", {
+      method: "POST",
+      body: JSON.stringify({
+        filename: file.name,
+        purpose,
+        size: file.size,
+        idempotency_key: idempotencyKey,
+      }),
+    });
+  } catch {
+    // Local dev (no object storage) and older backends return 501/404. The
+    // legacy multipart path still works there; production uses the signed PUT.
+    return null;
+  }
+}
+
+/** Send image bytes browser → Neon Object Storage, never through the BFF. */
+async function putDirect(presigned: PresignResponse, file: File): Promise<void> {
+  const res = await fetch(presigned.upload_url, {
+    method: "PUT",
+    headers: presigned.required_headers,
+    body: file,
+  });
+  if (!res.ok) {
+    throw new Error(`Image upload failed (${res.status}). Please try again.`);
+  }
+}
+
 export interface User {
   id: number;
   email: string;
@@ -375,7 +419,7 @@ export const issues = {
     return apiFetch<{ items: Issue[]; total: number }>(`/issues?${q}`);
   },
   get: (id: number) => apiFetch<Issue>(`/issues/${id}`),
-  upload: (
+  upload: async (
     file: File,
     latitude: number,
     longitude: number,
@@ -383,8 +427,18 @@ export const issues = {
     force_submit: boolean = false,
     idempotencyKey?: string
   ) => {
+    const presigned = await requestPresign(file, "issue", idempotencyKey);
     const form = new FormData();
-    form.append("file", file);
+    if (presigned) {
+      await putDirect(presigned, file);
+      // Only the object key and its signed handoff token cross the BFF. The
+      // browser never sends image bytes to Vercel, so its body cap is irrelevant.
+      form.append("image_url", presigned.image_url);
+      form.append("upload_token", presigned.upload_token);
+    } else {
+      // Legacy/local fallback: bytes go through the proxy, capped at ~7 MB.
+      form.append("file", file);
+    }
     form.append("latitude", String(latitude));
     form.append("longitude", String(longitude));
     form.append("description", description);
@@ -512,14 +566,22 @@ export interface ResolutionResult {
 
 export const resolution = {
   /**
-   * Close an issue with photographic proof of the fix. FormData is used so the
-   * browser sets the multipart boundary itself; `rawFetch` deliberately omits
-   * the JSON Content-Type for FormData bodies.
+   * Close an issue with photographic proof of the fix. In production the photo
+   * is PUT straight to object storage; only its key/token go through the BFF.
+   * FormData is used so the browser sets the multipart boundary itself and
+   * `rawFetch` deliberately omits the JSON Content-Type for those bodies.
    */
-  resolve: (issueId: number, file: File, notes = "") => {
+  resolve: async (issueId: number, file: File, notes = "") => {
+    const presigned = await requestPresign(file, "resolution");
     const form = new FormData();
     form.append("issue_id", String(issueId));
-    form.append("file", file);
+    if (presigned) {
+      await putDirect(presigned, file);
+      form.append("after_image_url", presigned.image_url);
+      form.append("upload_token", presigned.upload_token);
+    } else {
+      form.append("file", file);
+    }
     form.append("notes", notes);
     return apiFetch<ResolutionResult>("/resolution", { method: "POST", body: form });
   },

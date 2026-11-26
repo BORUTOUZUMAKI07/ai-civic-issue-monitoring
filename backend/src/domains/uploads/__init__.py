@@ -1,0 +1,1 @@
+"""Direct-upload handoff domain."""

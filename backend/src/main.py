@@ -36,6 +36,7 @@ from src.domains.issues.api.routes import router as issues_router
 from src.domains.ml.api.routes import router as ml_router
 from src.domains.notifications.api.routes import router as notifications_router
 from src.domains.resolution.api.routes import router as resolution_router
+from src.domains.uploads.api.routes import router as uploads_router
 from src.domains.wards.api.routes import router as wards_router
 from src.log_utils import setup_logging
 from src.middleware import (
@@ -195,6 +196,7 @@ def create_app(lifespan_override=None):
     app.include_router(admin_router, prefix="/api/v1")
     app.include_router(audit_router, prefix="/api/v1")
     app.include_router(ml_router, prefix="/api/v1")
+    app.include_router(uploads_router, prefix="/api/v1")
 
     # NOTE: uploads are served by the authenticated route
     # ``GET /api/v1/issues/media/{path}`` rather than a public static mount.

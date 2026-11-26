@@ -1,8 +1,9 @@
 services:
   backend:
     build:
-      context: ../backend
-      dockerfile: Dockerfile
+      # Root context so the backend image can bake in models/model.onnx.
+      context: ..
+      dockerfile: backend/Dockerfile
     container_name: civicpulse_backend
     ports:
       - "8000:8000"

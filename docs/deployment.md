@@ -12,6 +12,10 @@ two opt-in pieces: DockerHub publishing and the deploy workflow.
 
 Both are inert until you configure them — a fresh clone runs neither.
 
+For the chosen Render + Vercel + Neon + Prefect production setup, start with
+[`docs/production-deployment.md`](production-deployment.md). This page still
+documents the older opt-in GHCR/DockerHub and SSH deploy workflow.
+
 
 
 ## What CI publishes

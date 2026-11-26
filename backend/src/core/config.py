@@ -297,6 +297,25 @@ class Settings(BaseSettings):
     # is unchanged until `scripts/evaluate_ml.py --retrieval` shows it helps.
     RETRIEVAL_HYBRID: bool = False
 
+    # --- Object storage (Neon Object Storage / S3-compatible) ---
+    # "local" keeps bytes on the container filesystem (dev / single instance).
+    # "s3" writes to NEON_STORAGE_BUCKET at AWS_ENDPOINT_URL_S3. Stored image
+    # URLs keep their /uploads/... form in both modes so existing rows and the
+    # frontend media helper do not need to change.
+    STORAGE_BACKEND: str = "local"
+    AWS_ENDPOINT_URL_S3: Optional[str] = None
+    AWS_REGION: str = "us-east-2"
+    AWS_ACCESS_KEY_ID: Optional[str] = None
+    AWS_SECRET_ACCESS_KEY: Optional[str] = None
+    NEON_STORAGE_BUCKET: str = "uploads"
+
+    @field_validator("STORAGE_BACKEND")
+    @classmethod
+    def validate_storage_backend(cls, value: str) -> str:
+        if value not in {"local", "s3"}:
+            raise ValueError("STORAGE_BACKEND must be either 'local' or 's3'")
+        return value
+
     # --- Intake Gate ---
     REJECT_THRESHOLD: float = 0.85  # vision non_civic prob above this → hard reject
     REVIEW_THRESHOLD: float = 0.60  # vision confidence below this → accept with review

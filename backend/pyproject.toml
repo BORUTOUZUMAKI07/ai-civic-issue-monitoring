@@ -37,6 +37,9 @@ dependencies = [
     # the production image off 2.9.0 (CVE-2026-128089).
     "dnspython>=2.9.2",
     "httpx>=0.28.0",
+    # S3-compatible object storage (Neon Object Storage) for issue/resolution
+    # photos. Imported lazily by src.shared.storage; local/dev runs stay on disk.
+    "boto3>=1.35.0",
     # Retries with exponential backoff for outbound LLM + SMTP calls; a single
     # slow/failed upstream should not turn into a slow/failed request.
     "tenacity>=9.0.0",
@@ -171,6 +174,8 @@ module = [
     "pillow_heif.*",
     "torchvision.*",
     "onnxruntime.*",
+    "boto3.*",
+    "botocore.*",
     "yaml.*",
     "tqdm.*",
     "sklearn.*",

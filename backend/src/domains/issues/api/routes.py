@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import uuid
-from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, Header, Query, UploadFile
@@ -12,6 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.config import settings
 from src.core.database import get_db
 from src.core.gate import gate_decision
+from src.core.storage import (
+    UploadNotFoundError,
+    UploadTokenError,
+    delete_upload,
+    get_upload,
+    put_upload,
+    verify_upload_token,
+)
 from src.domains.issues.models.issue import IssueStatus
 from src.domains.issues.schemas import IssueListResponse, IssueResponse, IssueStatusUpdate
 from src.domains.issues.services.issue_service import IssueService
@@ -24,8 +31,6 @@ from src.shared.uploads import read_upload_bounded
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/issues", tags=["Issues"])
-
-UPLOAD_DIR = Path("uploads/issues")
 
 
 def _classify_image(image_bytes: bytes) -> dict | None:
@@ -157,7 +162,11 @@ async def _run_agent_pipeline(
 
 @router.post("/upload", response_model=IssueResponse)
 async def upload_issue(
-    file: UploadFile = File(...),
+    # Two accepted paths: a legacy multipart ``file`` (local dev, old clients)
+    # or the key returned by /uploads/presign after a direct browser PUT.
+    file: Optional[UploadFile] = File(None),
+    image_url: Optional[str] = Form(None, max_length=255),
+    upload_token: Optional[str] = Form(None, max_length=255),
     # Typed and bounded by FastAPI, not parsed by hand: the old
     # ``latitude: str`` + ``float(latitude)`` turned a non-numeric or
     # out-of-range coordinate into an unhandled ``ValueError`` (500) and let
@@ -173,14 +182,30 @@ async def upload_issue(
 ):
     force = force_submit.lower() == "true"
 
-    # Bounded read. The multipart parser has already spooled the file to a
-    # temporary file by now (the Content-Length guard in middleware is what
-    # stops that for honest clients), but ``await file.read()`` would pull the
-    # *whole* spool into memory — a 1 GB "photo" from an authenticated user,
-    # times concurrent requests, is a one-request OOM. This reads at most the
-    # ceiling plus one byte and refuses anything past it.
-    content = await read_upload_bounded(file)
-    filename = file.filename or "image.jpg"
+    if image_url is not None:
+        if file is not None:
+            raise BadRequestError("Provide either file or image_url, not both.")
+        if not upload_token:
+            raise BadRequestError("Missing upload token.")
+        try:
+            verify_upload_token(upload_token, image_url, user.id, "issue")
+        except UploadTokenError as exc:
+            raise BadRequestError(str(exc)) from exc
+        # The bytes are already in the bucket; validation below reads them
+        # server-to-server, never through the Vercel request-body limit.
+        filename = image_url.rsplit("/", 1)[-1]
+        content: bytes | None = None
+    else:
+        if file is None:
+            raise BadRequestError("Provide either file or image_url.")
+        # Bounded read. The multipart parser has already spooled the file to a
+        # temporary file by now (the Content-Length guard in middleware is what
+        # stops that for honest clients), but ``await file.read()`` would pull
+        # the *whole* spool into memory — a 1 GB "photo" from an authenticated
+        # user, times concurrent requests, is a one-request OOM. This reads at
+        # most the ceiling plus one byte and refuses anything past it.
+        content = await read_upload_bounded(file)
+        filename = file.filename or "image.jpg"
 
     if idempotency_key is not None:
         return await _idempotent_upload(
@@ -189,6 +214,7 @@ async def upload_issue(
             key=idempotency_key,
             filename=filename,
             content=content,
+            image_url=image_url,
             lat_val=latitude,
             lon_val=longitude,
             description=description,
@@ -200,6 +226,7 @@ async def upload_issue(
         user=user,
         filename=filename,
         content=content,
+        image_url=image_url,
         lat_val=latitude,
         lon_val=longitude,
         description=description,
@@ -225,7 +252,8 @@ async def _idempotent_upload(
     user: User,
     key: str,
     filename: str,
-    content: bytes,
+    content: bytes | None,
+    image_url: str | None,
     lat_val: float,
     lon_val: float,
     description: str,
@@ -253,7 +281,16 @@ async def _idempotent_upload(
     if not key or len(key) > MAX_KEY_LENGTH:
         raise BadRequestError(f"Idempotency-Key must be between 1 and {MAX_KEY_LENGTH} characters.")
 
-    request_hash = hash_request(user.id, lat_val, lon_val, description, force, filename, content)
+    request_hash = hash_request(
+        user.id,
+        lat_val,
+        lon_val,
+        description,
+        force,
+        filename,
+        content,
+        image_url=image_url,
+    )
 
     record = await get_record(db, user.id, key)
     if record is not None:
@@ -282,6 +319,7 @@ async def _idempotent_upload(
             user=user,
             filename=filename,
             content=content,
+            image_url=image_url,
             lat_val=lat_val,
             lon_val=lon_val,
             description=description,
@@ -300,21 +338,45 @@ async def _execute_upload(
     db: AsyncSession,
     user: User,
     filename: str,
-    content: bytes,
+    content: bytes | None,
+    image_url: str | None,
     lat_val: float,
     lon_val: float,
     description: str,
     force: bool,
 ) -> IssueResponse:
     svc = IssueService(db)
-    svc.validate_image(filename, content)
 
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    ext = filename.split(".")[-1]
-    stored_name = f"{uuid.uuid4().hex}.{ext}"
-    filepath = UPLOAD_DIR / stored_name
-    await asyncio.to_thread(filepath.write_bytes, content)
-    image_url = f"/uploads/issues/{stored_name}"
+    if image_url is None:
+        if content is None:
+            raise BadRequestError("Provide either file or image_url.")
+        svc.validate_image(filename, content)
+
+        ext = filename.split(".")[-1]
+        stored_name = f"{uuid.uuid4().hex}.{ext}"
+        image_url = f"/uploads/issues/{stored_name}"
+        await put_upload(image_url, content)
+    else:
+        # Direct upload: the browser already PUT the bytes to object storage.
+        # Read them from there for validation and ML inference. A forged key
+        # cannot get here — /uploads/presign signed it for this exact user.
+        try:
+            content = await get_upload(image_url)
+        except UploadNotFoundError as exc:
+            raise BadRequestError("Uploaded image was not found. Please retry.") from exc
+        try:
+            svc.validate_image(filename, content)
+        except Exception:
+            # A presigned PUT can contain anything; do not leave a corrupt or
+            # oversized object stranded in the bucket.
+            try:
+                await delete_upload(image_url)
+            except Exception:  # best-effort cleanup  # nosec B110
+                pass
+            raise
+
+    if content is None:  # narrows the optional for mypy; unreachable by design
+        raise BadRequestError("Provide either file or image_url.")
 
     vision = await asyncio.to_thread(_classify_image, content)
     gate = gate_decision(vision, description, force)
@@ -628,7 +690,7 @@ async def serve_media(
     import mimetypes
 
     from fastapi import HTTPException
-    from fastapi.responses import FileResponse
+    from fastapi.responses import Response
 
     allowed_suffixes = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".heic", ".heif"}
 
@@ -640,25 +702,24 @@ async def serve_media(
     if not parts or any(p == ".." for p in parts):
         raise HTTPException(status_code=400, detail="Invalid path.")
 
-    # Confine to uploads/: resolve and verify containment rather than trusting
-    # the join, so an unexpected symlink cannot walk out of the tree either.
-    root = Path("uploads").resolve()
-    target = (root / Path(*parts)).resolve()
-    if not target.is_relative_to(root):
-        raise HTTPException(status_code=400, detail="Invalid path.")
-
-    if target.suffix.lower() not in allowed_suffixes:
-        raise HTTPException(status_code=404, detail="Not found.")
-
-    if not target.is_file():
+    key = "/".join(parts)
+    suffix = f".{parts[-1].rsplit('.', 1)[-1].lower()}" if "." in parts[-1] else ""
+    if suffix not in allowed_suffixes:
         raise HTTPException(status_code=404, detail="Not found.")
 
     # Content type is derived from the (allowlisted) extension, never from
-    # client-supplied headers, so a crafted request cannot talk the browser
-    # into treating the bytes as HTML or SVG: the two types that execute
-    # script. Belt and braces below the allowlist.
-    media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+    # client-supplied headers or object metadata, so a crafted request cannot
+    # talk the browser into treating the bytes as HTML or SVG.
+    media_type = mimetypes.guess_type(parts[-1])[0] or "application/octet-stream"
     if media_type.startswith("text/") or media_type in {"image/svg+xml", "application/xhtml+xml"}:
         raise HTTPException(status_code=404, detail="Not found.")
 
-    return FileResponse(target, media_type=media_type)
+    try:
+        payload = await get_upload(key)
+    except UploadNotFoundError:
+        raise HTTPException(status_code=404, detail="Not found.")
+    except Exception as exc:
+        logger.warning("Object storage read failed for %s: %s", key, exc)
+        raise HTTPException(status_code=503, detail="Media temporarily unavailable.")
+
+    return Response(content=payload, media_type=media_type)

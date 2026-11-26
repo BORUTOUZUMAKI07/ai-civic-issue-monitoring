@@ -451,9 +451,10 @@ jobs:
         run: |
           docker buildx build \
             --cache-from type=gha --cache-to type=gha,mode=max \
+            --file backend/Dockerfile \
             --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}/backend:${{ github.sha }} \
             --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}/backend:latest \
-            --push ./backend
+            --push .
       - name: Build and push frontend
         shell: bash
         run: |
@@ -523,13 +524,11 @@ jobs:
         if: steps.creds.outputs.enabled == 'true'
         uses: docker/build-push-action@v5
         with:
-          # Context is `./backend`, not the repository root, and the file is
-          # `backend/Dockerfile`. The old `context: .` + `file: docker/Dockerfile`
-          # pair pointed at an orphaned Dockerfile whose COPY paths no longer
-          # matched anything, so every tagged release failed to build its
-          # backend image. This mirrors the GHCR job above, which already
-          # builds with the repository root's `./backend` as context.
-          context: ./backend
+          # Context is the repository root so the build can include the real
+          # ONNX weights from models/model.onnx. The Dockerfile lives under
+          # backend/ and its COPY paths are root-relative accordingly. This
+          # mirrors the GHCR job above and Render's render.yaml.
+          context: .
           file: ./backend/Dockerfile
           push: true
           tags: |

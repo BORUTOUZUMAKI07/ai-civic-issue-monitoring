@@ -93,7 +93,7 @@ DESCRIPTIONS = {
 
 # Sensitive job env: pushed as Prefect Secret *block references*, never as
 # literal values. Prefect Cloud stores `job_variables.env` verbatim on the
-# deployment record, so putting the Aiven / MongoDB / DagsHub credentials there
+# deployment record, so putting the Neon / MongoDB / DagsHub credentials there
 # leaked them into `prefect deployment inspect` and the Prefect Cloud API.
 # The worker resolves `{{ prefect.blocks.secret.<name> }}` server-side
 # just before the container starts (see prefect.workers.base, which runs
