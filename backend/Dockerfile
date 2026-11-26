@@ -8,7 +8,7 @@ COPY backend/pyproject.toml ./
 
 RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch>=2.5.0,<3" "torchvision>=0.20.0,<1" && \
     pip install --no-cache-dir ".[ml,observability]" && \
-    pip install --no-cache-dir "aiosqlite>=0.20.0"
+    pip install --no-cache-dir "aiosqlite>=0.20.0" "cryptography>=43.0.0"
 
 COPY backend/src src
 COPY backend/tests tests
