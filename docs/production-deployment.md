@@ -4,9 +4,13 @@ This is the single deployment path for CivicPulse. Everything is on a free tier:
 
 ```text
 Users
-  ├── https://civicpulse.vercel.app        Next.js frontend + /api/proxy BFF (Vercel Hobby)
-  └── wss://civicpulse-api.onrender.com/api/v1/ws/issues
+  ├── https://civicpulse-civic-ai8.vercel.app        Next.js frontend + /api/proxy BFF (Vercel Hobby)
+  └── wss://civicpulse-api-wknx.onrender.com/api/v1/ws/issues
                                              WebSocket directly to FastAPI
+
+`civicpulse.vercel.app` belongs to a different Vercel project, so this deployment
+uses the team's stable production alias above. Vercel Authentication is disabled
+on the project so that alias is publicly reachable.
 
 Render free web service
   └── BACKEND_URL=https://civicpulse-api-wknx.onrender.com for the Vercel BFF
@@ -65,8 +69,8 @@ Already set in `render.yaml`, so do not re-enter unless you change them later:
 | :--- | :--- |
 | `ENVIRONMENT` | `production` |
 | `COOKIE_SECURE` | `true` |
-| `FRONTEND_URL` | `https://civicpulse.vercel.app` |
-| `CORS_ORIGINS` | `https://civicpulse.vercel.app` |
+| `FRONTEND_URL` | `https://civicpulse-civic-ai8.vercel.app` |
+| `CORS_ORIGINS` | `https://civicpulse-civic-ai8.vercel.app` |
 | `STORAGE_BACKEND` | `s3` |
 | `NEON_STORAGE_BUCKET` | `uploads` |
 | `AWS_REGION` | `us-east-2` |
@@ -180,7 +184,7 @@ PUT directly to it:
 ```json
 [
   {
-    "AllowedOrigins": ["https://civicpulse.vercel.app", "http://localhost:3000"],
+    "AllowedOrigins": ["https://civicpulse-civic-ai8.vercel.app", "http://localhost:3000"],
     "AllowedMethods": ["PUT"],
     "AllowedHeaders": ["content-type"],
     "ExposeHeaders": ["ETag"],
@@ -202,8 +206,8 @@ The bucket stays private. Users still fetch images through the authenticated
 Register these real OAuth callback URLs with Google/GitHub:
 
 ```text
-https://civicpulse.vercel.app/api/proxy/auth/oauth/google/callback
-https://civicpulse.vercel.app/api/proxy/auth/oauth/github/callback
+https://civicpulse-civic-ai8.vercel.app/api/proxy/auth/oauth/google/callback
+https://civicpulse-civic-ai8.vercel.app/api/proxy/auth/oauth/github/callback
 ```
 
 ### Step 4 — Prefect Cloud
