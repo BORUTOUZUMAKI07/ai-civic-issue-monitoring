@@ -81,7 +81,9 @@ async def _collect_health() -> tuple[bool, dict[str, bool]]:
         from src.ml.inference.predict import get_model_info
 
         ml_info = get_model_info()
-        ml_ok = bool(ml_info.get("model_exists", False))
+        # Inference prefers the ONNX artifact when present, while host-side
+        # installs may only have model.pth. Either one is a loadable model.
+        ml_ok = bool(ml_info.get("onnx_exists", False) or ml_info.get("model_exists", False))
     except Exception:  # optional subsystem absent -> reported as down  # nosec B110
         pass
     # Postgres alone gates readiness. See the docstring: Redis, MongoDB and the
