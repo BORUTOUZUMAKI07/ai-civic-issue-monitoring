@@ -45,4 +45,7 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD python -c "import urllib.request, os, sys; port = os.environ.get('PORT', '8000'); sys.exit(0 if urllib.request.urlopen(f'http://0.0.0.0:{port}/health',timeout=3).status==200 else 1)" || exit 1
 # Render injects PORT (typically 10000). Respect it instead of hardcoding 8000.
-CMD ["sh", "-c", "exec uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Render injects PORT; run idempotent migrations before serving. This lives in
+# the image CMD because Render's Docker Command field cannot reliably run a
+# chained shell command (preDeployCommand is paid-only).
+CMD ["sh", "-c", "python -m alembic -c /app/alembic.ini upgrade head && exec uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

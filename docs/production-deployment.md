@@ -9,7 +9,7 @@ Users
                                              WebSocket directly to FastAPI
 
 Render free web service
-  └── BACKEND_URL=https://civicpulse-api.onrender.com for the Vercel BFF
+  └── BACKEND_URL=https://civicpulse-api-wknx.onrender.com for the Vercel BFF
 
 FastAPI backend
   ├── Neon Postgres       users, issues, wards, admin, idempotency
@@ -94,8 +94,8 @@ Location: **Project → Settings → Environment Variables**.
 
 | Variable | Value |
 | :--- | :--- |
-| `BACKEND_URL` | `https://civicpulse-api.onrender.com` |
-| `NEXT_PUBLIC_API_URL` | `https://civicpulse-api.onrender.com` |
+| `BACKEND_URL` | `https://civicpulse-api-wknx.onrender.com` |
+| `NEXT_PUBLIC_API_URL` | `https://civicpulse-api-wknx.onrender.com` |
 
 Both are the public Render backend URL. Vercel cannot reach a private service
 name, and the browser needs the public URL for WebSockets.
@@ -155,19 +155,20 @@ Use the `github` remote, not `origin`.
    - For `REDIS_URL`, paste the Upstash **TCP** `rediss://...` URL.
    - Do not paste the HTTPS REST URL.
 5. Delete `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` if they exist.
-6. Render starts the container with:
+6. The image `CMD` runs migrations and then uvicorn:
 
    ```text
-   python -m alembic -c /app/alembic.ini upgrade head && uvicorn ...
+   python -m alembic -c /app/alembic.ini upgrade head && exec uvicorn ...
    ```
 
-   This replaces `preDeployCommand`, which is paid-only on Render. Since the DB
-   is already at Alembic head, this is normally a no-op.
+   This replaces `preDeployCommand`, which is paid-only on Render, and avoids
+   Render's `dockerCommand` shell-parsing issue. Since the DB is already at
+   Alembic head, migrations are normally a no-op.
 
-Verify after deploy:
+Verify after deploy (use the exact URL Render shows on the service page):
 
 ```text
-GET https://civicpulse-api.onrender.com/health → 200
+GET https://civicpulse-api-wknx.onrender.com/health → 200
 ```
 
 The built image contains `/app/models/model.onnx`, so production uses the

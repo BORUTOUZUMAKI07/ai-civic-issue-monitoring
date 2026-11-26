@@ -19,9 +19,9 @@ services:
     healthCheckPath: /health
     dockerContext: .
     dockerfilePath: ./backend/Dockerfile
-    # preDeployCommand is paid-only on Render, so run migrations here instead.
-    # Alembic upgrade head is idempotent: on an already-migrated DB it is a no-op.
-    dockerCommand: '/bin/sh -c "python -m alembic -c /app/alembic.ini upgrade head && exec uvicorn src.main:app --host 0.0.0.0 --port $PORT"'
+    # Migrations run from the image CMD (see backend/Dockerfile). Render's
+    # preDeployCommand is paid-only, and its Docker Command field mis-parses
+    # chained shell commands, so the image owns the startup sequence.
     envVars:
       - key: ENVIRONMENT
         value: production
