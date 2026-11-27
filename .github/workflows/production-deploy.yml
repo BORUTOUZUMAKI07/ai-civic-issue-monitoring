@@ -34,6 +34,12 @@ concurrency:
 jobs:
   resolve:
     name: Resolve main tip
+    # `completed` fires for failed and cancelled CI runs too. Nothing in this
+    # workflow may run unless CI actually succeeded (or an operator dispatched
+    # it deliberately).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.tip.outputs.sha }}
@@ -73,7 +79,9 @@ jobs:
   deploy:
     name: Deploy Render + Vercel
     needs: resolve
-    if: needs.resolve.outputs.skip != 'true'
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && needs.resolve.outputs.skip != 'true')
     runs-on: ubuntu-latest
     env:
       RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
