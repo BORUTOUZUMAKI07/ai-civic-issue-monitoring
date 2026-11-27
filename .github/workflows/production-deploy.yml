@@ -1,0 +1,146 @@
+name: Deploy production
+
+# Push-to-main production deployment.
+#
+# This workflow runs only AFTER the `CI` workflow succeeds on main. Using
+# `workflow_run` (rather than a second `push` trigger) means a red or cancelled
+# CI run can never deploy. Both platforms are triggered through branch-scoped
+# deploy hook URLs kept as GitHub secrets; no broad platform token is needed.
+#
+# Required repository secrets:
+#   RENDER_DEPLOY_HOOK_URL  Render -> civicpulse-api -> Settings -> Deploy Hook
+#   VERCEL_DEPLOY_HOOK_URL  Vercel -> frontend project -> Deploy Hooks (main)
+#
+# See docs/production-deployment.md for setup and verification steps.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  # Operator escape hatch for a transient hook failure: redeploys the current
+  # main tip without requiring a new commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Serialize deploys. Never cancel one halfway through: both platforms must
+# finish accepting the deploy before a newer one is triggered.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve main tip
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.tip.outputs.sha }}
+      skip: ${{ steps.stale.outputs.skip }}
+    steps:
+      - name: Resolve current main tip
+        id: tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          sha="$(gh api "repos/$REPO/commits/main" --jq .sha)"
+          if [ -z "$sha" ]; then
+            echo "::error::Could not resolve refs/heads/main"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Current main tip: $sha"
+
+      # CI cancels superseded runs, so this is normally unnecessary. It closes
+      # the gap where a newer push lands between CI finishing and this workflow
+      # starting: deploying the older commit could ship untested code on top.
+      - name: Skip a CI commit that is no longer main
+        id: stale
+        if: github.event_name == 'workflow_run'
+        env:
+          CI_SHA: ${{ github.event.workflow_run.head_sha }}
+          DEPLOY_SHA: ${{ steps.tip.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$CI_SHA" != "$DEPLOY_SHA" ]; then
+            echo "::notice::CI validated $CI_SHA, but main now points at $DEPLOY_SHA. Skipping; the newer CI run owns this deploy."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    name: Deploy Render + Vercel
+    needs: resolve
+    if: needs.resolve.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    env:
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+      VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+    steps:
+      - name: Verify deploy secrets are configured
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in RENDER_DEPLOY_HOOK_URL VERCEL_DEPLOY_HOOK_URL; do
+            if [ -z "$(printenv "$name" 2>/dev/null)" ]; then
+              echo "::error::$name is not configured. Add it under Settings -> Secrets and variables -> Actions. See docs/production-deployment.md."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Production deployment aborted; no platform was contacted."
+            exit 1
+          fi
+          echo "Both deploy hooks are configured."
+
+      - name: Trigger Render backend deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --request POST \
+            --output /tmp/render-deploy.json --write-out '%{http_code}' \
+            "$RENDER_DEPLOY_HOOK_URL")"
+          case "$code" in
+            200|202)
+              echo "Render deploy accepted (HTTP $code)."
+              ;;
+            *)
+              echo "::error::Render deploy hook failed (HTTP $code)."
+              sed -n '1,20p' /tmp/render-deploy.json || true
+              exit 1
+              ;;
+          esac
+
+      - name: Trigger Vercel frontend deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --request POST \
+            --output /tmp/vercel-deploy.json --write-out '%{http_code}' \
+            "$VERCEL_DEPLOY_HOOK_URL")"
+          case "$code" in
+            200|202|204)
+              echo "Vercel production deploy accepted (HTTP $code)."
+              ;;
+            *)
+              echo "::error::Vercel deploy hook failed (HTTP $code)."
+              sed -n '1,20p' /tmp/vercel-deploy.json || true
+              exit 1
+              ;;
+          esac
+
+      - name: Summarize
+        env:
+          DEPLOY_SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          {
+            echo "### Production deployment triggered"
+            echo
+            echo "- Commit: \`$DEPLOY_SHA\`"
+            echo "- Backend: Render \`civicpulse-api\`"
+            echo "- Frontend: Vercel production alias"
+            echo "- Verify with \`gh workflow run smoke.yml\` once both builds are READY"
+          } >> "$GITHUB_STEP_SUMMARY"

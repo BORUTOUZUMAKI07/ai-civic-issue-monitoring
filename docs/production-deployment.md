@@ -150,7 +150,60 @@ two REST variables empty.
 
 ---
 
-## 2. Deploy order
+## 2. Automatic deployment on push to main
+
+`.github/workflows/production-deploy.yml` deploys production **after CI succeeds**
+on `main`:
+
+```text
+push to main → CI (all gates green) → Deploy production → Render + Vercel
+```
+
+It uses `workflow_run`, not a second `push` trigger, so a red or cancelled CI
+run can never deploy. CI already cancels superseded runs; the workflow also
+skips a CI commit that is no longer the tip of `main`, leaving that deploy to
+the newer CI run.
+
+### Required GitHub secrets
+
+Repository → Settings → Secrets and variables → Actions → New repository secret.
+
+| Secret | Where to get it |
+| :--- | :--- |
+| `RENDER_DEPLOY_HOOK_URL` | Render → `civicpulse-api` → Settings → Deploy → Deploy Hook (`https://api.render.com/deploy/...`) |
+| `VERCEL_DEPLOY_HOOK_URL` | Vercel → canonical frontend project → Settings → Git → Deploy Hooks → create a hook for branch `main` |
+
+Both URLs are credentials. Never commit them or paste them into an issue. The
+workflow checks for them before contacting either platform and fails with a
+named error if one is missing; it never prints the values.
+
+The hooks are branch-scoped: Render's service tracks `main`, and the Vercel hook
+is created for `main`, so each deploy builds the current `main` tip. Do **not**
+also enable platform-native auto-deploy for that branch, or one push will start
+two deploys.
+
+### Manual re-trigger
+
+Actions → **Deploy production** → Run workflow. This deploys the current `main`
+tip without a new commit, which is useful after a transient hook failure. The
+automatic path always requires CI to be green.
+
+### Verify after a deploy
+
+```text
+GET https://civicpulse-api-wknx.onrender.com/health           → 200
+GET https://civicpulse-api-wknx.onrender.com/health/telemetry → 200
+GET https://civicpulse-civic-ai8.vercel.app                   → 200
+```
+
+Render free services sleep after 15 minutes, so the first request may take a
+minute to wake the backend. For the full authenticated checks, run
+`gh workflow run smoke.yml` with `base_url=https://civicpulse-civic-ai8.vercel.app`
+once both builds are `READY`.
+
+---
+
+## 3. Deploy order
 
 ### Step 1 — Push the production files
 
@@ -254,7 +307,7 @@ DagsHub S3 remains the DVC/ML artifact remote. It is not used for app uploads.
 
 ---
 
-## 3. Bootstrap status — already done, do not repeat
+## 4. Bootstrap status — already done, do not repeat
 
 The hosted Neon database was verified locally:
 
@@ -271,7 +324,7 @@ admins should be created through the existing admin API.
 
 ---
 
-## 4. Scale fixes already implemented
+## 5. Scale fixes already implemented
 
 - **WebSockets:** every event is published once to Redis
   (`civicpulse:issue-updates`); each backend instance has a subscriber that
@@ -292,7 +345,7 @@ admins should be created through the existing admin API.
 
 ---
 
-## 5. Security rule
+## 6. Security rule
 
 Public: frontend URL and backend API URL.
 
