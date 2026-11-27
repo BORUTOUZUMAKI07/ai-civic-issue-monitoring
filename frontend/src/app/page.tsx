@@ -261,7 +261,7 @@ export default function LandingPage() {
       {/* Features */}
       <section id="features" className="mx-auto max-w-6xl px-6 py-20 md:py-24">
         <ScrollReveal className="mx-auto mb-14 max-w-2xl text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">
             Platform
           </p>
           <h2 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
@@ -300,7 +300,7 @@ export default function LandingPage() {
       {/* Capabilities */}
       <section className="border-y border-border/60 bg-card/50">
         <div className="mx-auto max-w-6xl px-6 py-14">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary text-center mb-8">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300 text-center mb-8">
             Built for Vadodara Municipal Corporation
           </p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -317,7 +317,7 @@ export default function LandingPage() {
       {/* How it works */}
       <section id="how" className="mx-auto max-w-6xl px-6 py-20 md:py-24">
         <ScrollReveal className="mx-auto mb-14 max-w-2xl text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">
             How it works
           </p>
           <h2 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
@@ -397,7 +397,7 @@ export default function LandingPage() {
           <p className="text-sm text-muted-foreground">
             AI Urban Issue Intelligence · Vadodara Municipal
           </p>
-          <p className="text-xs text-muted-foreground/70">
+          <p className="text-xs text-muted-foreground">
             © {new Date().getFullYear()} CivicPulse
           </p>
         </div>

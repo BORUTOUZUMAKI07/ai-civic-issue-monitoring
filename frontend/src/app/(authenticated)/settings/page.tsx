@@ -66,7 +66,7 @@ function InfoRow({
       </div>
       <div className="min-w-0">
         <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="truncate text-sm font-medium capitalize">{value}</p>
+        <p className="truncate text-sm font-medium">{value}</p>
       </div>
     </div>
   );

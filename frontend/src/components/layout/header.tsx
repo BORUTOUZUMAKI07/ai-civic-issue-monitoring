@@ -192,7 +192,6 @@ export function Header({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
             <Button
               variant="ghost"
               className="flex items-center gap-2 rounded-lg px-2"
-              aria-label="Account menu"
             >
               <Avatar size="sm" className="ring-1 ring-border">
                 <AvatarFallback className="bg-gradient-to-br from-emerald-500 to-teal-500 text-white">
