@@ -145,14 +145,19 @@ def _old_doc(doc_id: int) -> dict:
 
 
 def test_archival_is_idempotent_on_retry(_stub_archival) -> None:
-    data = {"audit_logs": [_old_doc(1)]}
+    # Capture the source doc once: archive_old_logs preserves it verbatim via
+    # `$setOnInsert`, so the expected copy must carry the *same* timestamp.
+    # Rebuilding `_old_doc(1)` here generated a fresh microsecond value and
+    # made this test fail intermittently for reasons unrelated to the flow.
+    doc = _old_doc(1)
+    data = {"audit_logs": [dict(doc)]}
     _stub_archival(data)
 
     assert archival.archive_old_logs.fn("mongodb://fake") == 1
     assert archival.archive_old_logs.fn("mongodb://fake") == 0
 
     assert data["audit_logs"] == []
-    assert data["archived_audit_logs"] == [_old_doc(1)]
+    assert data["archived_audit_logs"] == [doc]
 
 
 def test_archival_retry_after_partial_write_does_not_duplicate(_stub_archival) -> None:
