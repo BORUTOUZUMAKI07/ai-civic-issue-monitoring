@@ -27,6 +27,7 @@ from __future__ import annotations
 import base64
 import logging
 import warnings
+from datetime import datetime, timezone
 from typing import Any
 
 from src.core.config import settings
@@ -39,6 +40,19 @@ _otlp_trace_provider: Any = None
 _otlp_metrics_provider: Any = None
 _http_server_requests: Any = None
 _http_server_duration: Any = None
+
+# Last startup handoff proof, exposed through /health/telemetry and queryable in
+# the structured log event emitted by verify_startup_telemetry(). The app is
+# deliberately fail-open: this status is diagnostic only and never gates traffic.
+_startup_telemetry_status: dict[str, Any] = {
+    "status": "not_checked",
+    "checked_at": None,
+    "enabled": False,
+    "endpoint_configured": False,
+    "traces_ok": False,
+    "metrics_ok": False,
+    "logs_ok": False,
+}
 
 
 def _otlp_base_endpoint() -> str | None:
@@ -366,3 +380,124 @@ def shutdown_otlp_metrics() -> None:
         provider.shutdown()
     except Exception as exc:  # noqa: BLE001 - teardown must never break shutdown
         logger.warning("OTLP metric provider shutdown failed: %s", exc)
+
+
+def _flush_provider(provider: Any, signal: str) -> bool:
+    """Force one synchronous export and report whether the SDK accepted it.
+
+    ``force_flush`` returns the processors' aggregate success, so a true result
+    means the OTLP exporter got a successful response from the receiver. That is
+    the strongest proof available without querying the vendor backend, and it is
+    exactly the check a fail-open pipeline otherwise lacks.
+    """
+    if provider is None:
+        return False
+    try:
+        return bool(provider.force_flush(timeout_millis=10_000))
+    except TypeError:  # older SDKs do not take the timeout keyword
+        try:
+            return bool(provider.force_flush())
+        except Exception as exc:  # noqa: BLE001 - verification must stay fail-open
+            logger.warning("Startup %s flush failed: %s", signal, exc)
+            return False
+    except Exception as exc:  # noqa: BLE001 - verification must stay fail-open
+        logger.warning("Startup %s flush failed: %s", signal, exc)
+        return False
+
+
+def get_startup_telemetry_status() -> dict[str, Any]:
+    """A copy of the most recent startup handoff verification status."""
+    return dict(_startup_telemetry_status)
+
+
+def verify_startup_telemetry() -> dict[str, Any]:
+    """Prove that each enabled OTLP signal reached its receiver at startup.
+
+    A fail-open telemetry pipeline can otherwise look healthy forever while
+    silently dropping every span, metric and log. This emits one probe per
+    signal, force-flushes the corresponding provider, records the result in a
+    structured `startup_telemetry_verification` log event, and stores it for
+    /health/telemetry. It never raises and never gates traffic.
+    """
+    global _startup_telemetry_status
+
+    checked_at = datetime.now(timezone.utc).isoformat()
+    enabled = bool(settings.NEW_RELIC_ENABLED)
+    endpoint_configured = bool(_otlp_base_endpoint())
+    traces_ok = False
+    metrics_ok = False
+    logs_ok = False
+
+    if enabled and endpoint_configured:
+        # Traces: a real span on the real provider, flushed immediately.
+        if _otlp_trace_provider is not None:
+            try:
+                from opentelemetry import trace
+
+                tracer = trace.get_tracer("civicpulse.startup")
+                with tracer.start_as_current_span("civicpulse.startup.verification") as span:
+                    span.set_attribute("civicpulse.startup.probe", True)
+                    span.set_attribute("service.version", settings.VERSION)
+                traces_ok = _flush_provider(_otlp_trace_provider, "trace")
+            except Exception as exc:  # noqa: BLE001 - fail-open seam
+                logger.warning("Startup trace probe failed: %s", exc)
+
+        # Metrics: one low-cardinality counter sample, flushed immediately.
+        if _http_server_requests is not None:
+            try:
+                _http_server_requests.add(
+                    1,
+                    {
+                        "http.request.method": "GET",
+                        "http.route": "/startup/telemetry-verification",
+                        "http.response.status_code": 200,
+                    },
+                )
+                metrics_ok = _flush_provider(_otlp_metrics_provider, "metric")
+            except Exception as exc:  # noqa: BLE001 - fail-open seam
+                logger.warning("Startup metric probe failed: %s", exc)
+
+        # Logs: one structured event on the same root logger the app uses.
+        if _otlp_handler is not None:
+            try:
+                logger.info(
+                    "Startup telemetry verification probe",
+                    extra={
+                        "event_type": "startup_telemetry_probe",
+                        "telemetry_signal": "logs",
+                        "service_version": settings.VERSION,
+                    },
+                )
+                logs_ok = _flush_provider(_otlp_provider, "log")
+            except Exception as exc:  # noqa: BLE001 - fail-open seam
+                logger.warning("Startup log probe failed: %s", exc)
+
+    active = enabled and endpoint_configured
+    telemetry_ok = active and traces_ok and metrics_ok and logs_ok
+    status = "ok" if telemetry_ok else ("degraded" if active else "disabled")
+    result: dict[str, Any] = {
+        "status": status,
+        "checked_at": checked_at,
+        "enabled": enabled,
+        "endpoint_configured": endpoint_configured,
+        "traces_ok": traces_ok,
+        "metrics_ok": metrics_ok,
+        "logs_ok": logs_ok,
+        "telemetry_ok": telemetry_ok,
+    }
+    _startup_telemetry_status = result
+
+    logger.info(
+        "Startup telemetry verification: %s",
+        status,
+        extra={
+            "event_type": "startup_telemetry_verification",
+            "telemetry_ok": telemetry_ok,
+            "otel_traces_ok": traces_ok,
+            "otel_metrics_ok": metrics_ok,
+            "otel_logs_ok": logs_ok,
+            "otel_enabled": enabled,
+            "otel_endpoint_configured": endpoint_configured,
+        },
+    )
+    return result

@@ -20,11 +20,13 @@ from src.core.config import settings
 from src.core.database import check_db_health, engine, init_db
 from src.core.mongodb import init_mongodb
 from src.core.observability import (
+    get_startup_telemetry_status,
     setup_otlp_metrics,
     setup_otlp_tracing,
     shutdown_otlp_log_handler,
     shutdown_otlp_metrics,
     shutdown_otlp_tracing,
+    verify_startup_telemetry,
 )
 from src.core.redis import check_redis_health, init_redis
 from src.domains.admin.api.routes import router as admin_router
@@ -35,6 +37,7 @@ from src.domains.engineers.api.routes import router as engineers_router
 from src.domains.issues.api.routes import router as issues_router
 from src.domains.ml.api.routes import router as ml_router
 from src.domains.notifications.api.routes import router as notifications_router
+from src.domains.observability.api.routes import router as observability_router
 from src.domains.resolution.api.routes import router as resolution_router
 from src.domains.uploads.api.routes import router as uploads_router
 from src.domains.wards.api.routes import router as wards_router
@@ -50,6 +53,41 @@ from src.middleware import (
 from src.shared.errors.base import AppError
 
 logger = logging.getLogger("civicpulse")
+
+# Health probes run frequently. Logging on every degraded probe would drown the
+# structured stream, so only transitions are logged; the current snapshot stays
+# available on /health for dashboards that want the instantaneous value.
+_last_health_components: dict[str, bool] | None = None
+
+
+def _log_health_transitions(components: dict[str, bool]) -> None:
+    global _last_health_components
+    if _last_health_components is None:
+        _last_health_components = dict(components)
+        for dependency, healthy in components.items():
+            if not healthy:
+                logger.warning(
+                    "Dependency degraded at startup: %s",
+                    dependency,
+                    extra={"event_type": "dependency_degraded", "dependency": dependency, "healthy": healthy},
+                )
+        return
+
+    for dependency, healthy in components.items():
+        previous = _last_health_components.get(dependency)
+        if previous is None or previous == healthy:
+            continue
+        logger.warning(
+            "Dependency %s %s",
+            dependency,
+            "recovered" if healthy else "degraded",
+            extra={
+                "event_type": "dependency_recovered" if healthy else "dependency_degraded",
+                "dependency": dependency,
+                "healthy": healthy,
+            },
+        )
+    _last_health_components = dict(components)
 
 
 async def _collect_health() -> tuple[bool, dict[str, bool]]:
@@ -171,6 +209,7 @@ def create_app(lifespan_override=None):
         # health, so a not-yet-connected instance is pulled from rotation
         # without being restarted.
         ready, components = await _collect_health()
+        _log_health_transitions(components)
         return JSONResponse(
             status_code=200 if ready else 503,
             content={"status": "ready" if ready else "not_ready", **components},
@@ -183,10 +222,23 @@ def create_app(lifespan_override=None):
         # `/health/live` and `/health/ready` are the split probes for platform
         # orchestrators; `/health` stays the union of the two for back-compat.
         ready, components = await _collect_health()
+        _log_health_transitions(components)
+        if not ready:
+            logger.warning(
+                "Health check failed",
+                extra={"event_type": "health_check_failure", "ready": ready, **components},
+            )
         return JSONResponse(
             status_code=200 if ready else 503,
             content={"status": "healthy" if ready else "unhealthy", **components},
         )
+
+    @app.get("/health/telemetry")
+    async def telemetry_health():
+        # Diagnostic only: observability is fail-open, so a broken sink must not
+        # remove a working instance from rotation. Alerts read the matching
+        # structured startup_telemetry_verification event instead.
+        return JSONResponse(status_code=200, content=get_startup_telemetry_status())
 
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(issues_router, prefix="/api/v1")
@@ -199,6 +251,7 @@ def create_app(lifespan_override=None):
     app.include_router(audit_router, prefix="/api/v1")
     app.include_router(ml_router, prefix="/api/v1")
     app.include_router(uploads_router, prefix="/api/v1")
+    app.include_router(observability_router, prefix="/api/v1")
 
     # NOTE: uploads are served by the authenticated route
     # ``GET /api/v1/issues/media/{path}`` rather than a public static mount.
@@ -215,6 +268,10 @@ def create_app(lifespan_override=None):
 async def lifespan(app: FastAPI):
     setup_logging()
     logger.info("Starting CivicPulse...")
+
+    # Prove the OTLP handoff before traffic arrives. Fail-open, diagnostic only:
+    # a broken sink must not stop the API from booting.
+    verify_startup_telemetry()
 
     try:
         await init_db()

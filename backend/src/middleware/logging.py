@@ -5,14 +5,29 @@ import structlog.contextvars
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
-from src.log_utils import get_logger, log_request_end, log_request_start
+from src.log_utils import get_logger, log_request_end, log_request_exception, log_request_start
 
 logger = get_logger("middleware")
 
 
+def _correlation_id(request: Request) -> str:
+    """Reuse a well-formed caller-supplied ID so browser → BFF → API can be joined.
+
+    An arbitrary header value must never reach structured logs, so anything that
+    is not a UUID is replaced with a freshly generated one.
+    """
+    supplied = request.headers.get("X-Correlation-ID", "").strip()
+    if supplied:
+        try:
+            return str(uuid.UUID(supplied))
+        except ValueError:
+            pass
+    return str(uuid.uuid4())
+
+
 class LoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        correlation_id = str(uuid.uuid4())
+        correlation_id = _correlation_id(request)
         request.state.correlation_id = correlation_id
 
         # Bound once for the whole request, so every log line emitted by any
@@ -25,9 +40,19 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             log_request_start(logger, request.method, request.url.path, correlation_id)
 
             start = time.time()
-            response = await call_next(request)
-            duration_ms = (time.time() - start) * 1000
+            try:
+                response = await call_next(request)
+            except Exception:
+                # Starlette's outer ServerErrorMiddleware turns this into the
+                # 500 response, but by then our request-end log would never run.
+                # Log the traceback here, on the same correlation ID, then re-
+                # raise so normal error handling is unchanged.
+                log_request_exception(
+                    logger, request.method, request.url.path, (time.time() - start) * 1000, correlation_id
+                )
+                raise
 
+            duration_ms = (time.time() - start) * 1000
             log_request_end(logger, request.method, request.url.path, response.status_code, duration_ms, correlation_id)
 
             response.headers["X-Correlation-ID"] = correlation_id

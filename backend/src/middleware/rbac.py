@@ -28,9 +28,10 @@ PATH_MIN_ROLE: tuple[tuple[str, UserRole], ...] = (
 )
 
 # Paths that legitimately accept unauthenticated writes. Everything under
-# /auth/ (login, register, refresh, logout, password reset, 2FA bootstrap) plus
-# the health probe. Matches by prefix so /api/v1/auth/2fa/verify is included.
-UNAUTHENTICATED_PREFIXES = ("/api/v1/auth/",)
+# /auth/ (login, register, refresh, logout, password reset, 2FA bootstrap) and
+# the browser-error intake (anonymous visitors hit error boundaries too).
+# Matches by prefix so /api/v1/auth/2fa/verify is included.
+UNAUTHENTICATED_PREFIXES = ("/api/v1/auth/", "/api/v1/observability/")
 
 
 def _extract_token(request: Request) -> str | None:

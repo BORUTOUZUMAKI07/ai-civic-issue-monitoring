@@ -45,7 +45,7 @@ import structlog
 from src.core.config import settings
 from src.log_utils.redaction import SensitiveDataFilter
 
-__all__ = ["setup_logging", "get_logger", "log_request_start", "log_request_end"]
+__all__ = ["setup_logging", "get_logger", "log_request_start", "log_request_end", "log_request_exception"]
 
 # Marks the handlers this module owns, so setup_logging() can replace them
 # idempotently without ripping out handlers pytest or uvicorn installed on the
@@ -250,6 +250,32 @@ def log_request_end(
             "http_method": method,
             "http_path": path,
             "http_status_code": status_code,
+            "duration_ms": duration_ms,
+        },
+    )
+
+
+def log_request_exception(
+    logger: logging.Logger, method: str, path: str, duration_ms: float, correlation_id: str
+) -> None:
+    """Log an exception that escaped the app, with the same shape as request_end.
+
+    Without this, an unhandled 500 is visible in the RED metric but has no
+    matching structured request log, so the correlation ID cannot be followed
+    from the HTTP response into the traceback.
+    """
+    logger.error(
+        "Unhandled request exception: %s %s (%.2fms)",
+        method,
+        path,
+        duration_ms,
+        exc_info=True,
+        extra={
+            "correlation_id": correlation_id,
+            "event_type": "request_exception",
+            "http_method": method,
+            "http_path": path,
+            "http_status_code": 500,
             "duration_ms": duration_ms,
         },
     )
