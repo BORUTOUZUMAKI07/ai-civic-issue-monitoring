@@ -16,6 +16,7 @@ from src.core.storage import (
     UploadTokenError,
     delete_upload,
     get_upload,
+    get_upload_bounded,
     put_upload,
     verify_upload_token,
 )
@@ -358,10 +359,12 @@ async def _execute_upload(
         await put_upload(image_url, content)
     else:
         # Direct upload: the browser already PUT the bytes to object storage.
-        # Read them from there for validation and ML inference. A forged key
-        # cannot get here — /uploads/presign signed it for this exact user.
+        # Read at most the size cap plus one byte for validation and ML
+        # inference; the object is untrusted until validate_image accepts it.
+        # A forged key cannot get here — /uploads/presign signed it for this
+        # exact user.
         try:
-            content = await get_upload(image_url)
+            content = await get_upload_bounded(image_url)
         except UploadNotFoundError as exc:
             raise BadRequestError("Uploaded image was not found. Please retry.") from exc
         try:

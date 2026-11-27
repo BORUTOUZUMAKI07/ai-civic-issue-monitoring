@@ -9,7 +9,7 @@ from src.core.storage import (
     UploadNotFoundError,
     UploadTokenError,
     delete_upload,
-    get_upload,
+    get_upload_bounded,
     put_upload,
     verify_upload_token,
 )
@@ -61,8 +61,10 @@ async def resolve_issue(
         except UploadTokenError as exc:
             raise BadRequestError(str(exc)) from exc
         filename_in = after_image_url.rsplit("/", 1)[-1]
+        # The presigned object is untrusted: read no more than the validation
+        # cap would ever accept, so an oversized PUT cannot exhaust worker RAM.
         try:
-            content = await get_upload(after_image_url)
+            content = await get_upload_bounded(after_image_url)
         except UploadNotFoundError as exc:
             raise BadRequestError("Uploaded image was not found. Please retry.") from exc
         try:

@@ -128,6 +128,39 @@ async def get_upload(image_url: str) -> bytes:
     return await asyncio.to_thread(target.read_bytes)
 
 
+async def get_upload_bounded(image_url: str, *, limit: int = MAX_UPLOAD_BYTES + 1) -> bytes:
+    """Read at most ``limit`` bytes from storage.
+
+    Direct uploads are validated *after* the browser PUTs them, so the object in
+    the bucket is untrusted. Reading it with ``get_upload`` pulled the whole
+    object into worker memory before ``validate_image`` could reject it. Callers
+    pass the cap plus one byte: an oversized object is detected by the existing
+    size validation without ever being fully buffered.
+    """
+    key = object_key(image_url)
+    if settings.STORAGE_BACKEND == "s3":
+        client = _s3_client()
+        try:
+            response = await asyncio.to_thread(lambda: client.get_object(Bucket=settings.NEON_STORAGE_BUCKET, Key=key))
+        except Exception as exc:
+            response_meta = getattr(exc, "response", None)
+            error = response_meta.get("Error", {}) if isinstance(response_meta, dict) else {}
+            if str(error.get("Code", "")) in {"NoSuchKey", "404", "NotFound"}:
+                raise UploadNotFoundError(key) from exc
+            raise
+        return await asyncio.to_thread(lambda: response["Body"].read(limit))
+
+    target = _local_path(key)
+    if not target.is_file():
+        raise UploadNotFoundError(key)
+
+    def _read() -> bytes:
+        with target.open("rb") as handle:
+            return handle.read(limit)
+
+    return await asyncio.to_thread(_read)
+
+
 async def delete_upload(image_url: str) -> None:
     """Best-effort removal of an upload that failed to be persisted."""
     key = object_key(image_url)

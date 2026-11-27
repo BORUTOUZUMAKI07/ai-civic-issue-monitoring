@@ -207,7 +207,19 @@ async def test_update_status_rejects_invalid_edge_even_for_admin() -> None:
         assignment_repo=_AssignmentRepo(),
     )
     with pytest.raises(InvalidStatusTransition):
-        await service.update_status(issue.id, IssueStatus.resolved.value, _user(2, UserRole.admin))
+        await service.update_status(issue.id, IssueStatus.in_progress.value, _user(2, UserRole.admin))
+
+
+async def test_generic_status_patch_cannot_resolve_without_a_resolution() -> None:
+    issue = _issue(IssueStatus.in_progress)
+    service = IssueService(
+        _Db(issue),
+        issue_repo=_IssueRepo(issue),
+        assignment_repo=_AssignmentRepo(user_id=10),
+    )
+    with pytest.raises(ConflictError, match="resolution endpoint"):
+        await service.update_status(issue.id, IssueStatus.resolved.value, _user(10, UserRole.engineer))
+    assert issue.status is IssueStatus.in_progress
 
 
 async def test_only_owning_engineer_may_resolve() -> None:
@@ -326,6 +338,16 @@ async def test_status_patch_denies_field_worker_and_allows_admin(
         )
         assert allowed.status_code == 200
         assert allowed.json()["status"] == "assigned"
+
+        # Even a valid assigned -> resolved edge cannot be taken through the
+        # generic status route: resolution needs proof and one atomic write.
+        bypass = await client.patch(
+            f"/api/v1/issues/{_ISSUE_ID}/status",
+            json={"status": "resolved"},
+            headers=admin_headers,
+        )
+        assert bypass.status_code == 409
+        assert "resolution endpoint" in bypass.json()["detail"]
 
         conflict = await client.patch(
             f"/api/v1/issues/{_ISSUE_ID}/status",

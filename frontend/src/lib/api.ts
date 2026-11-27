@@ -1,8 +1,18 @@
-const API_BASE = "/api/proxy";
-
 import { reportClientError } from "./client-errors";
 import { newCorrelationId } from "./correlation";
 import { isProtectedPath } from "./protected-paths";
+
+const API_BASE = "/api/proxy";
+
+/**
+ * Upper bound for every browser → BFF request.
+ *
+ * The proxy already times out its backend call, but a hung browser fetch (or a
+ * hung shared refresh) used to leave React Query's `isFetching` true forever,
+ * which rendered an empty page skeleton with no retry affordance. Every fetch
+ * in this module therefore carries an abort signal.
+ */
+const API_TIMEOUT_MS = 10_000;
 
 /**
  * Turn a stored ``image_url`` (``/uploads/issues/x.jpg``) into an authenticated
@@ -33,6 +43,7 @@ async function tryRefresh(): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: "POST",
+      signal: AbortSignal.timeout(API_TIMEOUT_MS),
     });
     return res.ok;
   } catch {
@@ -54,6 +65,7 @@ async function rawFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     res = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers,
+      signal: options.signal ?? AbortSignal.timeout(API_TIMEOUT_MS),
     });
   } catch (err) {
     reportClientError(err, {
@@ -85,6 +97,7 @@ async function rawFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
       const retry = await fetch(`${API_BASE}${path}`, {
         ...options,
         headers,
+        signal: options.signal ?? AbortSignal.timeout(API_TIMEOUT_MS),
       });
       if (retry.ok) {
         if (retry.status === 204) return undefined as T;
