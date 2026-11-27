@@ -42,6 +42,15 @@ async def resolve_issue(
     except (TypeError, ValueError):
         raise BadRequestError(detail="issue_id must be an integer.")
 
+    # Authorize BEFORE accepting any image. Object-level ownership is checked
+    # inside IssueService.create_resolution too; doing it here as well means a
+    # rejected caller never causes an orphaned upload to be written.
+    engineer_repo = EngineerRepository(db)
+    engineer = await engineer_repo.get_by_user_id(user.id)
+    if not engineer:
+        raise NotFoundError(detail="Engineer profile not found for this user.")
+    await svc.check_resolution_permission(issue_pk, engineer.id)
+
     if after_image_url is not None:
         if file is not None:
             raise BadRequestError("Provide either file or after_image_url, not both.")
@@ -89,16 +98,6 @@ async def resolve_issue(
         filename = f"{uuid.uuid4().hex}.{ext}"
         after_image_url = f"/uploads/resolutions/{filename}"
         await put_upload(after_image_url, content)
-
-    engineer_repo = EngineerRepository(db)
-    engineer = await engineer_repo.get_by_user_id(user.id)
-    if not engineer:
-        # Remove the object we just wrote; the caller is being rejected.
-        try:
-            await delete_upload(after_image_url)
-        except Exception:  # best-effort cleanup, non-fatal  # nosec B110
-            pass
-        raise NotFoundError(detail="Engineer profile not found for this user.")
 
     try:
         resolution = await svc.create_resolution(

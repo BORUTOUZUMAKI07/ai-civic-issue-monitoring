@@ -17,6 +17,8 @@ from src.domains.engineers.repositories.ports import EngineerRepositoryPort
 from src.domains.users.models.user import User, UserRole
 from src.domains.users.repositories.ports import UserRepositoryPort
 from src.domains.users.repositories.user_repository import UserRepository
+from src.domains.wards.repositories.ports import WardRepositoryPort
+from src.domains.wards.repositories.ward_repository import WardRepository
 from src.shared.errors import ForbiddenError, NotFoundError
 
 
@@ -28,11 +30,13 @@ class UserService:
         user_repo: UserRepositoryPort | None = None,
         engineer_repo: EngineerRepositoryPort | None = None,
         assignment_repo: AssignmentRepositoryPort | None = None,
+        ward_repo: WardRepositoryPort | None = None,
     ):
         self.db = db
         self.user_repo: UserRepositoryPort = user_repo or UserRepository(db)
         self.engineer_repo: EngineerRepositoryPort = engineer_repo or EngineerRepository(db)
         self.assignment_repo: AssignmentRepositoryPort = assignment_repo or AssignmentRepository(db)
+        self.ward_repo: WardRepositoryPort = ward_repo or WardRepository(db)
 
     async def list_users(
         self,
@@ -82,9 +86,17 @@ class UserService:
 
         if new_role == UserRole.engineer:
             if profile is None:
+                # The role-change request carries no ward. Pick the lowest
+                # seeded ward rather than assuming ward 1 exists — a fresh
+                # deployment may seed different ids, and a hardcoded FK fails
+                # at commit time with an opaque database error. An empty roster
+                # is a clear 404: an engineer without a ward cannot be assigned.
+                wards = await self.ward_repo.list_all()
+                if not wards:
+                    raise NotFoundError("No wards are configured; seed wards before promoting an engineer.")
                 profile = Engineer(
                     user_id=target.id,
-                    ward_id=1,
+                    ward_id=min(ward.id for ward in wards),
                     specialization="general",
                     max_workload=10,
                 )

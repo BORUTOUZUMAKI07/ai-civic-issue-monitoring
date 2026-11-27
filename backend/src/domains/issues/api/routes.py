@@ -20,7 +20,7 @@ from src.core.storage import (
     verify_upload_token,
 )
 from src.domains.issues.models.issue import IssueStatus
-from src.domains.issues.schemas import IssueListResponse, IssueResponse, IssueStatusUpdate
+from src.domains.issues.schemas import AssignRequest, IssueListResponse, IssueResponse, IssueStatusUpdate
 from src.domains.issues.services.issue_service import IssueService
 from src.domains.users.deps import get_current_active_user
 from src.domains.users.models.user import User
@@ -589,17 +589,14 @@ async def get_issue(
 @router.post("/{issue_id}/assign", response_model=IssueResponse)
 async def assign_issue(
     issue_id: int,
-    body: dict,
+    body: AssignRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
     require_admin(user)
     svc = IssueService(db)
     issue = await svc.get_issue(issue_id)
-    engineer_id = body.get("engineer_id")
-    if not engineer_id:
-        raise BadRequestError("engineer_id is required.")
-    await svc.assign_issue_to_engineer(issue, int(engineer_id))
+    await svc.assign_issue_to_engineer(issue, body.engineer_id)
     await db.refresh(issue)
     a_map = await svc.get_assignment_map([issue.id])
     return IssueResponse.from_issue(issue, a_map.get(issue.id))
@@ -608,17 +605,14 @@ async def assign_issue(
 @router.post("/{issue_id}/reassign", response_model=IssueResponse)
 async def reassign_issue(
     issue_id: int,
-    body: dict,
+    body: AssignRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
     require_admin(user)
     svc = IssueService(db)
     issue = await svc.get_issue(issue_id)
-    engineer_id = body.get("engineer_id")
-    if not engineer_id:
-        raise BadRequestError("engineer_id is required.")
-    await svc.assign_issue_to_engineer(issue, int(engineer_id))
+    await svc.assign_issue_to_engineer(issue, body.engineer_id)
     await db.refresh(issue)
     a_map = await svc.get_assignment_map([issue.id])
     return IssueResponse.from_issue(issue, a_map.get(issue.id))
@@ -632,7 +626,7 @@ async def update_issue_status(
     user: User = Depends(get_current_active_user),
 ):
     svc = IssueService(db)
-    issue = await svc.update_status(issue_id, body.status)
+    issue = await svc.update_status(issue_id, body.status, user)
     from src.domains.dashboard.api.routes import invalidate_dashboard_cache
 
     await invalidate_dashboard_cache()

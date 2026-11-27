@@ -13,11 +13,14 @@ from src.domains.engineers.models.engineer import Engineer
 from src.domains.engineers.repositories.engineer_repository import EngineerRepository
 from src.domains.engineers.repositories.ports import EngineerRepositoryPort
 from src.domains.issues.models.issue import ISSUE_TYPE_MAP, Issue, IssueStatus, IssueType
+from src.domains.issues.policy import assert_can_resolve, assert_can_transition_status
 from src.domains.issues.repositories.issue_repository import IssueRepository
 from src.domains.issues.repositories.ports import IssueRepositoryPort
+from src.domains.issues.status_machine import assert_transition
 from src.domains.resolution.models.resolution import Resolution
 from src.domains.resolution.repositories.ports import ResolutionRepositoryPort
 from src.domains.resolution.repositories.resolution_repository import ResolutionRepository
+from src.domains.users.models.user import User
 from src.domains.users.repositories.ports import UserRepositoryPort
 from src.domains.users.repositories.user_repository import UserRepository
 from src.domains.wards.geofencing import get_ward_from_coords
@@ -182,7 +185,12 @@ class IssueService:
             )
             await self.assignment_repo.create(assignment)
 
-            issue.status = IssueStatus.assigned
+            # Auto-assignment advances a freshly reported issue. A repeated
+            # auto-assign on an already assigned issue is a no-op, not a
+            # lifecycle step.
+            if issue.status != IssueStatus.assigned:
+                assert_transition(issue.status, IssueStatus.assigned)
+                issue.status = IssueStatus.assigned
             await self.issue_repo.commit()
 
             return engineer
@@ -231,7 +239,12 @@ class IssueService:
         )
         self.db.add(assignment)
 
-        issue.status = IssueStatus.assigned
+        # Changing the assignee on an already assigned issue does not change
+        # its lifecycle state. Any other status would be a real transition, so
+        # validate it against the graph before touching workload or rows.
+        if issue.status != IssueStatus.assigned:
+            assert_transition(issue.status, IssueStatus.assigned)
+            issue.status = IssueStatus.assigned
         # One transaction for the whole supersede: the workload deltas, the
         # delete of the outgoing assignment and the insert of the new one. The
         # repository helpers this used to call each committed on its own, so a
@@ -360,12 +373,37 @@ class IssueService:
         await self.db.refresh(issue)
         return issue
 
-    async def update_status(self, issue_id: int, status: str) -> Issue:
-        issue_status = IssueStatus(status)
-        issue = await self.issue_repo.update_status(issue_id, issue_status)
-        if not issue:
+    async def update_status(self, issue_id: int, status: str, actor: User) -> Issue:
+        """Apply a caller-initiated status change.
+
+        Two independent gates, both mandatory: who may touch this issue, and
+        whether the requested step exists in the lifecycle. ``actor`` is
+        required; internal lifecycle writes (assignment, resolution) assert
+        their own transitions in this service rather than calling this method.
+        """
+        target = IssueStatus(status)
+        issue = await self.get_issue(issue_id)
+        await assert_can_transition_status(
+            issue=issue,
+            target=target,
+            actor=actor,
+            assignment_repo=self.assignment_repo,
+        )
+        assert_transition(issue.status, target)
+        updated = await self.issue_repo.update_status(issue_id, target)
+        if not updated:
             raise IssueNotFound()
-        return issue
+        return updated
+
+    async def check_resolution_permission(self, issue_id: int, engineer_id: int) -> None:
+        """Public preflight so HTTP callers can reject before writing an image."""
+        issue = await self.get_issue(issue_id)
+        await assert_can_resolve(
+            issue=issue,
+            engineer_id=engineer_id,
+            assignment_repo=self.assignment_repo,
+            resolution_repo=self.resolution_repo,
+        )
 
     async def create_resolution(
         self,
@@ -374,7 +412,19 @@ class IssueService:
         after_image_url: str,
         notes: str = "",
     ) -> Resolution:
+        """Record a resolution and move its issue to ``resolved`` atomically.
+
+        The previous implementation committed the resolution first and the
+        status second, so a failure between them left a resolved issue with no
+        proof photo (or a photo with an issue still marked in progress).
+        """
         issue = await self.get_issue(issue_id)
+        await assert_can_resolve(
+            issue=issue,
+            engineer_id=engineer_id,
+            assignment_repo=self.assignment_repo,
+            resolution_repo=self.resolution_repo,
+        )
         resolution = Resolution(
             issue_id=issue_id,
             engineer_id=engineer_id,
@@ -382,9 +432,12 @@ class IssueService:
             after_image_url=after_image_url,
             notes=notes,
         )
-        created = await self.resolution_repo.create(resolution)
-        await self.issue_repo.update_status(issue_id, IssueStatus.resolved)
-        return created
+        self.db.add(resolution)
+        issue.status = IssueStatus.resolved
+        issue.resolved_at = datetime.now(timezone.utc)
+        await self.db.commit()
+        await self.db.refresh(resolution)
+        return resolution
 
     async def get_dashboard_stats(self) -> dict:
         total = await self.issue_repo.count()

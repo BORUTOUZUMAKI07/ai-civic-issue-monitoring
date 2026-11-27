@@ -1,4 +1,4 @@
-from src.shared.errors.common import BadRequestError, NotFoundError
+from src.shared.errors.common import BadRequestError, ConflictError, NotFoundError
 
 
 class IssueNotFound(NotFoundError):
@@ -22,3 +22,8 @@ class ImageTooLargeError(BadRequestError):
 class CorruptedImageError(BadRequestError):
     def __init__(self):
         super().__init__(detail="Corrupted or unreadable image file.")
+
+
+class InvalidStatusTransition(ConflictError):
+    def __init__(self, current: str, target: str):
+        super().__init__(detail=f"Cannot change issue status from '{current}' to '{target}'.")

@@ -99,6 +99,9 @@ def test_min_role_for_declared_paths() -> None:
     assert _min_role_for("/api/v1/engineers/1") == UserRole.admin
     assert _min_role_for("/api/v1/ml/predict") == UserRole.admin
     assert _min_role_for("/api/v1/resolution/42") == UserRole.engineer
+    # The real router is registered WITHOUT a trailing slash. A bare
+    # startswith() check used to leave that path at the field-worker default.
+    assert _min_role_for("/api/v1/resolution") == UserRole.engineer
 
 
 def test_min_role_for_undeclared_path_defaults_to_field_worker() -> None:
@@ -155,6 +158,11 @@ async def test_engineer_allowed_resolution_write() -> None:
 
 async def test_admin_allowed_resolution_write() -> None:
     assert (await _dispatch("POST", "/api/v1/resolution/", auth=_token("admin"))).status_code == 200
+
+
+async def test_real_resolution_path_enforces_engineer_floor() -> None:
+    assert (await _dispatch("POST", "/api/v1/resolution", auth=_token("field_worker"))).status_code == 403
+    assert (await _dispatch("POST", "/api/v1/resolution", auth=_token("engineer"))).status_code == 200
 
 
 # ── dispatch hierarchy gate: admin-only paths include every higher tier ──────

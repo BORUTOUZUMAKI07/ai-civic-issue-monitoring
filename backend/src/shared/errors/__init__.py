@@ -33,6 +33,7 @@ from src.shared.errors.issue import (
     CorruptedImageError,
     ImageTooLargeError,
     InvalidImageError,
+    InvalidStatusTransition,
     IssueNotFound,
 )
 
@@ -65,6 +66,7 @@ __all__ = [
     "PasswordResetTokenInvalid",
     "PasswordResetEmailNotSent",
     "IssueNotFound",
+    "InvalidStatusTransition",
     "InvalidImageError",
     "ImageTooLargeError",
     "CorruptedImageError",

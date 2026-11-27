@@ -65,7 +65,12 @@ def _code(status_code: int) -> str:
 
 def _min_role_for(path: str) -> UserRole:
     for prefix, min_role in PATH_MIN_ROLE:
-        if path.startswith(prefix):
+        # Exact route paths (the resolution router is registered without a
+        # trailing slash) and path prefixes must both match. A bare
+        # startswith() silently left `/api/v1/resolution` at the field-worker
+        # default, so the engineer floor was never applied to the real route.
+        base = prefix.rstrip("/")
+        if path == base or path.startswith(base + "/"):
             return min_role
     return DEFAULT_MIN_ROLE
 

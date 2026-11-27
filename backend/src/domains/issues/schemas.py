@@ -63,6 +63,17 @@ class IssueListResponse(BaseModel):
     total: int
 
 
+class AssignRequest(BaseModel):
+    engineer_id: int
+
+    @field_validator("engineer_id")
+    @classmethod
+    def validate_engineer_id(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("engineer_id must be a positive integer")
+        return v
+
+
 class IssueStatusUpdate(BaseModel):
     status: str
 
