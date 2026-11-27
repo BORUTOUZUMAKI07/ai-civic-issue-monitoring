@@ -12,6 +12,38 @@ two opt-in pieces: DockerHub publishing and the deploy workflow.
 
 Both are inert until you configure them — a fresh clone runs neither.
 
+## Git remotes
+
+The canonical application repository is GitHub. In a clean clone, rename the
+git remote that `git clone` creates so app code always goes to GitHub:
+
+```bash
+
+git clone https://github.com/BORUTOUZUMAKI07/ai-civic-issue-monitoring.git
+
+cd ai-civic-issue-monitoring
+
+git remote rename origin github
+
+```
+
+In this project `origin` is reserved for the DagsHub **ML/DVC artifact** mirror
+(`https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring.git`). DVC also
+has its own remote named `origin` in `.dvc/config`, pointing at DagsHub S3; that
+is artifact storage only and must never receive application uploads. If you add
+the DagsHub git mirror locally, use:
+
+```bash
+
+git remote add origin https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring.git
+
+git remote -v   # github -> GitHub (code); origin -> DagsHub (ML/DVC)
+
+```
+
+**Never run `git push origin` for app code.** Use `git push github` everywhere
+in this document and in release instructions.
+
 For the chosen Render + Vercel + Neon + Prefect production setup, start with
 [`docs/production-deployment.md`](production-deployment.md). This page still
 documents the older opt-in GHCR/DockerHub and SSH deploy workflow.
@@ -60,7 +92,7 @@ documents the older opt-in GHCR/DockerHub and SSH deploy workflow.
 
    git tag v1.0.0
 
-   git push origin v1.0.0
+   git push github v1.0.0
 
    ```
 
@@ -271,7 +303,8 @@ pixi run seed        # runs scripts/seed_wards.py
 
 accounts and only a `super_admin` can promote anyone, so a fresh database cannot
 
-reach the admin console at all. Bootstrap it locally (same `backend/.env`):
+reach the admin console at all. Bootstrap it locally (same `backend/.env`) **only
+on a fresh, empty database**:
 
 
 
@@ -285,9 +318,14 @@ ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='<at-least-12-chars>' pixi run create
 
 
 
-The script (`backend/scripts/create_admin.py`) is idempotent and inserts the user
+The script (`backend/scripts/create_admin.py`) inserts the user through the app's
 
-through the app's own models and password hashing.
+own models and password hashing. It refuses to create a second `super_admin`:
+there must be exactly one, enforced by migration `012` and a startup preflight.
+**Do not rerun it against the hosted production database**, and never run it on
+Render. The production super admin already exists; create further admins through
+the authenticated admin API. See
+[`docs/production-deployment.md`](production-deployment.md#3-bootstrap-status--already-done-do-not-repeat).
 
 
 

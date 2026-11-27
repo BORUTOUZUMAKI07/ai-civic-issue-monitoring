@@ -11,9 +11,9 @@ on:
         description: "Epochs for final model training"
         required: false
         default: "15"
-  # Prefect dispatches this event when drift is HIGH. The DagsHub `origin`
-  # remote is ML/DVC artifact storage only; pushing an empty commit there never
-  # reached this GitHub repository, so triggers used to be silently lost.
+  # Prefect dispatches this event when drift is HIGH. DagsHub is ML/DVC artifact
+  # storage only; pushing an empty commit there never reached this GitHub
+  # repository, so triggers used to be silently lost.
   repository_dispatch:
     types: [retrain-model]
 
@@ -43,6 +43,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Canonicalise the git remote
+        # DVC's `origin` remote (`.dvc/config`) is DagsHub S3 for ML artifacts.
+        # The *git* remote to GitHub must have a distinct name so `.dvc` pointer
+        # commits are pushed to the app repository, never mistaken for artifact
+        # pushes. Checkout names its git remote `origin`; rename it here.
+        run: |
+          set -euo pipefail
+          if git remote get-url origin >/dev/null 2>&1; then
+            git remote rename origin github
+          fi
+          git remote get-url github
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -126,8 +138,9 @@ jobs:
             git commit -m "Update model + Optuna study (DagsHub Action)"
             # Previously missing: the commit was made and thrown away with the
             # runner, so every run re-derived the same state and the history
-            # in DagsHub never advanced.
-            git push origin HEAD
+            # in the canonical GitHub repository never advanced. Keep `origin`
+            # out of git commands: that name is reserved for DagsHub artifacts.
+            git push github HEAD
           fi
 
       - name: Upload adapter as artifact

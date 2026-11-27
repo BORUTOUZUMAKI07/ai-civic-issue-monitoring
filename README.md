@@ -46,8 +46,8 @@ flowchart TB
 
     subgraph Ops["Operations"]
         Prefect[Prefect Cloud]
-        OTEL[OTel Collector]
-        NR[New Relic / Grafana]
+        OTEL[OTel Collector - local compose only]
+        NR[New Relic]
     end
 
     FE --> Proxy
@@ -63,8 +63,9 @@ flowchart TB
     ML --> Mongo
     Prefect --> PG
     Prefect --> Mongo
-    API --> OTEL
-    OTEL --> NR
+    API -->|production: direct OTLP/HTTP| NR
+    API -->|local compose: OTLP| OTEL
+    OTEL -->|fan-out| NR
 ```
 
 ### Component responsibilities
@@ -83,7 +84,7 @@ flowchart TB
 | Data | Redis | Rate limits, cache, token blacklist, sessions |
 | Data | MongoDB | Audit logs, drift reports, rejected uploads |
 | Ops | Prefect | Drift, SLA, reporting, retraining flows |
-| Ops | OTel collector | Fan-out to New Relic / Grafana |
+| Ops | OTel collector (local Compose) | Optional fan-out to New Relic / Grafana; production exports directly to New Relic |
 
 ## Request lifecycle
 
@@ -224,13 +225,28 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    App[FastAPI App] -->|OTLP logs/traces/metrics| Collector[OTel Collector]
-    Collector -->|basic auth| NR[New Relic]
-    Collector -->|config flag| Grafana[Grafana]
+    App[FastAPI App] -->|production: direct OTLP/HTTP| NR[New Relic]
+    App -->|local compose: OTLP| Collector[OTel Collector]
+    Collector -->|configurable fan-out| NR
+    Collector -->|opt-in overlay| Grafana[Grafana]
     App -->|structured JSON logs| stdout
 ```
 
-Three layers: app instruments (FastAPI, httpx, SQLAlchemy, HTTP middleware) export over OTLP to a Layer-2 collector that owns the vendor key and fans out to any OTLP sink. No Prometheus scrape path.
+In production all three signals (logs, metrics and traces) go **directly** to
+New Relic's OTLP/HTTP ingest at `https://otlp.nr-data.net:4318`. The vendor key
+lives only in the server-side `NEW_RELIC_OTLP_HEADERS` environment variable —
+never in the browser. There is deliberately no Render-hosted collector: free
+Render services sleep after 15 minutes idle, and a sleeping collector would drop
+cold-start telemetry. Export is fail-open, and `/health/telemetry` is a
+diagnostic snapshot, not a traffic gate.
+
+For local Docker Compose, the OTLP collector remains available as a
+vendor-neutral fan-out sink with a disk-backed queue and an opt-in Grafana
+overlay. There is no Prometheus scrape path and no scraper to deploy. Browser
+errors travel `browser → /api/client-errors (Next route) → backend structured
+logs → OTLP`, so no vendor key reaches the browser. See
+[ADR-0009](docs/adr/0009-direct-otlp-ingest.md) and
+[`docs/new-relic-alerts.md`](docs/new-relic-alerts.md).
 
 ## Deployment
 
@@ -263,6 +279,14 @@ flowchart TB
 git clone https://github.com/BORUTOUZUMAKI07/ai-civic-issue-monitoring.git
 cd ai-civic-issue-monitoring
 
+# `git clone` calls this remote `origin`; the canonical code remote is `github`.
+# In this project `origin` is reserved for the DagsHub ML/DVC artifact mirror.
+git remote rename origin github
+# Optional: restore the DagsHub ML/DVC mirror under this project's `origin` convention.
+# git remote add origin https://dagshub.com/ram.atchutratna/ai-civic-issue-monitoring.git
+git remote -v   # github -> GitHub (code); origin -> DagsHub (ML/DVC), if added
+# Never `git push origin` for app code — that remote is the ML artifact mirror.
+
 pixi install
 cd frontend && npm install && cd ..
 
@@ -272,11 +296,15 @@ cp backend/.env.example backend/.env
 pixi run setup
 ```
 
-### First admin
+### First admin (fresh local database only)
 
 ```bash
 ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='<12+ chars>' ADMIN_ROLE=super_admin pixi run create-admin
 ```
+
+This is a one-time bootstrap for an empty local database. **Do not rerun it on
+the hosted production database** — exactly one `super_admin` is enforced by
+migration `012`, and further admins must be created through the admin API.
 
 ### Run
 
@@ -342,7 +370,7 @@ dvc add models/model.onnx && dvc push
 - Dashboard stats, heatmap, public aggregate stats
 - Drift detection via Prefect
 - SLA monitoring and daily reports
-- OTLP observability to a Layer-2 collector
+- Direct New Relic OTLP ingest in production; local collector fan-out for development
 
 ## Tech stack
 

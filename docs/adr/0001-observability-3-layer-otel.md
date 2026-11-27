@@ -2,7 +2,8 @@
 
 - **Status**: Superseded by [ADR-0007](0007-otel-all-signals-fanout.md) (the
   Prometheus `/metrics` scrape path was removed; all three signals now travel
-  OTLP)
+  OTLP) and, for production, by [ADR-0009](0009-direct-otlp-ingest.md) (direct
+  New Relic ingest; the collector remains local-compose only)
 - **Date**: 2026-10-11
 
 ## Context

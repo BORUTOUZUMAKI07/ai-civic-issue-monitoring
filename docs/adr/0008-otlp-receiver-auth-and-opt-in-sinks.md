@@ -1,6 +1,7 @@
 # ADR-0008: Authenticate the OTLP receiver; keep second sinks opt-in
 
-- **Status**: Accepted
+- **Status**: Accepted for local Docker Compose only; production uses direct
+  ingest per [0009](0009-direct-otlp-ingest.md)
 - **Date**: 2026-10-16
 
 ## Context

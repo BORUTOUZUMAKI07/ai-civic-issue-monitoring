@@ -8,8 +8,8 @@ These tests need Docker. They are deliberately excluded from the default
 
 Why a real database at all? The schema features that SQLite cannot express â€”
 the ``JSONB`` columns, the ``issuetype`` enum, the ``ON DELETE`` rules
-introduced by migrations 005/007/008, and the ``idempotency_keys`` table from
-009 â€” are exactly the ones worth proving
+introduced by migrations 005/007/008, the ``idempotency_keys`` table from 009,
+and the partial unique indexes from 012 â€” are exactly the ones worth proving
 against PostgreSQL. The suite never trusts that a migration chain "probably
 applied"; it runs the real ``alembic upgrade head`` against a fresh
 ``postgres:16-alpine`` container and asserts on the catalog plus the runtime
@@ -147,10 +147,10 @@ async def conn(pg_engine):
 
 
 async def test_alembic_reached_head(pg_engine) -> None:
-    """The full chain 001->011 applied; the head revision is 011_auth_hardening_email_gdpr."""
+    """The full chain 001->012 applied; the head revision is 012 (user invariants)."""
     async with pg_engine.connect() as c:
         version = await c.scalar(text("SELECT version_num FROM alembic_version"))
-    assert version == "011_auth_hardening_email_gdpr"
+    assert version == "012"
 
     async with pg_engine.connect() as c:
         tables = {
@@ -165,6 +165,18 @@ async def test_alembic_reached_head(pg_engine) -> None:
         "resolutions",
         "idempotency_keys",
     } <= tables
+
+    # Migration 012 is the database-level half of the "exactly one super admin"
+    # and "one account per OAuth identity" guarantees; a model-only change
+    # would leave this test silent, so assert the real catalog entries.
+    async with pg_engine.connect() as c:
+        indexes = {
+            row[0]
+            for row in await c.execute(
+                text("SELECT indexname FROM pg_indexes WHERE schemaname = 'public'")
+            )
+        }
+    assert {"uq_users_single_super_admin", "uq_users_oauth_identity"} <= indexes
 
 
 async def test_migrations_match_the_models(migrated_pg_url) -> None:

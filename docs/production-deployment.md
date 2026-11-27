@@ -35,8 +35,9 @@ FastAPI backend
 - Use the **Upstash TCP** `rediss://...` URL as `REDIS_URL`. Do **not** use the
   HTTPS REST URL/token in production: REST can `PUBLISH` but cannot `SUBSCRIBE`,
   which would silently disable cross-instance WebSocket fan-out.
-- The hosted Neon database is already migrated and bootstrapped. Do **not** run
-  `create-admin` again.
+- The hosted Neon database is already bootstrapped. Do **not** run `create-admin`
+  again. New Alembic revisions (currently head `012_user_invariants`) are applied
+  automatically by the image's startup command.
 
 If you pasted the Upstash token anywhere public, rotate the database credentials
 before using it. Never commit or print secret values.
@@ -192,7 +193,11 @@ GET https://civicpulse-api-wknx.onrender.com/api/v1/ml/info   → model_type: on
 `/health/telemetry` is diagnostic only: observability is fail-open, so a broken
 sink never removes a working instance from rotation. After a fresh deploy its
 `status` should be `ok`, with `traces_ok`, `metrics_ok` and `logs_ok` all true.
-See `docs/new-relic-alerts.md` for the matching alerts and runbooks.
+Production exports directly to New Relic's OTLP/HTTP ingest — there is no
+Render-hosted collector to wake after idle. The collector in `docker/` is a
+local-Compose-only tool; see
+[ADR-0009](adr/0009-direct-otlp-ingest.md) for the decision and
+`docs/new-relic-alerts.md` for the matching alerts and runbooks.
 
 The built image contains `/app/models/model.onnx`, so production uses the
 trained ONNX model.
@@ -253,7 +258,9 @@ DagsHub S3 remains the DVC/ML artifact remote. It is not used for app uploads.
 
 The hosted Neon database was verified locally:
 
-- Alembic head: `011_auth_hardening_email_gdpr`
+- Alembic head: `012_user_invariants` (the manual bootstrap check was at
+  `011_auth_hardening_email_gdpr`; revision 012 is applied by the image on the
+  next deploy, and enforces a single super admin plus unique OAuth identities)
 - Wards: `19`
 - Super admins: exactly `1` (`ram.atchutratna@gmail.com`)
 - Neon `uploads` bucket: reachable

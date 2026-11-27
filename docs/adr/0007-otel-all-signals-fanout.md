@@ -1,6 +1,7 @@
 # ADR-0007: All three signals over OTLP; drop the Prometheus scrape path
 
-- **Status**: Accepted
+- **Status**: Accepted for local Docker Compose; production egress superseded by
+  [0009](0009-direct-otlp-ingest.md)
 - **Date**: 2026-10-16
 
 ## Context

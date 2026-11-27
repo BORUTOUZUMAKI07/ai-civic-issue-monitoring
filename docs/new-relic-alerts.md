@@ -3,7 +3,9 @@
 CivicPulse exports logs, metrics and traces directly to New Relic's OTLP/HTTP
 ingest. `observability/new-relic-alerts.json` is the checked-in source of truth
 for the alert policy; this document explains each query and what to do when it
-fires.
+fires. [ADR-0009](adr/0009-direct-otlp-ingest.md) records why production exports
+directly instead of going through a Render-hosted collector (free services sleep
+and drop cold-start telemetry); the collector in `docker/` is local-Compose only.
 
 ## Data assumptions
 
