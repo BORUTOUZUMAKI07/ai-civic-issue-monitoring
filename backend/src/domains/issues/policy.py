@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from src.domains.assignments.repositories.ports import AssignmentRepositoryPort
 from src.domains.issues.models.issue import Issue, IssueStatus
+from src.domains.issues.status_machine import ENGINEER_TARGETS
 from src.domains.resolution.repositories.ports import ResolutionRepositoryPort
 from src.domains.users.models.user import User, UserRole
 from src.domains.users.rbac import role_at_least
@@ -50,9 +51,11 @@ async def assert_can_transition_status(
     if owner is None or owner != actor.id:
         raise ForbiddenError("You are not assigned to this issue.")
 
-    if target not in (IssueStatus.in_progress, IssueStatus.resolved):
+    if target not in ENGINEER_TARGETS:
         # A state-machine violation is a 409 (InvalidStatusTransition); this is
         # a permission boundary: engineers drive work but never verify/reject.
+        # ENGINEER_TARGETS is the same constant the status machine uses, so an
+        # added transition cannot silently grant engineers a new target here.
         raise ForbiddenError("Engineers cannot verify or reject an issue.")
 
 

@@ -1,8 +1,9 @@
-"""
-MLflow Model Registry — versioned model management.
+"""Read-only view of the MLflow Model Registry.
 
-Tracks model versions, stages (staging/production/archived),
-and provides promote/rollback capabilities.
+The retraining flow owns model writes through the MLflow REST API; this module
+only answers the API's questions about versions, the production model and
+production-vs-staging metrics. Write/promote helpers that had no caller were
+removed so there is a single write path.
 """
 
 from __future__ import annotations
@@ -33,55 +34,6 @@ class ModelRegistry:
 
             self._client = MlflowClient()
         return self._client
-
-    def register_model(self, run_id: str, name: str = MODEL_NAME) -> dict:
-        """Register a model from an MLflow run."""
-        model_uri = f"runs:/{run_id}/model"
-        try:
-            result = self.client.register_model(model_uri, name)
-            logger.info("Registered model %s version %s", name, result.version)
-            return {
-                "name": name,
-                "version": result.version,
-                "run_id": run_id,
-                "status": result.status,
-            }
-        except Exception as e:
-            logger.error("Model registration failed: %s", e)
-            raise
-
-    def promote_to_staging(self, name: str = MODEL_NAME, version: Optional[str] = None) -> dict:
-        """Promote a model version to staging."""
-        version = version or self._get_latest_version(name)
-        self.client.transition_model_version_stage(
-            name=name,
-            version=version,
-            stage="Staging",
-        )
-        logger.info("Promoted %s v%s to Staging", name, version)
-        return {"name": name, "version": version, "stage": "Staging"}
-
-    def promote_to_production(self, name: str = MODEL_NAME, version: Optional[str] = None) -> dict:
-        """Promote a model version to production."""
-        version = version or self._get_latest_version(name)
-        self.client.transition_model_version_stage(
-            name=name,
-            version=version,
-            stage="Production",
-        )
-        logger.info("Promoted %s v%s to Production", name, version)
-        return {"name": name, "version": version, "stage": "Production"}
-
-    def archive_version(self, name: str = MODEL_NAME, version: Optional[str] = None) -> dict:
-        """Archive a model version."""
-        version = version or self._get_latest_version(name)
-        self.client.transition_model_version_stage(
-            name=name,
-            version=version,
-            stage="Archived",
-        )
-        logger.info("Archived %s v%s", name, version)
-        return {"name": name, "version": version, "stage": "Archived"}
 
     def get_production_model(self, name: str = MODEL_NAME) -> Optional[dict]:
         """Get the current production model version."""
@@ -176,10 +128,6 @@ class ModelRegistry:
                 )
 
         return result
-
-    def _get_latest_version(self, name: str) -> str:
-        versions = self.client.search_model_versions(f"name='{name}'")
-        return str(max(versions, key=lambda v: int(v.version)).version)
 
 
 _registry: ModelRegistry | None = None

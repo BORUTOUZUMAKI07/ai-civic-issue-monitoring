@@ -14,10 +14,10 @@ from src.core.storage import (
     verify_upload_token,
 )
 from src.domains.engineers.repositories.engineer_repository import EngineerRepository
-from src.domains.issues.services.issue_service import ALLOWED_EXTENSIONS, IssueService
+from src.domains.issues.services.issue_service import IssueService
 from src.domains.users.deps import get_current_active_user
 from src.domains.users.models.user import User
-from src.shared.errors import BadRequestError, InvalidImageError, NotFoundError
+from src.shared.errors import BadRequestError, NotFoundError
 from src.shared.uploads import read_upload_bounded
 
 router = APIRouter(prefix="/resolution", tags=["Resolution"])
@@ -87,12 +87,11 @@ async def resolve_issue(
         filename_in = file.filename or "after.jpg"
         svc.validate_image(filename_in, content)
 
-    # Extension comes from the validated name, but is re-checked against the
-    # same allowlist rather than trusted, and is forced to lower case so
-    # "PhP" style case tricks cannot slip past a set lookup.
+    # Both branches above already called ``svc.validate_image``, which is the
+    # single source of truth for the extension allowlist (case-insensitive),
+    # size cap and PIL decode. Only normalise the extension for the stored
+    # filename here; re-checking it would be a second, drifting rule.
     ext = filename_in.rsplit(".", 1)[-1].lower()
-    if ext not in ALLOWED_EXTENSIONS:
-        raise InvalidImageError(f"Invalid file type '{ext}'. Allowed: {', '.join(ALLOWED_EXTENSIONS)}")
 
     if after_image_url is None:
         filename = f"{uuid.uuid4().hex}.{ext}"

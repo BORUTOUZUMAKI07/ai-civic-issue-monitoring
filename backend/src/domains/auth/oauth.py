@@ -206,6 +206,25 @@ def _profile_field(profile: Any, key: str, default: Any = None) -> Any:
     return getattr(profile, key, default)
 
 
+def _apply_oauth_profile_fields(user: User, *, name: str, verified: bool, email: str | None) -> bool:
+    """Apply provider-asserted display/verification fields.
+
+    Returns whether anything changed so callers can decide whether a commit is
+    needed. Binding fields (``oauth_provider`` / ``oauth_sub``) are handled by
+    the caller: linking an identity must persist even when no visible field
+    changed, while a plain re-login need not write at all.
+    """
+    changed = False
+    if name and name != user.full_name:
+        user.full_name = name
+        changed = True
+    if verified and email and not getattr(user, "email_verified", True):
+        user.email_verified = True
+        user.email_verified_at = datetime.now(timezone.utc)
+        changed = True
+    return changed
+
+
 async def login_with_provider(db, provider: OAuthProvider, profile: dict | Any) -> tuple[User, str, str]:
     """Authenticate or provision a user from an OAuth identity.
 
@@ -283,32 +302,15 @@ async def login_with_provider(db, provider: OAuthProvider, profile: dict | Any) 
                 if user is None:
                     raise OAuthError("Could not provision the OAuth account.")
         else:
-            changed = False
             user.oauth_provider = provider_name
             if provider_sub and user.oauth_sub != provider_sub:
                 user.oauth_sub = provider_sub
-                changed = True
-            if name and name != user.full_name:
-                user.full_name = name
-                changed = True
-            if verified and email and not getattr(user, "email_verified", True):
-                user.email_verified = True
-                user.email_verified_at = datetime.now(timezone.utc)
-                changed = True
-            # Ensure binding fields persist even if no other visible field changed.
+            _apply_oauth_profile_fields(user, name=name, verified=verified, email=email)
+            # Ensure binding fields persist even if no visible field changed.
             await db.commit()
             await db.refresh(user)
-            _ = changed
     else:
-        changed = False
-        if name and name != user.full_name:
-            user.full_name = name
-            changed = True
-        if verified and email and not getattr(user, "email_verified", True):
-            user.email_verified = True
-            user.email_verified_at = datetime.now(timezone.utc)
-            changed = True
-        if changed:
+        if _apply_oauth_profile_fields(user, name=name, verified=verified, email=email):
             await db.commit()
             await db.refresh(user)
 

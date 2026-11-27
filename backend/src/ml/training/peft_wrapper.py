@@ -58,9 +58,6 @@ SUPPORTED_METHODS = [
 # Methods whose weights are a low-rank (r, alpha) pair.
 RANK_METHODS = frozenset({"lora", "dora", "rslora", "lora_fa", "lora_plus", "dora_plus", "adalora", "loha", "lokr"})
 
-# Methods that implement the LoRA+ two-learning-rate optimizer scheme.
-PLUS_METHODS = frozenset({"lora_plus", "dora_plus"})
-
 
 def apply_peft(
     model: nn.Module,
@@ -163,25 +160,6 @@ def apply_peft(
     return peft_model
 
 
-def apply_lora(
-    model: nn.Module,
-    r: int = 8,
-    alpha: int = 16,
-    dropout: float = 0.1,
-    use_dora: bool = False,
-    target_modules: list[str] | None = None,
-) -> PeftModel:
-    """Apply LoRA or DoRA adapter to MobileNetV2 (legacy entry point)."""
-    return apply_peft(
-        model,
-        method="dora" if use_dora else "lora",
-        r=r,
-        alpha=alpha,
-        dropout=dropout,
-        target_modules=target_modules,
-    )
-
-
 def merge_adapter(peft_model: PeftModel) -> nn.Module:
     """Merge adapter weights into base model for fast inference.
 
@@ -208,21 +186,3 @@ def save_adapter(peft_model: PeftModel, path: str | Path) -> None:
     # Log adapter size
     total_size = sum(f.stat().st_size for f in save_path.rglob("*") if f.is_file())
     logger.info("Saved adapter to %s (%.2f MB)", save_path, total_size / (1024 * 1024))
-
-
-def load_adapter(
-    base_model: nn.Module,
-    adapter_path: str | Path,
-) -> PeftModel:
-    """Load adapter weights onto a base model.
-
-    Args:
-        base_model: Base MobileNetV2 model (with classifier head).
-        adapter_path: Directory containing adapter weights.
-
-    Returns:
-        PeftModel with adapter loaded.
-    """
-    peft_model = PeftModel.from_pretrained(base_model, str(adapter_path))
-    logger.info("Loaded adapter from %s", adapter_path)
-    return peft_model
