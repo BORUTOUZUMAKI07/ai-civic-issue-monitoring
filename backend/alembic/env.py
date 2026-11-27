@@ -65,7 +65,16 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=_target_metadata())
+    # Commit after each revision. Postgres forbids using a new enum label in
+    # the transaction that added it: 004 does `ALTER TYPE userrole ADD VALUE
+    # 'super_admin'`, and 012's partial index/query refer to that label. With
+    # one transaction for the whole chain, `upgrade head` on a fresh database
+    # dies with "unsafe use of new value super_admin of enum type userrole".
+    context.configure(
+        connection=connection,
+        target_metadata=_target_metadata(),
+        transaction_per_migration=True,
+    )
     with context.begin_transaction():
         context.run_migrations()
 
