@@ -106,10 +106,24 @@ export function useUploadIssueMutation() {
   });
 }
 
-export function useAdminUsers(params?: { skip?: number; limit?: number; search?: string; role?: string; sort?: string; order?: string }) {
+export function useAdminUsers(
+  params?: { skip?: number; limit?: number; search?: string; role?: string; sort?: string; order?: string },
+  options: { enabled?: boolean } = {},
+) {
   return useQuery({
     queryKey: ["admin-users", params],
     queryFn: () => admin.listUsers(params),
+    // An admin-only table must not fire on every visitor's page load. The
+    // caller gates on the already-fetched /auth/me result.
+    enabled: options.enabled ?? true,
+  });
+}
+
+export function useAllAdminUsers(options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: ["admin-users", "all"],
+    queryFn: () => admin.listAllUsers(),
+    enabled: options.enabled ?? true,
   });
 }
 

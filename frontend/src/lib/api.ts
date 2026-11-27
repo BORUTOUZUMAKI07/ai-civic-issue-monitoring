@@ -98,7 +98,13 @@ async function rawFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     // is a session-expiry redirect, so a stale-but-present cookie cannot bounce
     // /login straight back to the app and loop (mirrors the url-shortner flow).
     if (typeof window !== "undefined" && isProtectedPath(window.location.pathname)) {
-      window.location.href = "/login?expired=1";
+      // A hard navigation is deliberate: it drops every in-memory query cache
+      // that may still hold the previous account's data. This module is used
+      // outside React components, so useRouter() is unavailable; building an
+      // absolute same-origin URL also avoids the lint rule against assigning a
+      // relative path to location.href.
+      const loginUrl = new URL("/login?expired=1", window.location.origin).toString();
+      window.location.href = loginUrl;
     }
     reportClientError(new Error("Session expired"), {
       event_type: "api_error",
@@ -533,6 +539,28 @@ export const admin = {
     if (params?.sort) q.set("sort", params.sort);
     if (params?.order) q.set("order", params.order);
     return apiFetch<{ items: User[]; total: number }>(`/admin/users?${q}`);
+  },
+  /**
+   * Every user, for the admin summary cards. `/admin/users` caps `limit` at
+   * 100, so counting only the first page silently undercounts once the app has
+   * more than 100 users. The page cap is a guardrail, not a normal limit.
+   */
+  listAllUsers: async (): Promise<User[]> => {
+    const PAGE = 100
+    const MAX_PAGES = 20
+    const first = await apiFetch<{ items: User[]; total: number }>(`/admin/users?limit=${PAGE}`)
+    const remaining = Math.min(
+      MAX_PAGES - 1,
+      Math.max(0, Math.ceil(first.total / PAGE) - 1),
+    )
+    const rest = await Promise.all(
+      Array.from({ length: remaining }, (_, i) =>
+        apiFetch<{ items: User[]; total: number }>(
+          `/admin/users?skip=${(i + 1) * PAGE}&limit=${PAGE}`,
+        ),
+      ),
+    )
+    return [...first.items, ...rest.flatMap((page) => page.items)]
   },
   updateUserRole: (userId: number, role: string) =>
     apiFetch<{ detail: string; user_id: number; role: string }>(

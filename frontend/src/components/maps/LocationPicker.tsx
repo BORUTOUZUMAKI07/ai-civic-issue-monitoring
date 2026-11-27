@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef, type KeyboardEvent } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { FALLBACK_CENTER, nudgeLocation } from "@/lib/location";
 
 interface LocationPickerProps {
   lat?: number | null;
@@ -11,9 +12,8 @@ interface LocationPickerProps {
   height?: number;
 }
 
-const FALLBACK_CENTER: [number, number] = [22.3072, 73.1812];
-
 export function LocationPicker({ lat, lng, onChange, height = 260 }: LocationPickerProps) {
+  const helpId = useId();
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
@@ -68,13 +68,43 @@ export function LocationPicker({ lat, lng, onChange, height = 260 }: LocationPic
     map.panTo([lat, lng]);
   }, [lat, lng]);
 
+  // Leaflet handles pointer input; keyboard users need an explicit control.
+  // Moving the pin emits on every arrow key so the form state stays in sync
+  // with what the user sees.
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const marker = markerRef.current;
+    if (!marker) return;
+    const current = marker.getLatLng();
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onChange(current.lat, current.lng);
+      return;
+    }
+
+    const next = nudgeLocation([current.lat, current.lng], event.key);
+    if (!next) return;
+    event.preventDefault();
+    marker.setLatLng(next);
+    onChange(next[0], next[1]);
+  };
+
   return (
-    <div
-      ref={mapRef}
-      className="w-full rounded-lg border border-border"
-      style={{ height }}
-      role="button"
-      aria-label="Set issue location by clicking on the map"
-    />
+    <>
+      <div
+        ref={mapRef}
+        className="w-full rounded-lg border border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        style={{ height }}
+        role="button"
+        tabIndex={0}
+        aria-label="Set issue location on the map"
+        aria-describedby={helpId}
+        onKeyDown={handleKeyDown}
+      />
+      <span id={helpId} className="sr-only">
+        Click the map to place the pin. With the keyboard, use the arrow keys to
+        move it and press Enter to confirm.
+      </span>
+    </>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAdminUsers, useUpdateUserRoleMutation, useMe } from "@/queries/index";
+import { useAdminUsers, useAllAdminUsers, useUpdateUserRoleMutation, useMe } from "@/queries/index";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -118,6 +118,10 @@ function UserRow({
 
 export default function AdminUsersPage() {
   const { data: currentUser } = useMe();
+  // Resolve the admin gate before the table queries so neither of them fires
+  // for a non-admin visitor (the backend would 403 and the UI would flash an
+  // error before the redirect finished).
+  const isAdmin = currentUser?.role === "admin" || currentUser?.role === "super_admin";
   const router = useRouter();
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -144,18 +148,16 @@ export default function AdminUsersPage() {
     ...(search && { search }),
     ...(roleFilter && { role: roleFilter }),
   };
-  const { data, isLoading, isError, error, refetch, isFetching } = useAdminUsers(params);
+  const { data, isLoading, isError, error, refetch, isFetching } = useAdminUsers(params, {
+    enabled: isAdmin,
+  });
 
-  // Role counts describe the whole table, not just the visible page: fetched
-  // separately with a large limit so the summary cards stay accurate as the
-  // user list pages. Declared before the admin guard below so every render
-  // calls the same hooks in the same order.
-  const { data: allData } = useAdminUsers({ limit: 100 });
+  // Role counts describe the whole table, not just the visible page. This
+  // query pages through every user instead of relying on the first 100.
+  const { data: allData } = useAllAdminUsers({ enabled: isAdmin });
 
   const roleMutation = useUpdateUserRoleMutation();
   const [processingId, setProcessingId] = useState<number | null>(null);
-
-  const isAdmin = currentUser?.role === "admin" || currentUser?.role === "super_admin";
 
   useEffect(() => {
     if (currentUser && !isAdmin) {
@@ -169,7 +171,7 @@ export default function AdminUsersPage() {
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
-  const allItems = allData?.items ?? items;
+  const allItems = allData ?? items;
 
   const handleRoleChange = async (userId: number, role: string) => {
     setProcessingId(userId);

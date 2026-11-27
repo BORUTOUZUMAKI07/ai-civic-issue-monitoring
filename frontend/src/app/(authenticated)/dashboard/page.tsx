@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useSyncExternalStore } from "react"
 import Link from "next/link"
 import {
   useDashboardStats,
@@ -120,11 +120,25 @@ function ChartTooltip({
   )
 }
 
+const noopSubscribe = () => () => {}
+function greetingForHour(hour: number): string {
+  return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"
+}
+
 export default function DashboardPage() {
   const { data: stats, isLoading, isError, error, refetch } = useDashboardStats()
   const { data: issuesData } = useIssues({ limit: 6 })
   const { data: wards } = useWards()
   const { data: user } = useMe()
+  // The greeting depends on the viewer's clock, which the server cannot know.
+  // useSyncExternalStore renders the generic server snapshot during SSR and
+  // hydration, then swaps to the time-specific value after mount — no mismatch.
+  // Called before the loading/error early returns so the hook order is stable.
+  const greeting = useSyncExternalStore(
+    noopSubscribe,
+    () => greetingForHour(new Date().getHours()),
+    () => "Welcome",
+  )
   const lastUpdated = useMemo(() => {
     if (isLoading || !stats) return ""
     return new Date().toLocaleTimeString("en-US", {
@@ -185,9 +199,6 @@ export default function DashboardPage() {
   const recent = (issuesData?.items ?? []).slice(0, 6)
   const hasData = total > 0
 
-  const hour = new Date().getHours()
-  const greeting =
-    hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"
   const firstName = user?.full_name?.split(" ")[0]
 
   return (

@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react"
 import Link from "next/link"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -25,7 +25,6 @@ const schema = z
 type ResetFormData = z.infer<typeof schema>
 
 function ResetPasswordForm() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const token = searchParams.get("token") || ""
   const [done, setDone] = useState(false)
@@ -55,8 +54,10 @@ function ResetPasswordForm() {
   async function onSubmit(data: ResetFormData) {
     try {
       await auth.resetPassword(token, data.new_password)
+      // Stay on the success screen. The previous code pushed /login in the
+      // same tick, so the confirmation was never actually readable — the user
+      // was bounced before they could see that the change succeeded.
       setDone(true)
-      router.push("/login")
     } catch (err: unknown) {
       setError("root", {
         message: getErrorMessage(err, "Could not reset password — the link may have expired."),

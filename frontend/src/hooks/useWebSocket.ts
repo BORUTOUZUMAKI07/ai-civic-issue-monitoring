@@ -8,6 +8,27 @@ export interface WebSocketMessage {
   timestamp?: string;
 }
 
+/**
+ * Validate a frame before it reaches application code.
+ *
+ * `JSON.parse` alone only proves the text is JSON: a frame like `null`, `[]` or
+ * `{type: 7}` used to be cast to WebSocketMessage and then crash the
+ * notification renderer (`msg.payload ?? {}` hid some cases, but not all).
+ * Invalid frames are ignored rather than killing the socket handler.
+ */
+export function parseWebSocketMessage(value: unknown): WebSocketMessage | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const obj = value as Record<string, unknown>;
+  if (typeof obj.type !== "string" || obj.type.length === 0) return null;
+  if (typeof obj.payload !== "object" || obj.payload === null || Array.isArray(obj.payload)) return null;
+  if (obj.timestamp !== undefined && typeof obj.timestamp !== "string") return null;
+  return {
+    type: obj.type,
+    payload: obj.payload as Record<string, unknown>,
+    ...(obj.timestamp !== undefined && { timestamp: obj.timestamp }),
+  };
+}
+
 interface UseWebSocketOptions {
   url: string;
   token?: string;
@@ -82,13 +103,20 @@ export function useWebSocket({
       };
 
       ws.onmessage = (event) => {
+        let decoded: unknown;
         try {
-          const message: WebSocketMessage = JSON.parse(event.data);
-          setLastMessage(message);
-          onMessage?.(message);
+          decoded = JSON.parse(event.data);
         } catch {
-          console.error("Failed to parse WebSocket message");
+          console.warn("Ignoring non-JSON WebSocket frame");
+          return;
         }
+        const message = parseWebSocketMessage(decoded);
+        if (!message) {
+          console.warn("Ignoring malformed WebSocket frame");
+          return;
+        }
+        setLastMessage(message);
+        onMessage?.(message);
       };
 
       ws.onclose = () => {
