@@ -25,22 +25,62 @@ const BACKEND =
 const MAX_UPLOAD_BODY_BYTES = 7 * 1024 * 1024
 const MAX_JSON_BODY_BYTES = 1024 * 1024
 
+/**
+ * A hung backend must not hold a Vercel function open until the platform kills
+ * it. 30s is long enough for the slowest legitimate API call (classify/upload)
+ * and short enough to return an actionable 504 to the browser.
+ */
+const BACKEND_TIMEOUT_MS = 30_000
+
 type RouteContext = { params: Promise<{ path: string[] }> }
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"])
 
-function isCrossOriginRequest(request: NextRequest): boolean {
+/** Drop a default port so `https://app.test` and `app.test:443` compare equal. */
+function normaliseHost(scheme: string, host: string): string {
+  const lower = host.toLowerCase()
+  if ((scheme === "http" && lower.endsWith(":80")) || (scheme === "https" && lower.endsWith(":443"))) {
+    return lower.slice(0, lower.lastIndexOf(":"))
+  }
+  return lower
+}
+
+/**
+ * CSRF guard for state-changing requests.
+ *
+ * The old check treated a *missing* Origin as safe and compared only hosts, so
+ * a cross-scheme origin (`http://` attacking `https://`) passed. Browsers send
+ * Origin on every POST/PUT/PATCH/DELETE; anything else is either a same-origin
+ * caller or an attack, and an absent Origin must fail closed. Both scheme and
+ * host are derived from the forwarding headers the platform sets — never from
+ * the request body — and default ports are normalised before comparison.
+ */
+function isRejectedMutationOrigin(request: NextRequest): boolean {
   if (!MUTATING_METHODS.has(request.method)) return false
-  const origin = request.headers.get("origin")
-  if (!origin) return false
+
+  const originHeader = request.headers.get("origin")
+  if (!originHeader) return true
+
+  let origin: URL
+  try {
+    origin = new URL(originHeader)
+  } catch {
+    return true
+  }
+  if (origin.protocol !== "http:" && origin.protocol !== "https:") return true
+
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim()
+  const scheme = forwardedProto || request.nextUrl.protocol.replace(":", "")
+  if (scheme !== "http" && scheme !== "https") return true
+
   const host =
     request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() || request.headers.get("host")
-  if (!host) return false
-  try {
-    return new URL(origin).host !== host
-  } catch {
-    return false
-  }
+  if (!host) return true
+
+  return (
+    origin.protocol !== `${scheme}:` ||
+    normaliseHost(scheme, origin.host) !== normaliseHost(scheme, host)
+  )
 }
 
 export async function GET(request: NextRequest, context: RouteContext) {
@@ -163,7 +203,7 @@ function isPublicRoute(key: string): boolean {
 
 async function proxy(request: NextRequest, context: RouteContext) {
   try {
-    if (isCrossOriginRequest(request)) {
+    if (isRejectedMutationOrigin(request)) {
       return NextResponse.json({ detail: "Cross-origin request rejected." }, { status: 403 })
     }
 
@@ -288,7 +328,10 @@ async function proxy(request: NextRequest, context: RouteContext) {
       fetchInit.body = body
     }
 
-    const res = await fetch(url.toString(), fetchInit)
+    const res = await fetch(url.toString(), {
+      ...fetchInit,
+      signal: AbortSignal.timeout(BACKEND_TIMEOUT_MS),
+    })
 
     const responseBody = await res.arrayBuffer()
 
@@ -324,7 +367,14 @@ async function proxy(request: NextRequest, context: RouteContext) {
       headers: headerEntries,
     })
   } catch (err) {
-    console.error("PROXY_ERROR:", request.method, request.url, err)
+    // Log the pathname only: the full URL can carry one-time OAuth `code` and
+    // `state` values, which must never land in logs.
+    const pathname = new URL(request.url).pathname
+    if (err instanceof Error && err.name === "TimeoutError") {
+      console.error("PROXY_TIMEOUT:", request.method, pathname)
+      return NextResponse.json({ detail: "Backend request timed out." }, { status: 504 })
+    }
+    console.error("PROXY_ERROR:", request.method, pathname, err)
     return NextResponse.json({ detail: "Proxy error" }, { status: 502 })
   }
 }

@@ -13,6 +13,8 @@
  *  - Oversized bodies are refused with 413 *before* buffering, because
  *    `request.arrayBuffer()` would otherwise pull the whole payload into
  *    the Next.js process's memory.
+ *  - Mutating requests need a same-origin Origin (scheme and host), and a hung
+ *    backend call is cut off with a 504 instead of hanging the function.
  *
  * The handler is imported directly and given a real `NextRequest`; `fetch`
  * is mocked so we can assert on the outgoing URL and never touch a socket.
@@ -64,7 +66,14 @@ type ReqInit = {
 }
 
 function req(url: string, init: ReqInit = {}) {
-  return new NextRequest(new URL(url, "http://localhost:3000"), init)
+  const headers = new Headers(init.headers)
+  // Browsers send Origin on state-changing requests and the proxy now refuses
+  // them without one. A real Next request always has Host too, but constructing
+  // one from a URL in a test does not set it. Tests override both when probing
+  // the guard.
+  if (!headers.has("origin")) headers.set("origin", "http://localhost:3000")
+  if (!headers.has("host")) headers.set("host", "localhost:3000")
+  return new NextRequest(new URL(url, "http://localhost:3000"), { ...init, headers })
 }
 
 /**
@@ -188,6 +197,120 @@ describe("proxy: unauthenticated guard", () => {
     )
     expect(res.status).toBe(200)
     expect(fetchMock).toHaveBeenCalled()
+  })
+})
+
+describe("proxy: CSRF origin guard", () => {
+  it("accepts a same-origin mutating request", async () => {
+    fetchMock.mockResolvedValue(jsonRes({ ok: true }))
+    const { POST } = await loadHandlers()
+
+    const res = await POST(
+      req(`${API}/auth/login`, { method: "POST", body: "{}" }),
+      ctx("auth", "login"),
+    )
+    expect(res.status).toBe(200)
+  })
+
+  it("rejects a mutating request with no Origin header", async () => {
+    fetchMock.mockResolvedValue(jsonRes({}))
+    const { POST } = await loadHandlers()
+
+    const r = req(`${API}/auth/login`, { method: "POST", body: "{}" })
+    r.headers.delete("origin")
+    const res = await POST(r, ctx("auth", "login"))
+
+    expect(res.status).toBe(403)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects a cross-origin mutating request", async () => {
+    fetchMock.mockResolvedValue(jsonRes({}))
+    const { POST } = await loadHandlers()
+
+    const res = await POST(
+      req(`${API}/auth/login`, {
+        method: "POST",
+        body: "{}",
+        headers: { origin: "https://evil.example" },
+      }),
+      ctx("auth", "login"),
+    )
+
+    expect(res.status).toBe(403)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects a scheme downgrade even when the host matches", async () => {
+    fetchMock.mockResolvedValue(jsonRes({}))
+    const { POST } = await loadHandlers()
+
+    const res = await POST(
+      req(`${API}/auth/login`, {
+        method: "POST",
+        body: "{}",
+        headers: { origin: "http://localhost:3000", "x-forwarded-proto": "https" },
+      }),
+      ctx("auth", "login"),
+    )
+
+    expect(res.status).toBe(403)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("accepts a matching origin whose explicit default port is omitted", async () => {
+    fetchMock.mockResolvedValue(jsonRes({ ok: true }))
+    const { POST } = await loadHandlers()
+
+    const res = await POST(
+      req(`${API}/auth/login`, {
+        method: "POST",
+        body: "{}",
+        headers: {
+          origin: "https://app.test",
+          "x-forwarded-proto": "https",
+          "x-forwarded-host": "app.test:443",
+        },
+      }),
+      ctx("auth", "login"),
+    )
+
+    expect(res.status).toBe(200)
+  })
+
+  it("does not apply the Origin check to reads", async () => {
+    fetchMock.mockResolvedValue(jsonRes({ items: [] }))
+    const { GET } = await loadHandlers()
+
+    const res = await GET(
+      authedReq(`${API}/issues`, { headers: { origin: "https://evil.example" } }),
+      ctx("issues"),
+    )
+
+    expect(res.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalled()
+  })
+})
+
+describe("proxy: backend timeout", () => {
+  it("returns 504 when the backend fetch times out", async () => {
+    fetchMock.mockRejectedValue(new DOMException("timed out", "TimeoutError"))
+    const { GET } = await loadHandlers()
+
+    const res = await GET(authedReq(`${API}/issues`), ctx("issues"))
+
+    expect(res.status).toBe(504)
+    expect(await res.json()).toEqual({ detail: "Backend request timed out." })
+  })
+
+  it("gives fetch an abort signal so a hung call can be cut off", async () => {
+    fetchMock.mockResolvedValue(jsonRes({ items: [] }))
+    const { GET } = await loadHandlers()
+
+    await GET(authedReq(`${API}/issues`), ctx("issues"))
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect(init.signal).toBeInstanceOf(AbortSignal)
   })
 })
 
