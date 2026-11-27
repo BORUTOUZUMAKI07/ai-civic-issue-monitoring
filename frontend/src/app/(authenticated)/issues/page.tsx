@@ -174,24 +174,31 @@ export default function IssuesPage() {
   const uploadMutation = useUploadIssueMutation();
   const { data: wards } = useWards();
 
-  // Accumulated rows for scroll mode. Reset whenever the filter/sort identity
-  // changes (a new result set must start from scratch), and append each newly
-  // fetched page otherwise. Keyed on the serialized filter set so a page-2
-  // fetch appends but a new search replaces.
+  // Accumulated rows for scroll mode. Kept in one state object keyed by the
+  // serialized filter set: a new query replaces it, a page-2 fetch appends.
+  // Adjusting it during render (with a guard) avoids a setState-in-effect
+  // cascade; every filter control already resets `page` when it changes.
   const filterKey = `${search}|${filterStatus}|${filterType}|${sort}|${order}|${loadMode}`;
-  const [accumulated, setAccumulated] = useState<Issue[]>([]);
-  useEffect(() => {
-    setAccumulated([]);
-    setPage(1);
-  }, [filterKey]);
-  useEffect(() => {
-    if (loadMode !== "scroll" || !data) return;
-    setAccumulated((prev) => {
-      const base = page === 1 ? [] : prev;
-      const seen = new Set(base.map((i) => i.id));
-      return [...base, ...data.items.filter((i) => !seen.has(i.id))];
-    });
-  }, [data, loadMode, page]);
+  const [accumulatedState, setAccumulatedState] = useState<{
+    key: string;
+    page: number;
+    items: Issue[];
+  }>({ key: "", page: 0, items: [] });
+  if (loadMode === "scroll" && data) {
+    const current = accumulatedState;
+    if (current.key !== filterKey || page === 1) {
+      setAccumulatedState({ key: filterKey, page, items: data.items });
+    } else if (page > current.page) {
+      const seen = new Set(current.items.map((i) => i.id));
+      setAccumulatedState({
+        key: filterKey,
+        page,
+        items: [...current.items, ...data.items.filter((i) => !seen.has(i.id))],
+      });
+    }
+  }
+  const accumulated =
+    accumulatedState.key === filterKey ? accumulatedState.items : (data?.items ?? []);
 
   const wardName = useCallback(
     (id: number) => wards?.find((w) => w.id === id)?.name ?? `Ward ${id}`,
@@ -211,6 +218,18 @@ export default function IssuesPage() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
+  const setPreview = (url: string | null) => {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    previewUrlRef.current = url;
+    setPreviewUrl(url);
+  };
+  useEffect(
+    () => () => {
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    },
+    []
+  );
   const [description, setDescription] = useState("");
   const [lat, setLat] = useState("");
   const [lon, setLon] = useState("");
@@ -234,9 +253,15 @@ export default function IssuesPage() {
   const { connected: isConnected } = useNotifications();
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
     const q = new URLSearchParams(window.location.search).get("q");
-    if (q) setSearch(q);
+    if (!q) return;
+    // Apply after hydration in a microtask: the debounce timer below owns
+    // `search` after mount, so a synchronous effect here would clobber the
+    // first typed value with the URL parameter. `||` keeps a live edit.
+    queueMicrotask(() => {
+      setSearch((current) => current || q);
+      setSearchInput((current) => current || q);
+    });
   }, []);
 
   const extractGpsFromPhoto = async (
@@ -280,7 +305,7 @@ export default function IssuesPage() {
     if (!file) return;
     idempotencyRef.current = null;
     setSelectedFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
+    setPreview(URL.createObjectURL(file));
     setLat("");
     setLon("");
     setLocationSource(null);
@@ -361,7 +386,7 @@ export default function IssuesPage() {
   const resetModal = () => {
     setShowUploadModal(false);
     setSelectedFile(null);
-    setPreviewUrl(null);
+    setPreview(null);
     setDescription("");
     setLat("");
     setLon("");

@@ -2,9 +2,8 @@ import { defineConfig } from "vitest/config"
 import path from "path"
 
 export default defineConfig({
-  esbuild: {
-    jsx: "automatic",
-  },
+  // JSX is handled by tsconfig's `react-jsx`; Vitest 4 no longer accepts an
+  // `esbuild.jsx` override here.
   test: {
     environment: "jsdom",
     globals: true,
@@ -13,7 +12,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
 })

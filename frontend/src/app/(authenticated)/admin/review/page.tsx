@@ -176,22 +176,31 @@ export default function ReviewQueuePage() {
   const [processingId, setProcessingId] = useState<number | null>(null);
   const [rejectConfirm, setRejectConfirm] = useState<number | null>(null);
 
-  // Accumulated rows for scroll mode, reset whenever the filter/sort identity
-  // changes so a new result set starts from scratch.
+  // Accumulated rows for scroll mode, keyed by the filter/sort identity so a
+  // new result set replaces it and the next page appends. The adjustment runs
+  // during render (with a guard) instead of in an effect; all filter controls
+  // reset `page` themselves.
   const filterKey = `${typeFilter}|${sevFilter}|${sort}|${order}|${loadMode}`;
-  const [accumulated, setAccumulated] = useState<Issue[]>([]);
-  useEffect(() => {
-    setAccumulated([]);
-    setPage(1);
-  }, [filterKey]);
-  useEffect(() => {
-    if (loadMode !== "scroll" || !data) return;
-    setAccumulated((prev) => {
-      const base = page === 1 ? [] : prev;
-      const seen = new Set(base.map((i) => i.id));
-      return [...base, ...data.items.filter((i) => !seen.has(i.id))];
-    });
-  }, [data, loadMode, page]);
+  const [accumulatedState, setAccumulatedState] = useState<{
+    key: string;
+    page: number;
+    items: Issue[];
+  }>({ key: "", page: 0, items: [] });
+  if (loadMode === "scroll" && data) {
+    const current = accumulatedState;
+    if (current.key !== filterKey || page === 1) {
+      setAccumulatedState({ key: filterKey, page, items: data.items });
+    } else if (page > current.page) {
+      const seen = new Set(current.items.map((i) => i.id));
+      setAccumulatedState({
+        key: filterKey,
+        page,
+        items: [...current.items, ...data.items.filter((i) => !seen.has(i.id))],
+      });
+    }
+  }
+  const accumulated =
+    accumulatedState.key === filterKey ? accumulatedState.items : (data?.items ?? []);
 
   const isAdmin = currentUser?.role === "admin" || currentUser?.role === "super_admin";
 
