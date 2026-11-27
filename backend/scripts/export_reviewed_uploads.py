@@ -24,6 +24,7 @@ Output:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 import shutil
 from pathlib import Path
@@ -63,28 +64,54 @@ def guess_label_from_description(description: str) -> str | None:
     return best_label if best_score > 0 else None
 
 
-def copy_image(image_url: str, dest_dir: Path, dry_run: bool) -> bool:
-    """Copy image from uploads to dest_dir. Returns True if copied."""
+async def copy_image(image_url: str, dest_dir: Path, dry_run: bool) -> bool:
+    """Copy an image from local uploads or object storage to ``dest_dir``."""
     if not image_url:
         return False
 
     src = PROJECT_ROOT.parent / image_url.lstrip("/")
     if not src.exists():
         src = PROJECT_ROOT / image_url.lstrip("/")
-    if not src.exists():
-        return False
-
-    dest = dest_dir / src.name
-    if dest.exists():
+    if src.exists():
+        dest = dest_dir / src.name
+        if dest.exists():
+            return True
+        if not dry_run:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
         return True
 
+    # Production stores uploads in an S3-compatible bucket, so the historical
+    # filesystem lookup above cannot find them. Go through the same bounded
+    # storage reader the API uses — never buffer an untrusted whole object.
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from src.core.storage import UploadNotFoundError, get_upload_bounded, object_key
+    from src.shared.uploads import MAX_UPLOAD_BYTES
+
+    try:
+        content = await get_upload_bounded(image_url)
+    except UploadNotFoundError:
+        return False
+    except Exception as exc:
+        logger.warning("Could not read %s from object storage: %s", image_url, exc)
+        return False
+
+    if not content or len(content) > MAX_UPLOAD_BYTES:
+        logger.warning("Skipping missing or oversized object: %s", image_url)
+        return False
+
+    dest = dest_dir / Path(object_key(image_url)).name
+    if dest.exists():
+        return True
     if not dry_run:
         dest_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dest)
+        dest.write_bytes(content)
     return True
 
 
-def main() -> None:
+async def main() -> None:
     parser = argparse.ArgumentParser(description="Export and pre-sort reviewed uploads")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--include-rejected", action="store_true")
@@ -125,18 +152,18 @@ def main() -> None:
             # Pass 1: admin already labeled → confirmed class folder
             safe = human_label.replace(" ", "_").lower()
             target = args.output / safe
-            copy_image(image_url, target, args.dry_run)
+            await copy_image(image_url, target, args.dry_run)
             stats[safe] = stats.get(safe, 0) + 1
         else:
             # Pass 2: no label → AI pre-sort
             guessed = guess_label_from_description(description)
             if guessed:
                 target = args.output / f"maybe_{guessed}"
-                copy_image(image_url, target, args.dry_run)
+                await copy_image(image_url, target, args.dry_run)
                 stats[f"maybe_{guessed}"] = stats.get(f"maybe_{guessed}", 0) + 1
             else:
                 target = args.output / "unsure"
-                copy_image(image_url, target, args.dry_run)
+                await copy_image(image_url, target, args.dry_run)
                 stats["unsure"] = stats.get("unsure", 0) + 1
 
     client.close()
@@ -168,4 +195,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

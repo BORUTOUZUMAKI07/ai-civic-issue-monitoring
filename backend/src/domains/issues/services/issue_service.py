@@ -371,14 +371,6 @@ class IssueService:
         their own transitions in this service rather than calling this method.
         """
         target = IssueStatus(status)
-        if target is IssueStatus.resolved:
-            # Resolution is not a bare status flag: it must carry the assigned
-            # engineer's proof photo and be committed with the status change.
-            # The generic PATCH route has neither, so even an admin cannot
-            # create a resolved issue with no Resolution row behind it.
-            raise ConflictError(
-                "Resolution requires an assigned engineer and proof photo; use the resolution endpoint."
-            )
         issue = await self.get_issue(issue_id)
         await assert_can_transition_status(
             issue=issue,
@@ -387,6 +379,16 @@ class IssueService:
             assignment_repo=self.assignment_repo,
         )
         assert_transition(issue.status, target)
+        if target is IssueStatus.resolved:
+            # Resolution is not a bare status flag: it must carry the assigned
+            # engineer's proof photo and be committed with the status change.
+            # The generic PATCH route has neither, so even an admin cannot
+            # create a resolved issue with no Resolution row behind it. Keep
+            # this after lookup/permission/edge checks so a bad id still 404s
+            # and an unauthorised caller still 403s.
+            raise ConflictError(
+                "Resolution requires an assigned engineer and proof photo; use the resolution endpoint."
+            )
         updated = await self.issue_repo.update_status(issue_id, target)
         if not updated:
             raise IssueNotFound()

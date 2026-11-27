@@ -148,17 +148,27 @@ async def get_upload_bounded(image_url: str, *, limit: int = MAX_UPLOAD_BYTES + 
             if str(error.get("Code", "")) in {"NoSuchKey", "404", "NotFound"}:
                 raise UploadNotFoundError(key) from exc
             raise
-        return await asyncio.to_thread(lambda: response["Body"].read(limit))
+        body = response["Body"]
+
+        def _read_s3() -> bytes:
+            try:
+                return bytes(body.read(limit))
+            finally:
+                close = getattr(body, "close", None)
+                if callable(close):
+                    close()
+
+        return await asyncio.to_thread(_read_s3)
 
     target = _local_path(key)
     if not target.is_file():
         raise UploadNotFoundError(key)
 
-    def _read() -> bytes:
+    def _read_local() -> bytes:
         with target.open("rb") as handle:
             return handle.read(limit)
 
-    return await asyncio.to_thread(_read)
+    return await asyncio.to_thread(_read_local)
 
 
 async def delete_upload(image_url: str) -> None:

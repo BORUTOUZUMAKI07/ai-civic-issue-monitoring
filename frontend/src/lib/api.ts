@@ -5,14 +5,26 @@ import { isProtectedPath } from "./protected-paths";
 const API_BASE = "/api/proxy";
 
 /**
- * Upper bound for every browser → BFF request.
+ * Upper bound for browser → BFF requests.
  *
- * The proxy already times out its backend call, but a hung browser fetch (or a
- * hung shared refresh) used to leave React Query's `isFetching` true forever,
- * which rendered an empty page skeleton with no retry affordance. Every fetch
- * in this module therefore carries an abort signal.
+ * The proxy allows 30s for the backend, so the browser waits slightly longer
+ * and lets the proxy return its structured 504 first. A hung fetch (or a hung
+ * shared refresh) used to leave React Query's `isFetching` true forever, which
+ * rendered an empty page skeleton with no retry affordance.
  */
-const API_TIMEOUT_MS = 10_000;
+const API_TIMEOUT_MS = 35_000;
+
+/** Apply the timeout even when a caller supplies its own cancellation signal. */
+function apiSignal(external?: AbortSignal | null): AbortSignal {
+  const timeout = AbortSignal.timeout(API_TIMEOUT_MS);
+  if (!external || external === timeout) return timeout;
+  if (external.aborted) return external;
+
+  const controller = new AbortController();
+  external.addEventListener("abort", () => controller.abort(external.reason), { once: true });
+  timeout.addEventListener("abort", () => controller.abort(timeout.reason), { once: true });
+  return controller.signal;
+}
 
 /**
  * Turn a stored ``image_url`` (``/uploads/issues/x.jpg``) into an authenticated
@@ -65,7 +77,7 @@ async function rawFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     res = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers,
-      signal: options.signal ?? AbortSignal.timeout(API_TIMEOUT_MS),
+      signal: apiSignal(options.signal),
     });
   } catch (err) {
     reportClientError(err, {
@@ -97,7 +109,7 @@ async function rawFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
       const retry = await fetch(`${API_BASE}${path}`, {
         ...options,
         headers,
-        signal: options.signal ?? AbortSignal.timeout(API_TIMEOUT_MS),
+        signal: apiSignal(options.signal),
       });
       if (retry.ok) {
         if (retry.status === 204) return undefined as T;
@@ -192,6 +204,7 @@ async function putDirect(presigned: PresignResponse, file: File): Promise<void> 
     method: "PUT",
     headers: presigned.required_headers,
     body: file,
+    signal: apiSignal(),
   });
   if (!res.ok) {
     throw new Error(`Image upload failed (${res.status}). Please try again.`);

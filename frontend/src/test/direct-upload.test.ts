@@ -56,11 +56,14 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
 describe("direct uploads", () => {
   it("PUTs bytes to Neon and sends only the key/token through the BFF", async () => {
+    const timeout = new AbortController()
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockReturnValue(timeout.signal)
     fetchMock
       .mockResolvedValueOnce(jsonResponse(PRESIGNED))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
@@ -84,6 +87,8 @@ describe("direct uploads", () => {
     expect(putCall[1].method).toBe("PUT")
     expect(putCall[1].headers).toEqual(PRESIGNED.required_headers)
     expect(putCall[1].body).toBeInstanceOf(File)
+    expect(putCall[1].signal).toBe(timeout.signal)
+    expect(timeoutSpy).toHaveBeenCalledWith(35_000)
 
     const createCall = fetchMock.mock.calls[2]
     expect(createCall[0]).toBe("/api/proxy/issues/upload")

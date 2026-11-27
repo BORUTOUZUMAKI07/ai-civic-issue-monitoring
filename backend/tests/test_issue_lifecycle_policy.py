@@ -23,7 +23,7 @@ from src.domains.issues.status_machine import (
     engineer_may_transition,
 )
 from src.domains.users.models.user import User, UserRole
-from src.shared.errors import ConflictError, ForbiddenError, InvalidStatusTransition
+from src.shared.errors import ConflictError, ForbiddenError, InvalidStatusTransition, IssueNotFound
 
 NOW = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
 
@@ -219,6 +219,29 @@ async def test_generic_status_patch_cannot_resolve_without_a_resolution() -> Non
     )
     with pytest.raises(ConflictError, match="resolution endpoint"):
         await service.update_status(issue.id, IssueStatus.resolved.value, _user(10, UserRole.engineer))
+    assert issue.status is IssueStatus.in_progress
+
+
+async def test_missing_issue_404_wins_over_the_resolution_guard() -> None:
+    issue = _issue(IssueStatus.in_progress)
+    service = IssueService(
+        _Db(issue),
+        issue_repo=_IssueRepo(issue),
+        assignment_repo=_AssignmentRepo(),
+    )
+    with pytest.raises(IssueNotFound):
+        await service.update_status(999, IssueStatus.resolved.value, _user(2, UserRole.admin))
+
+
+async def test_unauthorised_resolve_403_wins_over_the_resolution_guard() -> None:
+    issue = _issue(IssueStatus.in_progress)
+    service = IssueService(
+        _Db(issue),
+        issue_repo=_IssueRepo(issue),
+        assignment_repo=_AssignmentRepo(user_id=10),
+    )
+    with pytest.raises(ForbiddenError, match="Only the assigned engineer"):
+        await service.update_status(issue.id, IssueStatus.resolved.value, _user(3, UserRole.field_worker))
     assert issue.status is IssueStatus.in_progress
 
 

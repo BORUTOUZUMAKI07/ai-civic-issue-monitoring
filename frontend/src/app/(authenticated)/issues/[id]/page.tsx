@@ -380,7 +380,7 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
                 <CardTitle className="text-base">Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                {nextAction && !(canResolveWithPhoto && nextAction.next === "resolved") && (
+                {nextAction && nextAction.next !== "resolved" && (
                   <Button
                     className="w-full gap-2"
                     onClick={async () => {

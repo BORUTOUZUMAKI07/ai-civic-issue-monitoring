@@ -15,7 +15,6 @@ from src.core.storage import (
     UploadNotFoundError,
     UploadTokenError,
     delete_upload,
-    get_upload,
     get_upload_bounded,
     put_upload,
     verify_upload_token,
@@ -27,7 +26,7 @@ from src.domains.users.deps import get_current_active_user
 from src.domains.users.models.user import User
 from src.domains.users.rbac import require_admin
 from src.shared.errors import BadRequestError
-from src.shared.uploads import read_upload_bounded
+from src.shared.uploads import MAX_UPLOAD_BYTES, read_upload_bounded
 
 logger = logging.getLogger(__name__)
 
@@ -712,11 +711,18 @@ async def serve_media(
         raise HTTPException(status_code=404, detail="Not found.")
 
     try:
-        payload = await get_upload(key)
+        # The object is untrusted: a presigned PUT can carry far more bytes than
+        # the declared size. Read only what validation needs, never the whole
+        # object into worker memory.
+        payload = await get_upload_bounded(key)
     except UploadNotFoundError:
         raise HTTPException(status_code=404, detail="Not found.")
     except Exception as exc:
         logger.warning("Object storage read failed for %s: %s", key, exc)
         raise HTTPException(status_code=503, detail="Media temporarily unavailable.")
+
+    if len(payload) > MAX_UPLOAD_BYTES:
+        logger.warning("Refusing oversized media object: %s", key)
+        raise HTTPException(status_code=404, detail="Not found.")
 
     return Response(content=payload, media_type=media_type)

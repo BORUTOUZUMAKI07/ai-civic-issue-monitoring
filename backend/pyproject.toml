@@ -99,13 +99,15 @@ ml = [
     "onnx>=1.16.0",
     "tqdm>=4.66.0",
 ]
-# Layer-1 -> Layer-2 OTLP log + trace + metric export (3-layer observability).
-# The app itself never holds the New Relic license key -- the Layer-2
-# OpenTelemetry collector owns it (docker/otel-collector-config.yaml). Kept as
-# an optional extra so a fresh pixi solve stays lean; the runtime image installs
-# it via `pip install ".[ml,observability]"` (backend/Dockerfile). The
-# instrumentation packages are version-paired with the SDK (SDK 1.x <->
-# 0.x-b instrumentation) and are registered from src/core/observability.py.
+# Layer-1 -> New Relic OTLP log + trace + metric export (3-layer observability).
+# Production exports directly to New Relic; the ingest credential is supplied
+# only through platform secret settings (OTEL_EXPORTER_OTLP_HEADERS). The
+# collector config in docker/otel-collector-config.yaml is for local compose,
+# not a production hop. Kept as an optional extra so a fresh pixi solve stays
+# lean; the runtime image installs it via `pip install ".[ml,observability]"`
+# (backend/Dockerfile). The instrumentation packages are version-paired with
+# the SDK (SDK 1.x <-> 0.x-b instrumentation) and are registered from
+# src/core/observability.py.
 observability = [
     # 1.45.1 is affected by CVE-2026-126360; pin the API floor even though the
     # SDK/exporter would otherwise resolve it transitively.
