@@ -1,11 +1,11 @@
 """OTLP export for logs, metrics and traces (env-gated).
 
 Every line the app logs, every span the instrumentors record, and every RED
-metric the HTTP middleware records is forwarded over OTLP/HTTP. Local Docker
-points at the OpenTelemetry collector (``docker/otel-collector-config.yaml``);
-production points straight at New Relic's OTLP ingest, so a sleeping free
-Render service cannot drop cold-start telemetry. In both modes the app speaks
-only standard OTLP; only the configured endpoint and headers differ.
+metric the HTTP middleware records is forwarded over OTLP/HTTP to a Layer-2
+collector. Local Compose runs ``docker/otel-collector-config.yaml`` in a
+container; production runs that same config as a dedicated free Render web
+service. In both modes the app speaks only standard OTLP and holds no vendor
+key — only the configured endpoint and Basic-auth pair differ.
 
 Deliberately fail-open, in keeping with the rest of the stack:
 
@@ -97,7 +97,8 @@ def _otlp_headers() -> dict[str, str] | None:
 
     The derived Basic header (from ``OTLP_AUTH_*``) covers the common case --
     the collector's receiver is basicauth-gated. ``NEW_RELIC_OTLP_HEADERS`` is
-    a raw escape hatch layered on top and wins on a key collision.
+    a raw escape hatch layered on top and wins on a key collision; production
+    leaves it empty because the collector, not the app, holds the vendor key.
     """
     headers: dict[str, str] = dict(otlp_auth_headers() or {})
     headers.update(settings.NEW_RELIC_OTLP_HEADERS)
@@ -108,8 +109,10 @@ def _service_resource() -> Any:
     """The shared OTel resource for all three signals.
 
     One resource keeps logs, traces and metrics correlatable in the sink; the
-    collector's ``resource`` processor ``upsert``s the same two keys, so the
-    values must stay aligned.
+    collector's ``resource`` processor ``upsert``s the same three keys, so their
+    values must stay aligned. In particular the collector takes ``service.name``
+    from its own ``NEW_RELIC_APP_NAME``: both hosts must agree on
+    ``CivicPulse-API`` or the alert queries stop matching.
     """
     from opentelemetry.sdk.resources import Resource
 

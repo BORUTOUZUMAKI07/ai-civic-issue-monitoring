@@ -46,7 +46,7 @@ flowchart TB
 
     subgraph Ops["Operations"]
         Prefect[Prefect Cloud]
-        OTEL[OTel Collector - local compose only]
+        OTEL[OTel Collector - local Compose / free Render service]
         NR[New Relic]
     end
 
@@ -63,9 +63,8 @@ flowchart TB
     ML --> Mongo
     Prefect --> PG
     Prefect --> Mongo
-    API -->|production: direct OTLP/HTTP| NR
-    API -->|local compose: OTLP| OTEL
-    OTEL -->|fan-out| NR
+    API -->|OTLP/HTTP + Basic auth| OTEL
+    OTEL -->|vendor-aware exporter| NR
 ```
 
 ### Component responsibilities
@@ -84,7 +83,7 @@ flowchart TB
 | Data | Redis | Rate limits, cache, token blacklist, sessions |
 | Data | MongoDB | Audit logs, drift reports, rejected uploads |
 | Ops | Prefect | Drift, SLA, reporting, retraining flows |
-| Ops | OTel collector (local Compose) | Optional fan-out to New Relic / Grafana; production exports directly to New Relic |
+| Ops | OTel collector (local Compose / free Render) | Receives all three OTLP signals, owns the vendor key, queues to disk, optional Grafana overlay |
 
 ## Request lifecycle
 
@@ -225,44 +224,38 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    App[FastAPI App] -->|production: direct OTLP/HTTP| NR[New Relic]
-    App -->|local compose: OTLP| Collector[OTel Collector]
-    Collector -->|configurable fan-out| NR
+    App[FastAPI App] -->|OTLP/HTTP + Basic auth| Collector[OTel Collector: local or Render]
+    Collector -->|vendor-aware exporter| NR[New Relic]
     Collector -->|opt-in overlay| Grafana[Grafana]
     App -->|structured JSON logs| stdout
 ```
 
-In production all three signals (logs, metrics and traces) go **directly** to
-New Relic's OTLP/HTTP ingest at `https://otlp.nr-data.net:4318`. The vendor key
-lives only in the server-side `NEW_RELIC_OTLP_HEADERS` environment variable —
-never in the browser. There is deliberately no Render-hosted collector: free
-Render services sleep after 15 minutes idle, and a sleeping collector would drop
-cold-start telemetry. Export is fail-open, and `/health/telemetry` is a
-diagnostic snapshot, not a traffic gate.
+In production all three signals (logs, metrics and traces) go to a dedicated
+free Render collector at `https://civicpulse-otel-collector.onrender.com`. The
+backend holds only the OTLP endpoint and a Basic-auth pair; the collector alone
+holds `NEW_RELIC_LICENSE_KEY`, so no vendor key reaches the backend or browser.
+Free Render services sleep after 15 minutes idle, so telemetry emitted while the
+collector wakes can be dropped. That is the accepted trade-off: export is
+fail-open, and `/health/telemetry` is a diagnostic snapshot, not a traffic gate.
 
-For local Docker Compose, the OTLP collector remains available as a
-vendor-neutral fan-out sink with a disk-backed queue and an opt-in Grafana
-overlay. There is no Prometheus scrape path and no scraper to deploy. Browser
-errors travel `browser → /api/client-errors (Next route) → backend structured
-logs → OTLP`, so no vendor key reaches the browser. See
-[ADR-0009](docs/adr/0009-direct-otlp-ingest.md) and
+Local Docker Compose runs the same collector config with `PORT=4318`, a
+disk-backed queue and an opt-in Grafana overlay. There is no Prometheus scrape
+path and no scraper to deploy. Browser errors travel
+`browser → /api/client-errors (Next route) → backend structured logs → OTLP`,
+so no vendor key reaches the browser. See
+[ADR-0010](docs/adr/0010-render-collector-topology.md) (which supersedes
+[ADR-0009](docs/adr/0009-direct-otlp-ingest.md)) and
 [`docs/new-relic-alerts.md`](docs/new-relic-alerts.md).
 
 ## Deployment
 
 ```mermaid
 flowchart TB
-    Dev[Developer] -->|push| GH[GitHub]
-    GH -->|CI| Lint[Lint + Typecheck]
-    Lint --> Tests[Tests + Integration]
-    Tests --> Build[Docker Build]
-    Build --> GHCR[GHCR Registry]
-    GHCR -->|opt-in tag| DH[DockerHub]
-    GHCR -->|manual deploy| Host[Production Host]
-    Host --> Compose[Docker Compose]
-    Compose --> Backend[Backend Container]
-    Compose --> Frontend[Frontend Container]
-    Compose --> Collector[OTel Collector]
+    Dev[Developer] -->|push main| GH[GitHub]
+    GH -->|green CI| Deploy[CI-gated Deploy workflow]
+    Deploy -->|Deploy Hook| Collector[Render: OTel collector]
+    Deploy -->|Deploy Hook| Backend[Render: FastAPI]
+    Deploy -->|Deploy Hook| Frontend[Vercel: Next.js BFF]
 ```
 
 ## Setup
@@ -370,7 +363,7 @@ dvc add models/model.onnx && dvc push
 - Dashboard stats, heatmap, public aggregate stats
 - Drift detection via Prefect
 - SLA monitoring and daily reports
-- Direct New Relic OTLP ingest in production; local collector fan-out for development
+- Dedicated Render OTLP collector in production and local Compose; no vendor key in the app
 
 ## Tech stack
 

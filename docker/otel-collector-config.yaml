@@ -7,7 +7,8 @@
 #                          Gated by NEW_RELIC_ENABLED + NEW_RELIC_OTLP_ENDPOINT.
 #                          There is no /metrics scrape path and the app holds no
 #                          vendor key.
-#   Layer 2 (this agent)   receives OTLP on :4318, tail-samples traces,
+#   Layer 2 (this agent)   receives OTLP/HTTP on $PORT (4318 locally, the port
+#                          Render injects in production), tail-samples traces,
 #                          batches, and forwards all three signals to Layer 3.
 #                          Its exporters are the ONLY vendor-aware part of the
 #                          stack: swapping or adding a sink is a change here.
@@ -17,7 +18,13 @@
 # Local:      docker compose -f docker/docker-compose.yml up otel-collector
 #
 # Required env (compose supplies defaults):
+#   PORT                    OTLP/HTTP listener. Render injects this for its web
+#                           service; compose pins it to 4318 so the local and
+#                           hosted images run the same config unchanged.
 #   NEW_RELIC_LICENSE_KEY   New Relic ingest key (agent-only secret).
+#   NEW_RELIC_APP_NAME      service.name stamped on every signal; MUST match the
+#                           backend's NEW_RELIC_APP_NAME / alert filters or the
+#                           alert queries silently stop matching.
 #   ENVIRONMENT             production / development (resource attribute).
 #   OTLP_AUTH_USER          HTTP basic-auth user guarding BOTH OTLP protocols.
 #   OTLP_AUTH_PASSWORD      the matching password. These are placeholders by
@@ -49,7 +56,10 @@ receivers:
         auth:
           authenticator: basicauth/server
       http:
-        endpoint: 0.0.0.0:4318
+        # Render maps 443 -> the injected $PORT for a web service. Bind to that
+        # value rather than hard-coding 4318, or the collector listens on a port
+        # Render never forwards and every OTLP POST hangs/timeouts.
+        endpoint: 0.0.0.0:${env:PORT}
         auth:
           authenticator: basicauth/server
 
@@ -92,8 +102,10 @@ processors:
       - key: deployment.environment
         value: ${env:ENVIRONMENT}
         action: upsert
+      # The app already sends this resource attribute; upsert the SAME value so
+      # alerts filtering service.name = 'CivicPulse-API' keep matching.
       - key: service.name
-        value: civicpulse-backend
+        value: ${env:NEW_RELIC_APP_NAME}
         action: upsert
       - key: service.version
         value: ${env:SERVICE_VERSION}

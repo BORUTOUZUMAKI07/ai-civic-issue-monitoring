@@ -4,12 +4,14 @@ name: Deploy production
 #
 # This workflow runs only AFTER the `CI` workflow succeeds on main. Using
 # `workflow_run` (rather than a second `push` trigger) means a red or cancelled
-# CI run can never deploy. Both platforms are triggered through branch-scoped
-# deploy hook URLs kept as GitHub secrets; no broad platform token is needed.
+# CI run can never deploy. Collector, backend and frontend are triggered through
+# branch-scoped deploy hook URLs kept as GitHub secrets; no broad platform token
+# is needed.
 #
 # Required repository secrets:
-#   RENDER_DEPLOY_HOOK_URL  Render -> civicpulse-api -> Settings -> Deploy Hook
-#   VERCEL_DEPLOY_HOOK_URL  Vercel -> frontend project -> Deploy Hooks (main)
+#   COLLECTOR_DEPLOY_HOOK_URL  Render -> civicpulse-otel-collector -> Deploy Hook
+#   RENDER_DEPLOY_HOOK_URL     Render -> civicpulse-api -> Deploy Hook
+#   VERCEL_DEPLOY_HOOK_URL     Vercel -> frontend project -> Deploy Hooks (main)
 #
 # See docs/production-deployment.md for setup and verification steps.
 
@@ -25,7 +27,7 @@ on:
 permissions:
   contents: read
 
-# Serialize deploys. Never cancel one halfway through: both platforms must
+# Serialize deploys. Never cancel one halfway through: all three hooks must
 # finish accepting the deploy before a newer one is triggered.
 concurrency:
   group: production-deploy
@@ -84,6 +86,7 @@ jobs:
       (github.event.workflow_run.conclusion == 'success' && needs.resolve.outputs.skip != 'true')
     runs-on: ubuntu-latest
     env:
+      COLLECTOR_DEPLOY_HOOK_URL: ${{ secrets.COLLECTOR_DEPLOY_HOOK_URL }}
       RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
       VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
     steps:
@@ -92,7 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for name in RENDER_DEPLOY_HOOK_URL VERCEL_DEPLOY_HOOK_URL; do
+          for name in COLLECTOR_DEPLOY_HOOK_URL RENDER_DEPLOY_HOOK_URL VERCEL_DEPLOY_HOOK_URL; do
             if [ -z "$(printenv "$name" 2>/dev/null)" ]; then
               echo "::error::$name is not configured. Add it under Settings -> Secrets and variables -> Actions. See docs/production-deployment.md."
               missing=1
@@ -102,7 +105,29 @@ jobs:
             echo "::error::Production deployment aborted; no platform was contacted."
             exit 1
           fi
-          echo "Both deploy hooks are configured."
+          echo "All three deploy hooks are configured."
+
+      # Wake the collector first: a cold free Render service needs ~1 minute.
+      # The hook returns as soon as the deploy is accepted, so this cannot
+      # guarantee readiness before the backend starts exporting; cold-start
+      # telemetry loss is the accepted free-tier trade-off (fail-open).
+      - name: Trigger Render collector deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --request POST \
+            --output /tmp/collector-deploy.json --write-out '%{http_code}' \
+            "$COLLECTOR_DEPLOY_HOOK_URL")"
+          case "$code" in
+            2??)
+              echo "Collector deploy accepted (HTTP $code)."
+              ;;
+            *)
+              echo "::error::Collector deploy hook failed (HTTP $code)."
+              sed -n '1,20p' /tmp/collector-deploy.json || true
+              exit 1
+              ;;
+          esac
 
       - name: Trigger Render backend deploy
         shell: bash
@@ -148,7 +173,8 @@ jobs:
             echo "### Production deployment triggered"
             echo
             echo "- Commit: \`$DEPLOY_SHA\`"
+            echo "- Collector: Render \`civicpulse-otel-collector\`"
             echo "- Backend: Render \`civicpulse-api\`"
             echo "- Frontend: Vercel production alias"
-            echo "- Verify with \`gh workflow run smoke.yml\` once both builds are READY"
+            echo "- Verify with \`gh workflow run smoke.yml\` once collector, backend and frontend are READY"
           } >> "$GITHUB_STEP_SUMMARY"

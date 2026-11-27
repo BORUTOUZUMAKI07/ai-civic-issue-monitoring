@@ -12,10 +12,11 @@ Users
 uses the team's stable production alias above. Vercel Authentication is disabled
 on the project so that alias is publicly reachable.
 
-Render free web service
-  └── BACKEND_URL=https://civicpulse-api-wknx.onrender.com for the Vercel BFF
+Render free web services
+  ├── civicpulse-api               BACKEND_URL for the Vercel BFF
+  └── civicpulse-otel-collector    OTLP receiver; owns the New Relic license key
 
-FastAPI backend
+FastAPI backend ──OTLP/HTTP──> collector ──OTLP/HTTP──> New Relic
   ├── Neon Postgres       users, issues, wards, admin, idempotency
   ├── Upstash Redis free  sessions, refresh tokens, rate limits, pub/sub
   ├── MongoDB Atlas free  audit/compliance logs
@@ -32,6 +33,9 @@ FastAPI backend
   WebSocket pub/sub code is already written, but there is only one instance to
   fan out to. If you later move to a paid Render plan, set `numInstances: 2`; no
   code change is needed because Upstash TCP supports `SUBSCRIBE`.
+- The separate collector is also free, so it sleeps too. Telemetry emitted
+  while it wakes can be dropped; this is accepted, and observability remains
+  fail-open. Upgrading only the collector to a paid plan would remove that gap.
 - Use the **Upstash TCP** `rediss://...` URL as `REDIS_URL`. Do **not** use the
   HTTPS REST URL/token in production: REST can `PUBLISH` but cannot `SUBSCRIBE`,
   which would silently disable cross-instance WebSocket fan-out.
@@ -63,8 +67,7 @@ Later changes: **Render Dashboard → civicpulse-api → Environment → Environ
 | `AWS_ENDPOINT_URL_S3` | Neon Storage endpoint from Connect → Storage |
 | `AWS_ACCESS_KEY_ID` | Neon Storage access key ID |
 | `AWS_SECRET_ACCESS_KEY` | Neon Storage secret access key |
-| `NEW_RELIC_OTLP_HEADERS` | JSON object `{"api-key":"<New Relic license key>"}` |
-| `OTLP_AUTH_USER`, `OTLP_AUTH_PASSWORD` | Generated Basic-auth pair for the OTLP handshake |
+| `OTLP_AUTH_USER`, `OTLP_AUTH_PASSWORD` | The **same** generated Basic-auth pair entered on the collector |
 
 Already set in `render.yaml`, so do not re-enter unless you change them later:
 
@@ -79,9 +82,39 @@ Already set in `render.yaml`, so do not re-enter unless you change them later:
 | `AWS_REGION` | `us-east-2` |
 | `MONGODB_DB` | `civicpulse_analytics` |
 | `NEW_RELIC_ENABLED` | `true` |
-| `NEW_RELIC_OTLP_ENDPOINT` | `https://otlp.nr-data.net:4318` |
+| `NEW_RELIC_OTLP_ENDPOINT` | `https://civicpulse-otel-collector.onrender.com` |
 | `NEW_RELIC_EXPORT_INTERVAL_SECONDS` | `5` |
 | `NEW_RELIC_APP_NAME` | `CivicPulse-API` |
+
+`NEW_RELIC_OTLP_HEADERS` must be **absent**: the backend never holds the vendor
+key. If Render shows a different hostname for the collector service (a suffix
+may be added when the name is already taken globally), replace
+`NEW_RELIC_OTLP_ENDPOINT` with the exact hostname shown, without a `:4318`
+suffix — Render maps public HTTPS to its injected `$PORT`.
+
+### Render → collector service (`civicpulse-otel-collector`)
+
+First creation: fill the prompts on the **Blueprint creation screen**. Later
+changes: **Render Dashboard → civicpulse-otel-collector → Environment → Environment Variables**.
+
+| Variable | Value / source |
+| :--- | :--- |
+| `NEW_RELIC_LICENSE_KEY` | New Relic ingest license key (vendor key; collector-only) |
+| `OTLP_AUTH_USER`, `OTLP_AUTH_PASSWORD` | The **same** generated Basic-auth pair entered on the backend |
+
+Already set in `render.yaml`:
+
+| Variable | Value |
+| :--- | :--- |
+| `ENVIRONMENT` | `production` |
+| `SERVICE_VERSION` | `unknown` |
+| `NEW_RELIC_APP_NAME` | `CivicPulse-API` (same as backend; alert queries filter on it) |
+
+Do **not** set `PORT` manually. Render injects it, and the tracked collector
+config binds its public OTLP/HTTP listener to `${env:PORT}`. Hard-coding `4318`
+would make the service unreachable through Render's HTTPS mapping. The
+collector's `/healthz` stays internal on `:13133`, so no `healthCheckPath` is
+configured; Render checks the injected port directly.
 
 Important: if `UPSTASH_REDIS_REST_URL` or `UPSTASH_REDIS_REST_TOKEN` exist in
 Render's Environment tab from an older setup, **delete them**. They switch the
@@ -156,7 +189,7 @@ two REST variables empty.
 on `main`:
 
 ```text
-push to main → CI (all gates green) → Deploy production → Render + Vercel
+push to main → CI (all gates green) → Deploy production → Render collector + backend + Vercel
 ```
 
 It uses `workflow_run`, not a second `push` trigger, so a red or cancelled CI
@@ -170,38 +203,46 @@ Repository → Settings → Secrets and variables → Actions → New repository
 
 | Secret | Where to get it |
 | :--- | :--- |
-| `RENDER_DEPLOY_HOOK_URL` | Render → `civicpulse-api` → Settings → Deploy → Deploy Hook (`https://api.render.com/deploy/...`) |
+| `COLLECTOR_DEPLOY_HOOK_URL` | Render → `civicpulse-otel-collector` → Settings → Deploy → Deploy Hook (`https://api.render.com/deploy/...`) |
+| `RENDER_DEPLOY_HOOK_URL` | Render → `civicpulse-api` → Settings → Deploy → Deploy Hook |
 | `VERCEL_DEPLOY_HOOK_URL` | Vercel → canonical frontend project → Settings → Git → Deploy Hooks → create a hook for branch `main` |
 
-Both URLs are credentials. Never commit them or paste them into an issue. The
-workflow checks for them before contacting either platform and fails with a
-named error if one is missing; it never prints the values.
+All three URLs are credentials. Never commit them or paste them into an issue.
+The workflow checks for them before contacting any platform and fails with a
+named error if one is missing; it never prints the values. The collector hook
+fires first so its cold start begins as early as possible.
 
-The hooks are branch-scoped: Render's service tracks `main`, and the Vercel hook
-is created for `main`, so each deploy builds the current `main` tip. Do **not**
-also enable platform-native auto-deploy for that branch, or one push will start
-two deploys.
+The hooks are branch-scoped: both Render services track `main`, and the Vercel
+hook is created for `main`, so each deploy builds the current `main` tip. Do
+**not** enable Git auto-deploy on either Render service or Vercel Git
+deployment for that branch, or one push will start duplicate deploys.
+`render.yaml` sets `autoDeployTrigger: "off"`; Vercel's `vercel.json` sets
+`git.deploymentEnabled: false`.
 
 ### Manual re-trigger
 
 Actions → **Deploy production** → Run workflow. This deploys the current `main`
 tip without a new commit, which is useful after a transient hook failure. The
 automatic path always requires CI to be green. There is no staging target; the
-old manual SSH deploy workflow was removed. Both hooks are treated as accepted
-on any HTTP 2xx response; Vercel returns `201` with a pending job.
+old manual SSH deploy workflow was removed. All three hooks are treated as
+accepted on any HTTP 2xx response; Vercel returns `201` with a pending job.
 
 ### Verify after a deploy
 
 ```text
+Render → civicpulse-otel-collector → Live, logs contain "Everything is ready"
 GET https://civicpulse-api-wknx.onrender.com/health           → 200
 GET https://civicpulse-api-wknx.onrender.com/health/telemetry → 200
 GET https://civicpulse-civic-ai8.vercel.app                   → 200
 ```
 
 Render free services sleep after 15 minutes, so the first request may take a
-minute to wake the backend. For the full authenticated checks, run
+minute to wake the backend (and the collector separately). A telemetry status
+of `degraded` immediately after a cold start can be that accepted wake window;
+check the collector logs before assuming an auth or key problem. For the full
+authenticated checks, run
 `gh workflow run smoke.yml` with `base_url=https://civicpulse-civic-ai8.vercel.app`
-once both builds are `READY`.
+once the collector and backend are Live and the frontend build is `READY`.
 
 ---
 
@@ -218,16 +259,24 @@ git push github main
 
 Use the `github` remote, not `origin`.
 
-### Step 2 — Render backend
+### Step 2 — Render backend + collector
 
 1. Dashboard → **New** → **Blueprint**.
 2. Connect this GitHub repository, branch `main`.
-3. The Blueprint creates only `civicpulse-api` on the **free** plan.
-4. Fill every prompted secret from the Render table above.
+3. The Blueprint creates two **free** web services: `civicpulse-api` and
+   `civicpulse-otel-collector`.
+4. Fill every prompted secret from both Render tables above.
    - For `REDIS_URL`, paste the Upstash **TCP** `rediss://...` URL.
    - Do not paste the HTTPS REST URL.
+   - Enter the **same** `OTLP_AUTH_USER` / `OTLP_AUTH_PASSWORD` pair on both
+     services. A mismatch rejects every signal with HTTP 401.
+   - The New Relic license key is entered only on the collector.
 5. Delete `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` if they exist.
-6. The image `CMD` runs migrations and then uvicorn:
+6. If either service already exists, a deploy hook does **not** apply changed
+   Blueprint env values. Use **Sync Blueprint**, then confirm the Environment
+   tab, or update the variables manually. This is required for the backend's
+   `NEW_RELIC_OTLP_ENDPOINT` change to take effect.
+7. The backend image `CMD` runs migrations and then uvicorn:
 
    ```text
    python -m alembic -c /app/alembic.ini upgrade head && exec uvicorn ...
@@ -246,12 +295,12 @@ GET https://civicpulse-api-wknx.onrender.com/api/v1/ml/info   → model_type: on
 ```
 
 `/health/telemetry` is diagnostic only: observability is fail-open, so a broken
-sink never removes a working instance from rotation. After a fresh deploy its
+sink never removes a working instance from rotation. After a warm collector its
 `status` should be `ok`, with `traces_ok`, `metrics_ok` and `logs_ok` all true.
-Production exports directly to New Relic's OTLP/HTTP ingest — there is no
-Render-hosted collector to wake after idle. The collector in `docker/` is a
-local-Compose-only tool; see
-[ADR-0009](adr/0009-direct-otlp-ingest.md) for the decision and
+Production sends all three signals through the dedicated Render collector,
+which owns the vendor key; a cold collector may drop the first startup proof.
+See [ADR-0010](adr/0010-render-collector-topology.md) (superseding
+[ADR-0009](adr/0009-direct-otlp-ingest.md)) for the decision and
 `docs/new-relic-alerts.md` for the matching alerts and runbooks.
 
 The built image contains `/app/models/model.onnx`, so production uses the
@@ -352,5 +401,6 @@ admins should be created through the existing admin API.
 Public: frontend URL and backend API URL.
 
 Never public: database, Redis, MongoDB, admin password, `SECRET_KEY`, SMTP
-password, OAuth client secret, or object-storage keys. A public backend URL is
-normal; it is not the same as exposing the database.
+password, OAuth client secret, object-storage keys, `NEW_RELIC_LICENSE_KEY`, or
+the `OTLP_AUTH_*` pair. A public backend/collector URL is normal; it is not the
+same as exposing the database, and the collector receiver requires Basic auth.

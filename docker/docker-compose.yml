@@ -47,6 +47,8 @@ services:
       - NEW_RELIC_ENABLED=${NEW_RELIC_ENABLED:-false}
       - NEW_RELIC_OTLP_ENDPOINT=${NEW_RELIC_OTLP_ENDPOINT:-http://otel-collector:4318}
       - NEW_RELIC_EXPORT_INTERVAL_SECONDS=${NEW_RELIC_EXPORT_INTERVAL_SECONDS:-30}
+      # Must match the collector's resource processor and the alert NRQL filters.
+      - NEW_RELIC_APP_NAME=${NEW_RELIC_APP_NAME:-CivicPulse-API}
       # HTTP basic auth for the collector's OTLP receiver. The SAME pair is set
       # on otel-collector below, so the app authenticates by default — a
       # mismatch between the two would show up as a 401 the collector rejects
@@ -188,6 +190,13 @@ services:
       # collector would exit at startup with `permission denied`.
       - otelcol-queue:/var/lib/otelcol/queue
     environment:
+      # The tracked collector config binds OTLP/HTTP to $PORT. Render supplies
+      # its own injected port; locally pin the same value the backend targets
+      # (NEW_RELIC_OTLP_ENDPOINT above) so one config serves both deployments.
+      - PORT=4318
+      # The resource processor stamps this as service.name; keep it in step with
+      # the backend and observability/new-relic-alerts.json.
+      - NEW_RELIC_APP_NAME=${NEW_RELIC_APP_NAME:-CivicPulse-API}
       - NEW_RELIC_LICENSE_KEY=${NEW_RELIC_LICENSE_KEY:-not-set}
       - ENVIRONMENT=${ENVIRONMENT:-development}
       # Stamped onto every signal; keep it in step with the backend's VERSION.

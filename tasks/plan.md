@@ -37,7 +37,7 @@ Acceptance:
 ### 4. Deployment + dependency cleanup
 Acceptance:
 - Reusable deployed-smoke workflow and root script check frontend, BFF proxy, login/session/refresh, and optional admin surfaces against a real URL.
-- `production-deploy.yml` points operators to the manual smoke run once both builds are READY.
+- `production-deploy.yml` points operators to the manual smoke run once collector/backend/frontend are READY.
 - Docs list all required GitHub variables/secrets and how to run smoke manually.
 - `dnspython>=2.9.2` and `opentelemetry-api>=1.45.2` floors are in `pixi.toml` + `backend/pyproject.toml`, lock is refreshed, and temporary allowlist entries are removed.
 

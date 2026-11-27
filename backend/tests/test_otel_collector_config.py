@@ -19,6 +19,11 @@ What is pinned:
   credential comes from the environment, and the app and the collector are
   handed the *same* pair (the app half is asserted in
   ``test_observability_3layer.py``);
+* the OTLP/HTTP listener follows the host's injected ``PORT`` (Render's public
+  mapping) while Compose supplies the matching local ``4318`` value;
+* the ``service.name`` the collector upserts — sourced from the same
+  ``NEW_RELIC_APP_NAME`` the app and alert queries use, so production telemetry
+  cannot land under a name no condition matches;
 * one OTLP receiver for all three signals, no Prometheus scrape path, and the
   file-backed queue that survives a sink outage — including the image that
   pre-creates the queue directory for the collector uid, so a fresh volume
@@ -31,11 +36,15 @@ What is pinned:
   Docker-marked integration test (``Backend Integration`` in CI), because shape
   assertions cannot see a queue directory the collector refuses to write to;
 * the Grafana fan-out is an opt-in overlay, absent from the default config, so
-  enabling it can never be a prerequisite for starting up.
+  enabling it can never be a prerequisite for starting up;
+* the hosted topology — two free Render services with native auto-deploy off,
+  the vendor key only on the collector, and matching Basic-auth prompts on both
+  halves — plus the three-hook CI-gated deploy workflow.
 """
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import time
@@ -50,6 +59,13 @@ COLLECTOR_CONFIG = REPO_ROOT / "docker" / "otel-collector-config.yaml"
 GRAFANA_OVERLAY = REPO_ROOT / "docker" / "otel-collector-config.grafana.yaml"
 COLLECTOR_DOCKERFILE = REPO_ROOT / "docker" / "otel-collector.Dockerfile"
 COMPOSE_FILE = REPO_ROOT / "docker" / "docker-compose.yml"
+RENDER_BLUEPRINT = REPO_ROOT / "render.yaml"
+DEPLOY_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "production-deploy.yml"
+CONFIG_MODULE = REPO_ROOT / "backend" / "src" / "core" / "config.py"
+ALERTS_FILE = REPO_ROOT / "observability" / "new-relic-alerts.json"
+
+# Alerts, the app default and both collector hosts must agree on this name.
+APP_SERVICE_NAME = "CivicPulse-API"
 
 # The collector image runs as this uid; the queue dir must be owned by it.
 COLLECTOR_UID = "10001:10001"
@@ -91,6 +107,18 @@ def _env_map(environment: object) -> dict[str, str]:
     return parsed
 
 
+def _render_services() -> dict[str, dict]:
+    """The Blueprint's services, keyed by name."""
+    services = _load(RENDER_BLUEPRINT)["services"]
+    assert isinstance(services, list), "render.yaml must declare a service list"
+    return {service["name"]: service for service in services}
+
+
+def _render_env(service: dict) -> dict[str, dict]:
+    """A service's envVars, keyed by name (non-key entries are not relevant here)."""
+    return {entry["key"]: entry for entry in service.get("envVars", []) if isinstance(entry, dict) and "key" in entry}
+
+
 def test_every_resource_attribute_declares_an_action() -> None:
     """The known startup killer, named rather than inferred from a dead collector.
 
@@ -108,6 +136,72 @@ def test_every_resource_attribute_declares_an_action() -> None:
             f"resource attribute {entry.get('key')!r} has no `action`; the "
             "collector-contrib processor rejects an empty action at startup"
         )
+
+
+def test_collector_service_name_matches_app_and_alerts() -> None:
+    """The collector overwrites service.name; it must not silently evade alerts."""
+    attributes = _load(COLLECTOR_CONFIG)["processors"]["resource"]["attributes"]
+    service_names = [entry["value"] for entry in attributes if entry.get("key") == "service.name"]
+    assert service_names == ["${env:NEW_RELIC_APP_NAME}"], (
+        f"the collector must stamp service.name from NEW_RELIC_APP_NAME instead of a literal; got {service_names!r}"
+    )
+
+    compose_services = _load(COMPOSE_FILE)["services"]
+    local_expression = f"${{NEW_RELIC_APP_NAME:-{APP_SERVICE_NAME}}}"
+    for name in ("backend", "otel-collector"):
+        actual = _env_map(compose_services[name]["environment"]).get("NEW_RELIC_APP_NAME")
+        assert actual == local_expression, (
+            f"compose {name} must use {local_expression!r} for NEW_RELIC_APP_NAME; got {actual!r}"
+        )
+
+    services = _render_services()
+    for name in ("civicpulse-api", "civicpulse-otel-collector"):
+        entry = _render_env(services[name]).get("NEW_RELIC_APP_NAME", {})
+        assert entry.get("value") == APP_SERVICE_NAME, (
+            f"render {name} must set NEW_RELIC_APP_NAME={APP_SERVICE_NAME}; got {entry!r}"
+        )
+
+    config_source = CONFIG_MODULE.read_text(encoding="utf-8")
+    assert f'NEW_RELIC_APP_NAME: str = "{APP_SERVICE_NAME}"' in config_source, (
+        "the backend default must match the value the collector stamps"
+    )
+
+    alerts = json.loads(ALERTS_FILE.read_text(encoding="utf-8"))
+    conditions = alerts["conditions"]
+    assert conditions, "alert policy has no conditions to compare against"
+    for condition in conditions:
+        nrql = condition["nrql"]
+        assert f"service.name = '{APP_SERVICE_NAME}'" in nrql, (
+            f"alert {condition['name']!r} does not filter {APP_SERVICE_NAME}: {nrql}"
+        )
+
+
+def test_otlp_http_receiver_binds_the_injected_port() -> None:
+    """Render only forwards 443 to its injected ``PORT``; a hard-coded 4318 is dead."""
+    protocols = _load(COLLECTOR_CONFIG)["receivers"]["otlp"]["protocols"]
+    assert protocols["http"]["endpoint"] == "0.0.0.0:${env:PORT}", (
+        "OTLP/HTTP must follow Render's injected PORT; the same config is used locally with PORT=4318"
+    )
+    # Only HTTP is publicly mapped by Render. Keep gRPC on its conventional
+    # in-container port instead of silently depending on the injected one too.
+    assert protocols["grpc"]["endpoint"] == "0.0.0.0:4317"
+
+
+def test_compose_supplies_the_collector_port_the_backend_targets() -> None:
+    """The config needs PORT at startup; Compose must provide the local value."""
+    compose = _load(COMPOSE_FILE)
+    services = compose["services"]
+    collector_port = _env_map(services["otel-collector"]["environment"]).get("PORT")
+    assert collector_port == "4318", f"otel-collector must set PORT=4318 locally; got {collector_port!r}"
+    raw_endpoint = _env_map(services["backend"]["environment"]).get("NEW_RELIC_OTLP_ENDPOINT", "")
+    # Compose entries may be written as `${VAR:-default}`; the default is the
+    # local value under test, not the literal interpolation expression.
+    if raw_endpoint.startswith("${") and raw_endpoint.endswith("}"):
+        expression = raw_endpoint[2:-1]
+        local_endpoint = expression.partition(":-")[2] or expression
+    else:
+        local_endpoint = raw_endpoint
+    assert local_endpoint.endswith(":4318"), "the backend's local OTLP endpoint must target the collector's PORT=4318"
 
 
 def test_otlp_receiver_requires_basic_auth_on_both_protocols() -> None:
@@ -167,9 +261,9 @@ def test_three_signals_one_receiver_and_no_prometheus_scrape() -> None:
         assert not any("prometheus" in e for e in pipeline["exporters"]), (
             f"{name} must not carry a Prometheus scrape path"
         )
-    assert not any(
-        key.startswith("prometheus") for key in config.get("exporters", {})
-    ), "no Prometheus exporter may be declared"
+    assert not any(key.startswith("prometheus") for key in config.get("exporters", {})), (
+        "no Prometheus exporter may be declared"
+    )
 
 
 def test_primary_sink_queues_to_disk_and_retries() -> None:
@@ -244,12 +338,9 @@ def test_collector_image_precreates_the_queue_dir_for_its_uid() -> None:
         "the collector image itself has no shell to mkdir with"
     )
     assert "RUN mkdir -p /var/lib/otelcol/queue" in dockerfile
-    copy_line = (
-        f"COPY --from=queuedir --chown={COLLECTOR_UID} /var/lib/otelcol /var/lib/otelcol"
-    )
+    copy_line = f"COPY --from=queuedir --chown={COLLECTOR_UID} /var/lib/otelcol /var/lib/otelcol"
     assert copy_line in dockerfile, (
-        "the queue dir must ship owned by the collector uid so a fresh named "
-        "volume inherits a writable ownership"
+        "the queue dir must ship owned by the collector uid so a fresh named volume inherits a writable ownership"
     )
 
 
@@ -318,9 +409,7 @@ def test_grafana_fan_out_is_opt_in_and_complete() -> None:
         "the collector from starting at all"
     )
     for name, pipeline in base["service"]["pipelines"].items():
-        assert "otlphttp/grafana" not in pipeline["exporters"], (
-            f"base pipeline {name} must not fan out by default"
-        )
+        assert "otlphttp/grafana" not in pipeline["exporters"], f"base pipeline {name} must not fan out by default"
 
 
 def test_default_command_runs_only_the_base_config() -> None:
@@ -337,6 +426,99 @@ def test_default_command_runs_only_the_base_config() -> None:
     assert any("otel-collector-config.yaml:" in m for m in mounts), "base config must be mounted"
     assert any("otel-collector-config.grafana.yaml:" in m for m in mounts), (
         "the overlay should be pre-mounted so enabling it is only a command flag"
+    )
+
+
+def test_render_hosts_two_free_services_with_no_native_auto_deploy() -> None:
+    """Production topology: backend + dedicated collector, both hook-only."""
+    services = _render_services()
+    assert set(services) == {"civicpulse-api", "civicpulse-otel-collector"}, (
+        "the production Blueprint must contain exactly the API and its collector"
+    )
+    for name, service in services.items():
+        assert service["type"] == "web", f"{name} must be a Render web service"
+        assert service["plan"] == "free", f"{name} must stay on the claimed free plan"
+        # YAML 1.1 parses an unquoted `off` as False, so this also pins the
+        # quotes that keep autoDeployTrigger a string for Render.
+        assert service["autoDeployTrigger"] == "off", (
+            f"{name} must disable Git auto-deploy; only the Actions hooks deploy"
+        )
+
+    backend = services["civicpulse-api"]
+    collector = services["civicpulse-otel-collector"]
+    assert backend["healthCheckPath"] == "/health"
+    assert "healthCheckPath" not in collector, (
+        "Render's TCP check must use the injected $PORT; an HTTP path would hit "
+        "the OTLP receiver, not the internal :13133 /healthz extension"
+    )
+    assert collector["dockerfilePath"] == "./docker/otel-collector.Dockerfile"
+    assert collector["dockerContext"] == "."
+    collector_env = _render_env(collector)
+    assert "PORT" not in collector_env, (
+        "Render injects PORT dynamically; pinning 4318 would make the public 443 -> $PORT mapping unreachable"
+    )
+    assert collector_env["ENVIRONMENT"]["value"] == "production"
+    assert collector_env["SERVICE_VERSION"]["value"], (
+        "${env:SERVICE_VERSION} must be present or the collector will not start"
+    )
+
+
+def test_render_keeps_the_vendor_key_on_the_collector_only() -> None:
+    """The backend sends OTLP + Basic auth; the collector owns the New Relic key."""
+    services = _render_services()
+    backend_env = _render_env(services["civicpulse-api"])
+    collector_env = _render_env(services["civicpulse-otel-collector"])
+
+    assert backend_env["NEW_RELIC_OTLP_ENDPOINT"]["value"] == ("https://civicpulse-otel-collector.onrender.com"), (
+        "the backend must send OTLP to the dedicated collector, not the vendor"
+    )
+    assert "NEW_RELIC_OTLP_HEADERS" not in backend_env, (
+        "a vendor api-key header on the backend re-creates direct ingest and "
+        "bypasses the collector's queue/auth boundary"
+    )
+    assert "NEW_RELIC_LICENSE_KEY" not in backend_env, (
+        "the backend must never receive the vendor key; only the collector owns it"
+    )
+    assert not any("otlp.nr-data.net" in str(entry) for entry in backend_env.values()), (
+        "no direct New Relic ingest endpoint may remain on the backend"
+    )
+
+    license_key = collector_env["NEW_RELIC_LICENSE_KEY"]
+    assert license_key.get("sync") is False and "value" not in license_key, (
+        "the collector must prompt for the vendor key; never inline it"
+    )
+
+    for name in ("OTLP_AUTH_USER", "OTLP_AUTH_PASSWORD"):
+        backend = backend_env[name]
+        collector = collector_env[name]
+        for label, entry in (("backend", backend), ("collector", collector)):
+            assert entry.get("sync") is False and "value" not in entry, (
+                f"{label} {name} must be a prompted secret on both services; "
+                "the operator enters the SAME generated pair in each"
+            )
+
+
+def test_deploy_workflow_triggers_collector_then_backend_then_frontend() -> None:
+    """The third hook must be checked and fired before the existing two."""
+    workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+    names = ("COLLECTOR_DEPLOY_HOOK_URL", "RENDER_DEPLOY_HOOK_URL", "VERCEL_DEPLOY_HOOK_URL")
+    for name in names:
+        assert f"{name}: ${{{{ secrets.{name} }}}}" in workflow, (
+            f"{name} must be mapped from a GitHub Actions secret, never inlined"
+        )
+    assert f"for name in {' '.join(names)}; do" in workflow, (
+        "the preflight must verify all three hooks before contacting any platform"
+    )
+
+    step_order = [
+        workflow.index("name: Trigger Render collector deploy"),
+        workflow.index("name: Trigger Render backend deploy"),
+        workflow.index("name: Trigger Vercel frontend deploy"),
+    ]
+    assert step_order == sorted(step_order), "the collector must be woken before the backend starts exporting OTLP"
+    # The backticks are escaped for GitHub's shell heredoc in the YAML source.
+    assert "- Collector: Render \\`civicpulse-otel-collector\\`" in workflow, (
+        "the deploy summary must include the new service"
     )
 
 
@@ -480,6 +662,10 @@ def test_the_collector_image_boots_on_a_fresh_named_volume() -> None:
                 # The config reads these via ${env:...}; an unset name is an
                 # error for the collector, so supply them exactly as
                 # docker-compose.yml does.
+                "-e",
+                "PORT=4318",
+                "-e",
+                f"NEW_RELIC_APP_NAME={APP_SERVICE_NAME}",
                 "-e",
                 "ENVIRONMENT=development",
                 "-e",

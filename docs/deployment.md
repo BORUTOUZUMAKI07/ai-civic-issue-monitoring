@@ -6,7 +6,7 @@ The canonical production runbook is
 Production deployment is automatic:
 
 ```text
-push to main -> CI (all gates green) -> Deploy production -> Render + Vercel
+push to main -> CI (all gates green) -> Deploy production -> Render collector + backend + Vercel
 ```
 
 `.github/workflows/production-deploy.yml` is the only deploy workflow. It is
@@ -15,7 +15,7 @@ production-only; there is no staging target and no environment dropdown.
 | Workflow | Purpose |
 | :--- | :--- |
 | `ci.yml` | Tests, security gates, and GHCR image publishing |
-| `production-deploy.yml` | CI-gated production deploy to Render + Vercel |
+| `production-deploy.yml` | CI-gated production deploy to Render collector + backend and Vercel frontend |
 | `smoke.yml` | Manual verification against a deployed frontend URL |
 | `train.yml` | Prefect-triggered model retraining |
 
@@ -60,7 +60,7 @@ failing the release.
 
 ## Deployed smoke checks
 
-Run these once both builds are `READY`:
+Run these once the collector and backend are Live and the frontend build is `READY`:
 
 ```bash
 gh workflow run smoke.yml \

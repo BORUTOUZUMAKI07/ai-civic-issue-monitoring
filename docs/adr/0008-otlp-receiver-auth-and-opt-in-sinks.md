@@ -1,7 +1,9 @@
 # ADR-0008: Authenticate the OTLP receiver; keep second sinks opt-in
 
-- **Status**: Accepted for local Docker Compose only; production uses direct
-  ingest per [0009](0009-direct-otlp-ingest.md)
+- **Status**: Accepted for local Compose and the hosted collector. The direct
+  ingest path in [0009](0009-direct-otlp-ingest.md) was superseded by
+  [0010](0010-render-collector-topology.md), which restores this handshake in
+  production.
 - **Date**: 2026-10-16
 
 ## Context
@@ -43,7 +45,8 @@ two sides cannot be configured independently without noticing.
 The app builds the header only when **both** values are set: a lone user or a
 lone password is treated as "no credentials" rather than sent, because a
 half-built credential is guaranteed to fail. `NEW_RELIC_OTLP_HEADERS` remains as
-a raw escape hatch layered on top (it wins on a key collision).
+a raw escape hatch layered on top (it wins on a key collision); production
+leaves it empty because the collector, not the app, holds the vendor key.
 
 ### 2. Ship the Grafana fan-out as an opt-in overlay file
 

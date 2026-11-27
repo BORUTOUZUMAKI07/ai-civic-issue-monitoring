@@ -1,7 +1,9 @@
 # ADR-0007: All three signals over OTLP; drop the Prometheus scrape path
 
-- **Status**: Accepted for local Docker Compose; production egress superseded by
-  [0009](0009-direct-otlp-ingest.md)
+- **Status**: Accepted. The brief direct-ingest production detour in
+  [0009](0009-direct-otlp-ingest.md) was reversed by
+  [0010](0010-render-collector-topology.md), which runs this same collector
+  topology as a free Render service.
 - **Date**: 2026-10-16
 
 ## Context
@@ -58,9 +60,10 @@ Make OTLP the **only** telemetry egress from the app and harden the collector:
   handlers, so a secret logged via `extra={...}` is scrubbed before it reaches
   any sink.
 
-Basicauth on the collector's OTLP receiver remains an opt-in (documented, off by
-default): enabling it requires matching the app's `NEW_RELIC_OTLP_HEADERS`, and
-an open receiver on a private network is the sane default for local dev.
+Basicauth on the collector's OTLP receiver was left opt-in here; ADR-0008 later
+made it mandatory, and ADR-0010 carries that same handshake to the hosted
+collector. Production leaves `NEW_RELIC_OTLP_HEADERS` empty: the Basic pair is
+derived from `OTLP_AUTH_*`, and the vendor key belongs to the collector.
 
 ## Consequences
 

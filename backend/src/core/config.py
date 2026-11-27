@@ -161,11 +161,11 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = False
 
     # --- Observability: OTLP logs, metrics and traces ---
-    # The app exports all three signals over OTLP/HTTP. Local Docker points at
-    # the Layer-2 collector (docker/otel-collector-config.yaml), which owns the
-    # vendor key; production points directly at New Relic's ingest instead,
-    # because a sleeping free Render service would drop cold-start telemetry.
-    # Either way the transport is vendor-neutral OTLP and export is fail-open:
+    # The app exports all three signals over OTLP/HTTP to a Layer-2 collector.
+    # Local Compose uses the container in docker/otel-collector-config.yaml;
+    # production uses the same config in a dedicated free Render service whose
+    # URL is supplied here. The vendor key stays on the collector, never in the
+    # app or browser. Transport is vendor-neutral OTLP and export is fail-open:
     # no-op when disabled, the endpoint is unset, or extras are not installed.
     NEW_RELIC_ENABLED: bool = False
     NEW_RELIC_OTLP_ENDPOINT: str = "http://localhost:4318"
@@ -183,7 +183,8 @@ class Settings(BaseSettings):
     OTLP_AUTH_PASSWORD: str = ""
     # Extra headers sent on every OTLP request, as a JSON object in the env. A
     # raw escape hatch for anything the derived Basic header does not cover
-    # (e.g. a bearer token); when a key collides, this wins. Empty by default.
+    # (e.g. a bearer token); when a key collides, this wins. Production leaves
+    # this empty: the collector holds the New Relic key. Empty by default.
     NEW_RELIC_OTLP_HEADERS: dict[str, str] = {}
 
     # --- OAuth (Google / GitHub) ---

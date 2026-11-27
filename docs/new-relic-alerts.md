@@ -1,15 +1,19 @@
 # New Relic alerts and runbooks
 
-CivicPulse exports logs, metrics and traces directly to New Relic's OTLP/HTTP
-ingest. `observability/new-relic-alerts.json` is the checked-in source of truth
-for the alert policy; this document explains each query and what to do when it
-fires. [ADR-0009](adr/0009-direct-otlp-ingest.md) records why production exports
-directly instead of going through a Render-hosted collector (free services sleep
-and drop cold-start telemetry); the collector in `docker/` is local-Compose only.
+CivicPulse exports logs, metrics and traces over OTLP/HTTP to a dedicated free
+Render collector, which forwards them to New Relic and owns the vendor key. The
+backend holds only the collector URL and a Basic-auth pair; no vendor key reaches
+the browser. `observability/new-relic-alerts.json` is the checked-in source of
+truth for the alert policy; this document explains each query and what to do
+when it fires. [ADR-0010](adr/0010-render-collector-topology.md) records the
+topology and its accepted cold-start trade-off (superseding
+[ADR-0009](adr/0009-direct-otlp-ingest.md)).
 
 ## Data assumptions
 
-- `service.name` is `CivicPulse-API` (`NEW_RELIC_APP_NAME`).
+- `service.name` is `CivicPulse-API` (`NEW_RELIC_APP_NAME`). The collector's
+  resource processor overwrites this attribute from its own
+  `NEW_RELIC_APP_NAME`, so both services must use the same value.
 - All three signals use one resource, so a `correlation_id` on a request log can
   be followed to its span and metrics.
 - Export is fail-open. A telemetry outage must not remove the API from service.
@@ -25,7 +29,10 @@ GET https://civicpulse-api-wknx.onrender.com/api/v1/ml/info
 
 `/health/telemetry` returns `status: ok` only when the startup probe flushed
 logs, metrics and traces successfully. `degraded` or `disabled` is diagnostic,
-not a traffic gate.
+not a traffic gate. Also check the Render dashboard for
+`civicpulse-otel-collector`: it must be **Live** and its logs must contain
+`Everything is ready`. A failure immediately after idle can simply be the
+collector waking; retry before escalating.
 
 To inspect what actually arrived in New Relic:
 
@@ -178,12 +185,18 @@ Runbook:
 1. Check `enabled`, `endpoint_configured`, `traces_ok`, `metrics_ok` and
    `logs_ok` on `/health/telemetry`.
 2. If `enabled` is false, check Render's `NEW_RELIC_ENABLED` value.
-3. If `endpoint_configured` is false, check `NEW_RELIC_OTLP_ENDPOINT` is
-   `https://otlp.nr-data.net:4318`.
-4. If only some signals fail, check that `NEW_RELIC_OTLP_HEADERS` contains the
-   `api-key` header and that the optional Basic-auth pair is complete (both
-   values set or both empty).
-5. Confirm the deployed image includes the `[observability]` extras; the backend
+3. If `endpoint_configured` is false, check `NEW_RELIC_OTLP_ENDPOINT` points at
+   the collector hostname (`https://civicpulse-otel-collector.onrender.com`, or
+   the exact hostname Render shows). There is no `:4318` suffix.
+4. If signals fail with 401, compare `OTLP_AUTH_USER` / `OTLP_AUTH_PASSWORD` on
+   the backend and collector. Both values must be set on **both** services and
+   must match exactly; partial pairs are ignored by the app.
+5. If the endpoint and auth pair are correct, open the collector logs. A missing
+   `Everything is ready` means the collector is still waking or refused to
+   start; check that `NEW_RELIC_LICENSE_KEY`, `ENVIRONMENT` and
+   `SERVICE_VERSION` are present there. The vendor key must not be set on the
+   backend (`NEW_RELIC_OTLP_HEADERS` stays absent).
+6. Confirm the deployed backend image includes the `[observability]` extras; the
    Dockerfile installs them.
-6. Redeploy after fixing. A successful boot emits a new verification event with
+7. Redeploy after fixing. A successful boot emits a new verification event with
    `telemetry_ok = true`.

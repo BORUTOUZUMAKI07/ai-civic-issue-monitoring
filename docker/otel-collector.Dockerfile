@@ -20,6 +20,8 @@ COPY otel-collector-config.yaml /etc/otelcol-contrib/config.yaml
 # Durable file_storage queue directory, owned by the collector user (uid 10001).
 COPY --from=queuedir --chown=10001:10001 /var/lib/otelcol /var/lib/otelcol
 
-# OTLP/HTTP :4318 (what the app pushes logs to / Render maps 443→$PORT),
-# OTLP/gRPC :4317, self-metrics :8888, health :13133.
+# The tracked config binds OTLP/HTTP to $PORT: 4318 in Compose, the value Render
+# injects for the hosted web service (Render maps 443→$PORT). Also listens on
+# OTLP/gRPC :4317, self-metrics :8888 and health :13133 inside the container.
+# Render's public health check uses the injected port instead of /healthz.
 EXPOSE 4317 4318 8888 13133

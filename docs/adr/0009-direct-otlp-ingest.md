@@ -1,11 +1,16 @@
 # ADR-0009: Direct OTLP ingest in production; keep the collector local-only
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR-0010](0010-render-collector-topology.md)
 - **Date**: 2026-11-27
 - **Supersedes**: [0001](0001-observability-3-layer-otel.md) and the production
   deployment shape of [0007](0007-otel-all-signals-fanout.md) /
   [0008](0008-otlp-receiver-auth-and-opt-in-sinks.md) (both remain current for
-  local Docker Compose)
+  the collector config; ADR-0010 runs it in production too)
+
+> This decision was reversed on the same day: the user chose the
+> Nexus/LinkForge-style separate collector and explicitly accepted the free
+> tier's cold-start telemetry loss. Read this ADR only to understand why the
+> direct path existed; ADR-0010 is the current production design.
 
 ## Context
 

@@ -16,6 +16,9 @@ services:
     runtime: docker
     region: ohio
     plan: free
+    # Only GitHub Actions deploy hooks may start a deploy; native Git auto-deploy
+    # is disabled on every service in this Blueprint.
+    autoDeployTrigger: "off"
     healthCheckPath: /health
     dockerContext: .
     dockerfilePath: ./backend/Dockerfile
@@ -40,24 +43,19 @@ services:
       - key: MONGODB_DB
         value: civicpulse_analytics
 
-      # Observability ships straight to New Relic's OTLP/HTTP ingest. Render's
-      # free services sleep, so a local collector would drop cold-start logs;
-      # direct ingest keeps startup proof intact. Telemetry is fail-open.
+      # Observability goes to the dedicated collector service below. The app
+      # holds only the OTLP endpoint and Basic-auth pair; the New Relic license
+      # key lives on the collector. Export stays fail-open.
       - key: NEW_RELIC_ENABLED
         value: "true"
       - key: NEW_RELIC_OTLP_ENDPOINT
-        value: https://otlp.nr-data.net:4318
+        value: https://civicpulse-otel-collector.onrender.com
       - key: NEW_RELIC_EXPORT_INTERVAL_SECONDS
         value: "5"
       - key: NEW_RELIC_APP_NAME
         value: CivicPulse-API
-      # Set in the Render dashboard as a JSON object containing the New Relic
-      # license key: {"api-key":"<value>"}. Never commit the value.
-      - key: NEW_RELIC_OTLP_HEADERS
-        sync: false
-      # Optional Basic header. Generated values only; New Relic accepts the
-      # api-key header plus this pair, which keeps the local collector handshake
-      # identical. Never commit these values.
+      # These must be the SAME generated pair entered on the collector service.
+      # Never commit the values; a mismatch is rejected with HTTP 401.
       - key: OTLP_AUTH_USER
         sync: false
       - key: OTLP_AUTH_PASSWORD
@@ -80,3 +78,42 @@ services:
         sync: false
       - key: AWS_SECRET_ACCESS_KEY
         sync: false
+
+  # Dedicated Layer-2 collector (Nexus/LinkForge-style topology): the backend
+  # speaks vendor-neutral OTLP; only this service holds the New Relic key.
+  # Free tier is deliberate and accepted: after 15 minutes idle the collector
+  # sleeps, so the first telemetry after a cold start can be dropped. Export is
+  # fail-open, and /health/telemetry remains diagnostic only.
+  - type: web
+    name: civicpulse-otel-collector
+    runtime: docker
+    region: ohio
+    plan: free
+    autoDeployTrigger: "off"
+    dockerContext: .
+    dockerfilePath: ./docker/otel-collector.Dockerfile
+    # No healthCheckPath: Render probes the injected $PORT, which is occupied by
+    # the OTLP receiver. The collector's /healthz stays on internal :13133 for
+    # local diagnostics (docker-compose publishes it).
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      # Required by ${env:SERVICE_VERSION} in the tracked config; not a secret.
+      - key: SERVICE_VERSION
+        value: unknown
+      # The resource processor stamps service.name from this value; it must
+      # match the backend's NEW_RELIC_APP_NAME and the alert filters.
+      - key: NEW_RELIC_APP_NAME
+        value: CivicPulse-API
+      # Never commit these. The vendor key exists ONLY on this service; the
+      # backend receives no NEW_RELIC_OTLP_HEADERS at all.
+      - key: NEW_RELIC_LICENSE_KEY
+        sync: false
+      # Must match the backend's OTLP_AUTH_* pair exactly, or all signals 401.
+      - key: OTLP_AUTH_USER
+        sync: false
+      - key: OTLP_AUTH_PASSWORD
+        sync: false
+    # PORT is intentionally NOT set here. Render injects a dynamic PORT for
+    # every web service and maps 443 -> that port; the collector config binds
+    # OTLP/HTTP to ${env:PORT}. Hard-coding 4318 would make it unreachable.
