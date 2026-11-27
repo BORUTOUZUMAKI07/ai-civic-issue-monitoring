@@ -126,7 +126,9 @@ jobs:
               "${DEPLOY_USER}@${DEPLOY_HOST}" bash -s <<REMOTE
           set -euo pipefail
           cd '${DEPLOY_PATH}'
-          git fetch --prune origin
+          # `github` is the canonical code remote; `origin` is reserved for
+          # the DagsHub ML/DVC artifact mirror (see docs/deployment.md).
+          git fetch --prune github
           git checkout --detach '${DEPLOY_REF}'
           docker compose -f docker/docker-compose.yml build
           docker compose -f docker/docker-compose.yml run --rm backend python -m alembic upgrade head
