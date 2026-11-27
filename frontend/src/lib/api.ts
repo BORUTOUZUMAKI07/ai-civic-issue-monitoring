@@ -1,6 +1,7 @@
 const API_BASE = "/api/proxy";
 
 import { reportClientError } from "./client-errors";
+import { newCorrelationId } from "./correlation";
 import { isProtectedPath } from "./protected-paths";
 
 /**
@@ -37,14 +38,6 @@ async function tryRefresh(): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-function newCorrelationId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  // Older browsers: the backend will replace a non-UUID with its own.
-  return `frontend-${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
 }
 
 async function rawFetch<T>(path: string, options: RequestInit = {}): Promise<T> {

@@ -78,7 +78,11 @@ async def record_client_error(report: ClientErrorReport) -> dict[str, str]:
             "api_path": _scrub_path(report.api_path),
             "http_method": _scrub_text(report.method, 10),
             "http_status_code": report.status_code,
-            "correlation_id": _scrub_text(report.correlation_id, 64),
+            # correlation_id is deliberately not taken from the request body:
+            # the BFF promotes a validated UUID into X-Correlation-ID, which the
+            # logging middleware binds into the request context. Log_utils gives
+            # those contextvars precedence, so a body value could never win —
+            # logging it here would only add an untrusted, divergent field.
             "error_stack": _scrub_text(report.stack, 4_000),
             "client_timestamp": _scrub_text(report.timestamp, 40),
             "error_digest": _scrub_text(report.digest, 64),

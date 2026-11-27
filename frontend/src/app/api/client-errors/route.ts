@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { isValidCorrelationId } from "@/lib/correlation"
+
 /**
  * Browser → BFF → backend error bridge.
  *
@@ -27,9 +29,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ detail: "Error report too large." }, { status: 413 })
     }
 
+    // The BFF is the trust boundary: a caller-supplied header is ignored, and
+    // only a UUID-shaped correlation_id from the (already bounded) body is
+    // promoted to a header the backend middleware will bind into the request
+    // context. Anything else is dropped so the backend generates its own ID.
+    let correlationId: string | undefined
+    try {
+      const parsed = JSON.parse(new TextDecoder().decode(body)) as { correlation_id?: unknown }
+      if (isValidCorrelationId(parsed.correlation_id)) correlationId = parsed.correlation_id
+    } catch {
+      // Malformed JSON: forward as-is; the backend schema returns 422.
+    }
+
+    const headers: Record<string, string> = { "Content-Type": "application/json" }
+    if (correlationId) headers["X-Correlation-ID"] = correlationId
+
     const res = await fetch(`${BACKEND}/api/v1/observability/client-errors`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body,
       cache: "no-store",
     })

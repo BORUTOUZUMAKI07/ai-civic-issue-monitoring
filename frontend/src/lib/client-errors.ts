@@ -7,6 +7,8 @@
  * Failures here are deliberately silent — telemetry must never break the UI.
  */
 
+import { isValidCorrelationId } from "./correlation"
+
 export type ClientEventType =
   | "react_error"
   | "api_error"
@@ -36,6 +38,11 @@ export function reportClientError(error: unknown, context: ClientErrorContext = 
   if (typeof window === "undefined") return
 
   try {
+    // Only a well-formed UUID survives: the backend discards anything else, so
+    // forwarding a malformed ID would silently break the browser → BFF → API
+    // log join instead of creating one.
+    const correlationId = isValidCorrelationId(context.correlation_id) ? context.correlation_id : undefined
+
     const payload = {
       event_type: context.event_type ?? "react_error",
       message: safeMessage(error),
@@ -44,14 +51,17 @@ export function reportClientError(error: unknown, context: ClientErrorContext = 
       api_path: safePath(context.api_path),
       method: context.method?.slice(0, 10),
       status_code: context.status_code,
-      correlation_id: context.correlation_id?.slice(0, 64),
+      correlation_id: correlationId,
       stack: error instanceof Error ? error.stack?.slice(0, 4_000) : undefined,
       timestamp: new Date().toISOString(),
     }
 
+    const headers: Record<string, string> = { "Content-Type": "application/json" }
+    if (correlationId) headers["X-Correlation-ID"] = correlationId
+
     void fetch("/api/client-errors", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(payload),
       keepalive: true,
       cache: "no-store",

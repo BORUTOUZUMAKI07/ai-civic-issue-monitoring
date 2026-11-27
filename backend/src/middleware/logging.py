@@ -1,10 +1,10 @@
 import time
-import uuid
 
 import structlog.contextvars
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
+from src.core.correlation import normalize_correlation_id
 from src.log_utils import get_logger, log_request_end, log_request_exception, log_request_start
 
 logger = get_logger("middleware")
@@ -13,16 +13,10 @@ logger = get_logger("middleware")
 def _correlation_id(request: Request) -> str:
     """Reuse a well-formed caller-supplied ID so browser → BFF → API can be joined.
 
-    An arbitrary header value must never reach structured logs, so anything that
-    is not a UUID is replaced with a freshly generated one.
+    Validation lives in :mod:`src.core.correlation` so the HTTP middleware and
+    the browser-error intake apply the same UUID-only rule.
     """
-    supplied = request.headers.get("X-Correlation-ID", "").strip()
-    if supplied:
-        try:
-            return str(uuid.UUID(supplied))
-        except ValueError:
-            pass
-    return str(uuid.uuid4())
+    return normalize_correlation_id(request.headers.get("X-Correlation-ID"))
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
