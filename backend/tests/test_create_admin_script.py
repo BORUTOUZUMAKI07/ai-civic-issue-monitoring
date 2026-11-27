@@ -57,3 +57,38 @@ def test_validate_credentials_rejects_short_password() -> None:
 @pytest.mark.parametrize("password", ["changeme", "password", "Password123", "  Admin  "])
 def test_validate_credentials_rejects_placeholders(password: str) -> None:
     assert mod.validate_credentials("admin@example.com", password) is not None
+
+
+# ── exactly-one-super-admin invariant ────────────────────────────────────────
+
+
+def test_super_admin_bootstrap_allowed_when_none_exists() -> None:
+    assert mod.check_super_admin_invariant(
+        requested_role="super_admin", super_admin_ids=[], target_id=None
+    ) is None
+
+
+def test_super_admin_rotation_of_existing_account_allowed() -> None:
+    assert mod.check_super_admin_invariant(
+        requested_role="super_admin", super_admin_ids=[7], target_id=7
+    ) is None
+
+
+def test_second_super_admin_is_refused() -> None:
+    error = mod.check_super_admin_invariant(
+        requested_role="super_admin", super_admin_ids=[7], target_id=9
+    )
+    assert error is not None and "already exists" in error
+
+
+def test_demoting_the_only_super_admin_is_refused() -> None:
+    error = mod.check_super_admin_invariant(
+        requested_role="admin", super_admin_ids=[7], target_id=7
+    )
+    assert error is not None and "demote" in error.lower()
+
+
+def test_admin_creation_does_not_touch_super_admin_count() -> None:
+    assert mod.check_super_admin_invariant(
+        requested_role="admin", super_admin_ids=[7], target_id=None
+    ) is None

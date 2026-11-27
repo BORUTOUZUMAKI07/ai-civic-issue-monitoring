@@ -40,6 +40,7 @@ from src.domains.notifications.api.routes import router as notifications_router
 from src.domains.observability.api.routes import router as observability_router
 from src.domains.resolution.api.routes import router as resolution_router
 from src.domains.uploads.api.routes import router as uploads_router
+from src.domains.users.super_admin import verify_super_admin_invariant
 from src.domains.wards.api.routes import router as wards_router
 from src.log_utils import setup_logging
 from src.middleware import (
@@ -273,11 +274,18 @@ async def lifespan(app: FastAPI):
     # a broken sink must not stop the API from booting.
     verify_startup_telemetry()
 
+    db_ok = False
     try:
-        await init_db()
+        db_ok = await init_db()
         logger.info("Database connected.")
     except Exception as e:
         logger.warning("Database connection failed: %s", e)
+
+    if db_ok:
+        # Deployment invariant: exactly one super admin. Diagnostic only (see
+        # src.domains.users.super_admin) — a bootstrap gap must not restart-loop
+        # the fleet, but it must be loud in the structured log stream.
+        await verify_super_admin_invariant()
 
     try:
         await init_redis()

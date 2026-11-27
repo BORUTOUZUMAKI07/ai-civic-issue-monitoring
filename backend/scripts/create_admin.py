@@ -24,6 +24,11 @@ Configuration (env vars):
 Idempotent: re-running promotes/updates the existing account instead of failing
 on the unique email. When the account is created/updated it is also unbound from
 any OAuth identity and activated, so the password actually works for login.
+
+There is exactly ONE super admin. The script refuses to create or promote a
+second one, and refuses to demote the existing one. Re-running it for the same
+super-admin email is allowed (that is how credentials are rotated); use
+``ADMIN_ROLE=admin`` for every other account.
 """
 
 from __future__ import annotations
@@ -59,6 +64,26 @@ def validate_credentials(email: str, password: str) -> str | None:
     return None
 
 
+def check_super_admin_invariant(
+    *, requested_role: str, super_admin_ids: list[int], target_id: int | None
+) -> str | None:
+    """Return an error when the requested write would break the one-super-admin rule.
+
+    ``target_id`` is ``None`` for a new account. Passing the existing super
+    admin's own id with ``requested_role="super_admin"`` is the supported
+    credential-rotation path and is allowed.
+    """
+    others = [i for i in super_admin_ids if i != target_id]
+    if requested_role == "super_admin" and others:
+        return (
+            f"A super admin already exists (id={others[0]}). Exactly one is allowed; "
+            "rotate that account's credentials instead of creating a second one."
+        )
+    if requested_role != "super_admin" and target_id in super_admin_ids and len(super_admin_ids) == 1:
+        return "Refusing to demote the only super admin; promote another account first."
+    return None
+
+
 async def main() -> int:
     email = os.getenv("ADMIN_EMAIL", "").strip()
     password = os.getenv("ADMIN_PASSWORD", "")
@@ -90,8 +115,21 @@ async def main() -> int:
 
     role = UserRole(role_value)
     async with AsyncSessionLocal() as session:
+        super_admin_ids = (
+            await session.execute(select(User.id).where(User.role == UserRole.super_admin))
+        ).scalars().all()
         result = await session.execute(select(User).where(User.email == email))
         user = result.scalar_one_or_none()
+
+        error = check_super_admin_invariant(
+            requested_role=role_value,
+            super_admin_ids=list(super_admin_ids),
+            target_id=user.id if user is not None else None,
+        )
+        if error:
+            print(f"[create_admin] {error}", flush=True)
+            return 3
+
         password_hash = await hash_password_async(password)
         if user is None:
             user = User(
