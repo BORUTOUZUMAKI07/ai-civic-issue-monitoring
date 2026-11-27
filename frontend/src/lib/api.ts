@@ -1,5 +1,6 @@
 const API_BASE = "/api/proxy";
 
+import { reportClientError } from "./client-errors";
 import { isProtectedPath } from "./protected-paths";
 
 /**
@@ -38,17 +39,38 @@ async function tryRefresh(): Promise<boolean> {
   }
 }
 
+function newCorrelationId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  // Older browsers: the backend will replace a non-UUID with its own.
+  return `frontend-${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+}
+
 async function rawFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const isFormData = options.body instanceof FormData;
+  const correlationId = newCorrelationId();
   const headers: Record<string, string> = {
     ...(isFormData ? {} : { "Content-Type": "application/json" }),
+    "X-Correlation-ID": correlationId,
     ...(options.headers as Record<string, string>),
   };
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+    });
+  } catch (err) {
+    reportClientError(err, {
+      event_type: "api_error",
+      api_path: path,
+      method: options.method ?? "GET",
+      correlation_id: correlationId,
+    });
+    throw err;
+  }
 
   if (
     res.status === 401 &&
@@ -85,12 +107,26 @@ async function rawFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     if (typeof window !== "undefined" && isProtectedPath(window.location.pathname)) {
       window.location.href = "/login?expired=1";
     }
+    reportClientError(new Error("Session expired"), {
+      event_type: "api_error",
+      api_path: path,
+      method: options.method ?? "GET",
+      status_code: 401,
+      correlation_id: correlationId,
+    });
     throw new Error("Session expired. Please login again.");
   }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     const msg = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail || body);
+    reportClientError(new Error(msg || "Request failed"), {
+      event_type: "api_error",
+      api_path: path,
+      method: options.method ?? "GET",
+      status_code: res.status,
+      correlation_id: correlationId,
+    });
     throw new Error(msg || "Request failed");
   }
 

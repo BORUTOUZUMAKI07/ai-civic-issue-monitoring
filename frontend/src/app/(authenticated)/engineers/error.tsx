@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
+import { reportClientError } from "@/lib/client-errors"
 import { Button } from "@/components/ui/button"
 
 export default function Error({
@@ -10,7 +11,9 @@ export default function Error({
   error: Error & { digest?: string }
   reset: () => void
 }) {
-  useEffect(() => { console.error(error) }, [error])
+  useEffect(() => {
+    reportClientError(error, { event_type: "react_error" })
+  }, [error])
 
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center p-6">

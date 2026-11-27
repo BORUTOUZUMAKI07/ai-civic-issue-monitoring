@@ -87,7 +87,10 @@ describe("direct uploads", () => {
 
     const createCall = fetchMock.mock.calls[2]
     expect(createCall[0]).toBe("/api/proxy/issues/upload")
-    expect(createCall[1].headers).toEqual({ "Idempotency-Key": "key-1" })
+    expect(createCall[1].headers).toEqual({
+      "Idempotency-Key": "key-1",
+      "X-Correlation-ID": expect.stringMatching(/^[0-9a-f-]{36}$/i),
+    })
     const form = createCall[1].body as FormData
     expect(form.get("file")).toBeNull()
     expect(form.get("image_url")).toBe(PRESIGNED.image_url)

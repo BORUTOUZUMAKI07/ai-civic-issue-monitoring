@@ -105,13 +105,14 @@ const NEEDS_REFRESH = new Set(["auth/refresh", "auth/logout"])
  * `Content-Type` (what this used to do) meant every *application* header was
  * dropped too. `Idempotency-Key` is the one that bites: without it the backend
  * never enters its idempotent path, so a retried report upload created a
- * second issue row instead of replaying the first response.
+ * second issue row instead of replaying the first response. `X-Correlation-ID`
+ * is relayed too, so a browser call keeps one ID across the BFF and backend.
  *
  * An allowlist keeps both properties: named headers cross, everything else
  * stays home. Header names are case-insensitive on the wire, so lookups are
  * normalised to lower case.
  */
-const RELAYED_CLIENT_HEADERS = ["idempotency-key"]
+const RELAYED_CLIENT_HEADERS = ["idempotency-key", "x-correlation-id"]
 
 
 /**
