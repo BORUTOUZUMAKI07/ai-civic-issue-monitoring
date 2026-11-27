@@ -280,12 +280,6 @@ class AuthService:
             return
         await mark_revoked(f"{_REFRESH_REVOKED_PREFIX}{user_id}", _REFRESH_TTL)
 
-    async def get_me(self, user_id: int) -> User:
-        user = await self.user_repo.get(user_id)
-        if not user:
-            raise UserNotFound()
-        return user
-
     async def change_password(self, user: User, current_password: str, new_password: str) -> None:
         if not await verify_password_for_login_async(
             current_password, user.password_hash, oauth_provider=user.oauth_provider

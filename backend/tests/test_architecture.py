@@ -9,7 +9,10 @@ Layering (outer layers may import inner ones, never the reverse)::
 
 The rules enforced here are the ones that already hold and must never
 regress. They are intentionally conservative; as domains grow their own
-``repositories/ports.py`` the matrix will be tightened here.
+``repositories/ports.py`` the matrix will be tightened here. ``main.py`` is
+also checked as the composition root: it may import domain *API routers* and
+explicit startup checks, but no domain services/repositories, and every router
+it imports must actually be registered.
 """
 
 from __future__ import annotations
@@ -70,11 +73,70 @@ def test_core_does_not_import_domains():
     assert violations == [], "core/ violates layering:\n" + "\n".join(violations)
 
 
-def test_main_has_no_src_reexports():
-    """``main.py`` is composition root only — no stray cycles check for now."""
-    # Placeholder: main.py legitimately imports everything; kept explicit so
-    # the intent is documented and future rules have a home.
-    assert (SRC / "main.py").exists()
+MAIN = SRC / "main.py"
+
+# Startup preflights are the one deliberate exception to the router-only rule:
+# they run once in the lifespan and must not be hidden behind an HTTP endpoint.
+_STARTUP_DOMAIN_IMPORTS = frozenset({"src.domains.users.super_admin"})
+
+
+def _router_import_aliases(path: Path) -> set[str]:
+    """Local names bound by ``from ...domains.X.api.routes import router as ...``."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        module = node.module or ""
+        if not (module.startswith("src.domains.") and module.endswith(".api.routes")):
+            continue
+        for alias in node.names:
+            if alias.name == "router":
+                aliases.add(alias.asname or alias.name)
+    return aliases
+
+
+def _registered_router_names(path: Path) -> set[str]:
+    """Names passed as the first argument of ``app.include_router(...)``."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (isinstance(func, ast.Attribute) and func.attr == "include_router"):
+            continue
+        if not (isinstance(func.value, ast.Name) and func.value.id == "app"):
+            continue
+        if node.args and isinstance(node.args[0], ast.Name):
+            names.add(node.args[0].id)
+    return names
+
+
+def test_main_wires_domains_only_through_api_routers():
+    """The composition root must not reach into domain services or repositories."""
+    violations = sorted(
+        module
+        for module in _imported_src_modules(MAIN)
+        if module.startswith("src.domains.")
+        and module not in _STARTUP_DOMAIN_IMPORTS
+        and not module.endswith(".api.routes")
+    )
+    assert violations == [], (
+        "main.py must wire domains through their API routers, not their internals:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_main_registers_every_imported_domain_router():
+    """An imported-but-unregistered router silently removes a whole API surface."""
+    imported = _router_import_aliases(MAIN)
+    assert imported, "no domain routers found — the guard has gone stale"
+    missing = sorted(imported - _registered_router_names(MAIN))
+    assert missing == [], (
+        "main.py imports these routers but never calls app.include_router on them:\n"
+        + "\n".join(missing)
+    )
 
 
 # ── mapper-registration guard ────────────────────────────────────────────────

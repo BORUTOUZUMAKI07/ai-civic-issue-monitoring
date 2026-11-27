@@ -3,12 +3,6 @@ from pydantic import BaseModel, field_validator
 from src.domains.issues.models.issue import Issue, IssueStatus
 
 
-class IssueCreate(BaseModel):
-    latitude: float
-    longitude: float
-    description: str = ""
-
-
 class IssueResponse(BaseModel):
     id: int
     issue_type: str

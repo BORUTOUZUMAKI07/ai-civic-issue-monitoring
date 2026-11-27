@@ -13,16 +13,6 @@ class RegisterRequest(BaseModel):
     role: str = "field_worker"
 
 
-class TokenResponse(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
-
-
 class OauthExchangeRequest(BaseModel):
     # One-time code handed to the frontend by the OAuth callback. Bounds stop a
     # caller from probing arbitrary Redis keys with oversized input.

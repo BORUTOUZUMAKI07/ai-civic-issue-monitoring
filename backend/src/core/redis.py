@@ -232,12 +232,6 @@ async def consume_rate_limit(key: str, capacity: int, refill_rate_per_sec: float
     return RateLimitResult(allowed=True, remaining=capacity, reset_seconds=1, limit=capacity)
 
 
-async def check_rate_limit(key: str, capacity: int, refill_rate_per_sec: float) -> bool:
-    """True when the request should be rejected. Thin wrapper over ``consume_rate_limit``."""
-    result = await consume_rate_limit(key, capacity, refill_rate_per_sec)
-    return not result.allowed
-
-
 async def get_cached(key: str) -> Any | None:
     """Read a JSON value back out of the cache.
 

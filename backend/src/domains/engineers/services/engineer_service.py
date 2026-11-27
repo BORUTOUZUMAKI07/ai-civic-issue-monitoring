@@ -55,9 +55,6 @@ class EngineerService:
         )
         return engineers, total
 
-    async def get_engineer(self, engineer_id: int):
-        return await self.engineer_repo.get(engineer_id)
-
     async def get_my_profile(self, user_id: int) -> Engineer:
         engineer = await self.engineer_repo.get_by_user_id(user_id)
         if not engineer:

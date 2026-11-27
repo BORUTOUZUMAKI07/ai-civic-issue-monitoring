@@ -90,10 +90,6 @@ async def hash_password_async(password: str) -> str:
     return await asyncio.to_thread(hash_password, password)
 
 
-async def verify_password_async(plain: str, hashed: str) -> bool:
-    return await asyncio.to_thread(verify_password, plain, hashed)
-
-
 async def verify_password_for_login_async(plain: str, hashed: str, *, oauth_provider: str | None = None) -> bool:
     if oauth_provider or plain in _LEGACY_OAUTH_SENTINELS or not hashed:
         return verify_password_for_login(plain, hashed, oauth_provider=oauth_provider)

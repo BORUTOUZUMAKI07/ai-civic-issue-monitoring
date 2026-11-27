@@ -11,6 +11,3 @@ class WardService:
 
     async def list_wards(self):
         return await self.ward_repo.list_all()
-
-    async def get_ward(self, ward_id: int):
-        return await self.ward_repo.get(ward_id)

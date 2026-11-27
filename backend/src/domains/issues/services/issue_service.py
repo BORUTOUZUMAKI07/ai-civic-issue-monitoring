@@ -92,13 +92,6 @@ class IssueService:
         except Exception:
             raise CorruptedImageError()
 
-    def read_image(self, content: bytes) -> Image.Image:
-        """Open and fully decode an image into a PIL Image for ML inference."""
-        try:
-            return Image.open(io.BytesIO(content)).convert("RGB")
-        except Exception as e:
-            raise CorruptedImageError() from e
-
     async def create_issue(
         self,
         image_url: str,
@@ -321,11 +314,6 @@ class IssueService:
             ward_id=ward_id,
             search=search,
         )
-        return issues, total
-
-    async def list_issues_by_ward(self, ward_id: int, skip: int = 0, limit: int = 20) -> tuple[list[Issue], int]:
-        issues = await self.issue_repo.list_by_ward(ward_id, skip=skip, limit=limit)
-        total = await self.issue_repo.count()
         return issues, total
 
     async def list_review_queue(
