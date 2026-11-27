@@ -1,9 +1,10 @@
 """Assert Locust CSV results against P95 / error-rate budgets (CI load gate).
 
-Locust has no built-in "fail when thresholds are exceeded" — a headless run
-always exits 0. This script is that gate: it parses the CSV a headless run
-writes (``--csv PREFIX`` → ``<PREFIX>_stats.csv``) and exits non-zero when a
-budget is breached.
+Locust has no built-in *threshold* gate: by default it exits 1 if even one
+sample fails, which is too strict for a CI budget expressed as percentages.
+CI runs Locust with ``--exit-code-on-error=0`` so this script is the single
+decision point. It parses the CSV a headless run writes (``--csv PREFIX`` →
+``<PREFIX>_stats.csv``) and exits non-zero when a budget is breached.
 
 Budgets (env-overridable, float):
 
@@ -18,8 +19,10 @@ Usage (from ``backend/``):
 
     python scripts/loadtest/run_gate.py --csv loadtest_results_stats.csv
 
-Exit codes: 0 green, 1 budget breached, 2 unusable CSV (missing/empty).
+Exit codes: 0 green, 1 budget breached, 2 unusable CSV (missing/empty/no
+per-endpoint requests).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -88,16 +91,25 @@ def main(argv: list[str] | None = None) -> int:
                 f"{name}: P95 {p95:.0f}ms > budget {budget:.0f}ms ({request_count} requests, {error_pct:.2f}% errors)"
             )
 
-    global_error_pct = (total_failures / total_requests * 100) if total_requests else 0.0
+    # A CSV containing only the "Aggregated" summary (or no samples at all)
+    # would otherwise compute a 0% error rate and pass. Fail closed: the gate
+    # must see real per-endpoint traffic before it can declare a run green.
+    if total_requests == 0:
+        print(f"[gate] stats CSV has no per-endpoint requests: {args.csv}", file=sys.stderr)
+        return 2
+
+    global_error_pct = total_failures / total_requests * 100
     if global_error_pct > MAX_ERROR_PCT:
         breaches.append(
             f"GLOBAL ERROR RATE {global_error_pct:.2f}% > budget {MAX_ERROR_PCT:.2f}% "
             f"({total_failures}/{total_requests} requests)"
         )
 
-    print(f"[gate] requests={total_requests} failures={total_failures} "
-          f"error%={global_error_pct:.2f} p95_health_budget={P95_HEALTH_MS:.0f}ms "
-          f"p95_api_budget={P95_API_MS:.0f}ms")
+    print(
+        f"[gate] requests={total_requests} failures={total_failures} "
+        f"error%={global_error_pct:.2f} p95_health_budget={P95_HEALTH_MS:.0f}ms "
+        f"p95_api_budget={P95_API_MS:.0f}ms"
+    )
     if breaches:
         print("[gate] BUDGET BREACHED:", file=sys.stderr)
         for b in breaches:

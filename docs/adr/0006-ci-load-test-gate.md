@@ -46,14 +46,16 @@ green:
    server reports healthy. `LOCUST_EMAIL`/`LOCUST_PASSWORD` then light up the
    authenticated tasks.
 4. **Run Locust headless**: `pixi run -e loadtest loadtest --headless -u 20 -r 5
-   -t 120s --host http://127.0.0.1:8000 --csv ... --html ...` — the existing
-   suite unchanged.
+   -t 120s --host http://127.0.0.1:8000 --csv ... --html ...
+   --exit-code-on-error=0` — the existing suite unchanged apart from disabling
+   Locust's default "any failure exits 1" behaviour.
 5. **Assert budgets**: `backend/scripts/loadtest/run_gate.py` parses Locust's
    `*_stats.csv` and fails the job unless global error % is ≤ 1% and P95 is
    under per-endpoint budgets (health vs. authed API), all env-overridable
    (`LOADTEST_MAX_ERROR_PCT`, `LOADTEST_P95_HEALTH_MS`, `LOADTEST_P95_API_MS`).
-   Locust itself has no built-in fail-on-threshold, so the gate is a thin
-   stdlib-only parser.
+   Locust has no fail-on-*threshold* mode, so this stdlib-only parser is the
+   single decision point; a missing, malformed, or request-less CSV fails
+   closed with exit 2.
 6. **Artifacts**: stats CSV + HTML report upload on completion (success or
    failure), so a breached budget is debuggable from the run itself.
 

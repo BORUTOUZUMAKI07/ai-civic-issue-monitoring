@@ -257,6 +257,10 @@ jobs:
       - name: Seed the load-test account
         run: pixi run -e default python scripts/loadtest/seed_user.py
 
+      # Locust 2.47 exits 1 on *any* failed sample by default, which would
+      # bypass the budget gate below for a single transient disconnect. Let
+      # run_gate.py be the single decision point using the documented 1%/P95
+      # budgets; a missing or malformed CSV still fails it with exit code 2.
       - name: Run Locust headless
         run: >
           pixi run -e loadtest loadtest
@@ -264,8 +268,10 @@ jobs:
           --host http://127.0.0.1:8000
           --csv loadtest_results
           --html loadtest_report.html
+          --exit-code-on-error=0
 
       - name: Assert P95 / error-rate budgets
+        if: always()
         run: pixi run -e loadtest python scripts/loadtest/run_gate.py --csv loadtest_results_stats.csv
 
       - name: Upload load-test artifacts
