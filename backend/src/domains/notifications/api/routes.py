@@ -15,8 +15,10 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.database import get_db
 from src.core.redis import ISSUE_UPDATES_CHANNEL, create_pubsub, publish_message
 
 router = APIRouter(tags=["WebSocket"])
@@ -107,20 +109,45 @@ async def ensure_issue_listener() -> None:
     _subscriber_task = asyncio.create_task(_listen_for_updates(pubsub))
 
 
-@router.websocket("/ws/issues")
-async def websocket_issues(websocket: WebSocket, token: str = Query(...)):
-    from src.core.security import decode_token
+async def authenticate_ws_token(token: str, db: AsyncSession) -> int | None:
+    """Validate a WebSocket credential and return its live user id.
+
+    Kept separate from the socket handler so the trust boundary is testable
+    without a live connection. ``None`` means "close the socket"; the handler
+    never learns anything else about the caller.
+    """
+    from src.core.security import decode_token, is_token_blacklisted
+    from src.domains.users.repositories.user_repository import UserRepository
 
     try:
         payload = decode_token(token)
         # ``access`` is accepted so an existing cookie/header token keeps
         # working (tests, CLI); browsers use the short-lived ``ws`` ticket
         # minted by ``GET /auth/ws-ticket`` because the HttpOnly access cookie
-        # is unreadable from JavaScript.
+        # is unreadable from JavaScript. Every other token purpose (refresh,
+        # password reset, 2FA challenge) is rejected here.
         if payload.get("type") not in ("access", "ws"):
-            await websocket.close(code=4001, reason="Invalid token type")
-            return
+            return None
+        user_id = int(payload["sub"])
+        if payload.get("jti") and await is_token_blacklisted(payload["jti"]):
+            return None
+        # A ticket for a deleted or deactivated account must not keep streaming
+        # issue updates after the account is closed.
+        user = await UserRepository(db).get(user_id)
+        if user is None or not user.is_active:
+            return None
+        return user_id
     except Exception:
+        return None
+
+
+@router.websocket("/ws/issues")
+async def websocket_issues(
+    websocket: WebSocket,
+    token: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    if await authenticate_ws_token(token, db) is None:
         await websocket.close(code=4001, reason="Invalid token")
         return
 

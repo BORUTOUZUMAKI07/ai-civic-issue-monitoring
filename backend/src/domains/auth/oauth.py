@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 import httpx
 import jwt
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 import src.core.redis as redis_module
 from src.core.config import settings
@@ -236,6 +237,17 @@ async def login_with_provider(db, provider: OAuthProvider, profile: dict | Any) 
                     candidate.oauth_provider,
                 )
                 raise OAuthError("This email is already registered with a different sign-in method.")
+            # Same provider, different subject: the provider's subject is the
+            # authoritative identity. Only relink when the provider also
+            # asserted a verified email, otherwise an attacker controlling an
+            # unverified email claim could take over the existing account.
+            if (
+                candidate.oauth_provider == provider_name
+                and candidate.oauth_sub
+                and candidate.oauth_sub != provider_sub
+                and not verified
+            ):
+                raise OAuthError("This email is already linked to a different provider identity.")
             has_local_password = bool(candidate.password_hash) and candidate.oauth_provider is None
             if has_local_password and not verified:
                 logger.warning(
@@ -259,8 +271,17 @@ async def login_with_provider(db, provider: OAuthProvider, profile: dict | Any) 
                 email_verified=bool(verified and email),
                 email_verified_at=datetime.now(timezone.utc) if (verified and email) else None,
             )
-            user = await repo.create(user)
-            created_here = True
+            try:
+                user = await repo.create(user)
+                created_here = True
+            except IntegrityError:
+                # Two simultaneous first logins can race past the lookup. The
+                # unique (provider, sub) index decides the winner; reload it
+                # instead of turning a normal concurrency case into a 500.
+                await db.rollback()
+                user = await get_user_by_oauth_identity(db, provider_name, provider_sub)
+                if user is None:
+                    raise OAuthError("Could not provision the OAuth account.")
         else:
             changed = False
             user.oauth_provider = provider_name

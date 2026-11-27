@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.email import send_email
+from src.core.security import _standard_claims
 from src.core.security_store import consume_one_time
 from src.domains.users.repositories.user_repository import UserRepository
 from src.shared.errors import EmailVerificationTokenInvalid
@@ -28,6 +29,7 @@ def create_email_verification_token(user_id: int) -> str:
                 "type": "email_verify",
                 "jti": uuid4().hex,
                 "exp": expire,
+                **_standard_claims(),
             },
             settings.SECRET_KEY,
             algorithm=settings.ALGORITHM,
@@ -37,7 +39,13 @@ def create_email_verification_token(user_id: int) -> str:
 
 def decode_email_verification_token(token: str) -> tuple[int, str | None]:
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+            issuer=settings.JWT_ISSUER,
+            audience=settings.JWT_AUDIENCE,
+        )
     except Exception:
         raise EmailVerificationTokenInvalid()
     if payload.get("type") != "email_verify":

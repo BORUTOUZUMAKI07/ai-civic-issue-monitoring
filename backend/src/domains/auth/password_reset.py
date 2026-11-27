@@ -8,7 +8,7 @@ import jwt
 
 from src.core.config import settings
 from src.core.email import send_email
-from src.core.security import hash_password_async
+from src.core.security import _standard_claims, hash_password_async
 from src.core.security_store import consume_one_time, mark_revoked
 from src.domains.users.repositories.user_repository import UserRepository
 from src.shared.errors import PasswordResetTokenInvalid
@@ -27,6 +27,7 @@ def create_password_reset_token(user_id: int) -> str:
                 "type": "password_reset",
                 "jti": uuid4().hex,
                 "exp": expire,
+                **_standard_claims(),
             },
             settings.SECRET_KEY,
             algorithm=settings.ALGORITHM,
@@ -36,7 +37,13 @@ def create_password_reset_token(user_id: int) -> str:
 
 def decode_password_reset_token(token: str) -> tuple[int, str | None]:
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+            issuer=settings.JWT_ISSUER,
+            audience=settings.JWT_AUDIENCE,
+        )
     except Exception:
         raise PasswordResetTokenInvalid()
     if payload.get("type") != "password_reset":

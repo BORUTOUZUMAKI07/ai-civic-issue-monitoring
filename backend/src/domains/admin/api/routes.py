@@ -1,4 +1,5 @@
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -8,7 +9,7 @@ from src.core.database import get_db
 from src.domains.issues.models.issue import IssueType
 from src.domains.issues.services.issue_service import IssueService
 from src.domains.users.deps import get_current_active_user
-from src.domains.users.models.user import User
+from src.domains.users.models.user import User, UserRole
 from src.domains.users.rbac import require_admin
 from src.domains.users.services.user_service import UserService
 from src.shared.errors import BadRequestError
@@ -19,8 +20,20 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
 class ReviewAction(BaseModel):
-    action: str  # "approve" | "reject" | "change_type"
+    action: Literal["approve", "reject", "change_type"]
     new_type: str | None = None  # only used when action="change_type"
+
+
+class RoleChangeRequest(BaseModel):
+    """The role endpoint accepts one action and one validated role value.
+
+    Reusing the review action model here allowed ``new_type`` to be missing or
+    any string; the service then rejected it at runtime with a 403. Validation
+    belongs at the HTTP boundary.
+    """
+
+    action: Literal["change_type"] = "change_type"
+    new_type: UserRole
 
 
 def _review_queue_item(issue) -> dict:
@@ -102,12 +115,12 @@ async def list_users(
 @router.post("/users/{user_id}/role")
 async def update_user_role(
     user_id: int,
-    body: ReviewAction,
+    body: RoleChangeRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
     require_admin(user)
-    target = await UserService(db).change_role(user, user_id, body.new_type or "")
+    target = await UserService(db).change_role(user, user_id, body.new_type.value)
     return {
         "detail": f"Role updated to {target.role.value}.",
         "user_id": target.id,
