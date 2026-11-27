@@ -25,14 +25,26 @@ def archive_old_logs(uri: str, cutoff_days: int = 90) -> int:
     cutoff = datetime.now(timezone.utc) - timedelta(days=cutoff_days)
     total = 0
 
-    from pymongo import MongoClient
+    from pymongo import MongoClient, UpdateOne
 
     with MongoClient(uri) as client:
         db = client[MONGO_DB]
         for name in COLLECTIONS:
             old_docs = list(db[name].find({"timestamp": {"$lt": cutoff}}))
             if old_docs:
-                db[f"archived_{name}"].insert_many(old_docs, ordered=False)
+                # Upsert on the preserved _id instead of insert_many. A retry
+                # after a partial run (archive written, source not yet deleted)
+                # used to raise DuplicateKeyError and fail the whole flow; now
+                # it either leaves the first archived copy intact ($setOnInsert)
+                # or, if the delete already happened, finds nothing to do.
+                archive = db[f"archived_{name}"]
+                archive.bulk_write(
+                    [
+                        UpdateOne({"_id": doc["_id"]}, {"$setOnInsert": doc}, upsert=True)
+                        for doc in old_docs
+                    ],
+                    ordered=False,
+                )
                 ids = [d["_id"] for d in old_docs]
                 db[name].delete_many({"_id": {"$in": ids}})
                 total += len(old_docs)

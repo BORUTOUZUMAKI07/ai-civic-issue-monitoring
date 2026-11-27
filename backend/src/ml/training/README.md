@@ -88,7 +88,8 @@ PYTHONPATH=backend python -m src.ml.training.train
 | `DATA_PATH` | `data/raw` | Dataset root (train/val/test) |
 
 An empty or unset variable falls back to the config value, which is why one
-workflow file can drive both `workflow_dispatch` and Prefect-triggered pushes.
+workflow file can drive both `workflow_dispatch` and Prefect's
+`repository_dispatch` event.
 
 ## PEFT Methods
 

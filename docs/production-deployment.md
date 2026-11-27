@@ -121,11 +121,18 @@ It stores block **references** on deployments, never literal secret values.
 | `CIVICPULSE_DB_URI` | `civicpulse-db-uri` |
 | `CIVICPULSE_MONGO_URI` | `civicpulse-mongo-uri` |
 | `DAGSHUB_TOKEN` | `dagshub-token` |
+| `GITHUB_TOKEN` (or `GH_TOKEN`) | `github-token` |
 | `SMTP_PASS` | `smtp-pass` |
 | `SLACK_WEBHOOK_URL` | `slack-webhook-url` |
 
 `CIVICPULSE_DB_URI` must be a plain `postgresql://` URI. The Neon pooled URL is
 already in that form and works with the psycopg2 driver Prefect installs.
+
+`GITHUB_TOKEN` is a GitHub PAT with `repo` scope (Actions dispatch + private
+source checkout). Prefect pulls flow code from the canonical GitHub repository,
+not the DagsHub mirror, and uses the PAT to send a `repository_dispatch` event
+that starts the training workflow. `DAGSHUB_TOKEN` remains DagsHub-only (MLflow
+and DVC artifacts). Never put either token in `job_variables.env` as a literal.
 
 ### Local development only
 

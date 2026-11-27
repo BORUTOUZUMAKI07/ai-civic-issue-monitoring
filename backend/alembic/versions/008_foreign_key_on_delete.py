@@ -64,6 +64,22 @@ def _foreign_keys(bind: "Connection") -> dict[tuple[str, str], str]:
     return {(tbl, col): cname for tbl, col, cname, _ in rows}
 
 
+def _preflight(bind: "Connection") -> dict[tuple[str, str], str]:
+    """Fail before any DDL if the schema is not what this revision expects.
+
+    Silently skipping a missing constraint left the column widened but the FK
+    unchanged — a half-migrated database that looked upgraded.
+    """
+    existing = _foreign_keys(bind)
+    missing = [f"{table}.{column}" for table, column, *_ in _RULES if (table, column) not in existing]
+    if missing:
+        raise RuntimeError(
+            "008: cannot alter foreign keys; missing constraints on "
+            f"{', '.join(missing)}. Inspect the schema with \\d before upgrading."
+        )
+    return existing
+
+
 def upgrade() -> None:
     if op.get_bind().dialect.name != "postgresql":
         # SQLite (the local/test engine) takes ON DELETE straight from the
@@ -72,7 +88,7 @@ def upgrade() -> None:
         return
 
     bind = op.get_bind()
-    existing = _foreign_keys(bind)
+    existing = _preflight(bind)
 
     for table, column, ondelete, nullable in _RULES:
         if nullable:
@@ -87,9 +103,7 @@ def upgrade() -> None:
                 nullable=True,
                 autoincrement=False,
             )
-        name = existing.get((table, column))
-        if name is None:
-            continue
+        name = existing[(table, column)]
         op.drop_constraint(name, table, type_="foreignkey")
         parent = "issues" if column == "issue_id" else "engineers"
         op.create_foreign_key(
@@ -107,12 +121,26 @@ def downgrade() -> None:
         return
 
     bind = op.get_bind()
-    existing = _foreign_keys(bind)
+    existing = _preflight(bind)
 
-    for table, column, ondelete, nullable in reversed(_RULES):
-        name = existing.get((table, column))
-        if name is None:
+    # Restoring NOT NULL is only safe when no SET NULL has happened. Check
+    # before any DDL: PostgreSQL rolls the whole migration back on error, so
+    # an operator gets an actionable message instead of a half-downgraded DB.
+    for table, column, _ondelete, nullable in _RULES:
+        if not nullable:
             continue
+        nulls = bind.exec_driver_sql(
+            f'SELECT COUNT(*) FROM "{table}" WHERE "{column}" IS NULL'
+        ).scalar()
+        if nulls:
+            raise RuntimeError(
+                f"008 downgrade: {nulls} row(s) in {table}.{column} are NULL "
+                "because an engineer was removed. Restore those assignments "
+                "before reimposing NOT NULL."
+            )
+
+    for table, column, _ondelete, nullable in reversed(_RULES):
+        name = existing[(table, column)]
         op.drop_constraint(name, table, type_="foreignkey")
         parent = "issues" if column == "issue_id" else "engineers"
         op.create_foreign_key(name, table, parent, [column], ["id"])

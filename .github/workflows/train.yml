@@ -11,12 +11,11 @@ on:
         description: "Epochs for final model training"
         required: false
         default: "15"
-  # Auto-start on any push to main. The job-level guard below then narrows that
-  # to workflow_dispatch and to pushes whose subject begins with "Prefect
-  # retrain trigger" — the empty commit retrain_model.py pushes when it detects
-  # drift. Ordinary pushes to main do NOT start training.
-  push:
-    branches: [main]
+  # Prefect dispatches this event when drift is HIGH. The DagsHub `origin`
+  # remote is ML/DVC artifact storage only; pushing an empty commit there never
+  # reached this GitHub repository, so triggers used to be silently lost.
+  repository_dispatch:
+    types: [retrain-model]
 
 # Needed so the "Push model and Optuna study to DVC" step can publish the
 # `.dvc` pointer commits back to main. Without it the commit is created and
@@ -29,17 +28,16 @@ env:
   MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
   MLFLOW_TRACKING_USERNAME: ${{ secrets.DAGSHUB_USERNAME }}
   MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
-  # Resolved to "" on push events (the `inputs` context is empty there).
-  # train.py treats an empty value as "unset" and falls back to
-  # configs/training.yaml, so one line drives both event types.
-  TRAIN_N_TRIALS: ${{ inputs.n_trials }}
-  TRAIN_FINAL_EPOCHS: ${{ inputs.final_epochs }}
+  # Handles both manual runs and Prefect dispatches. An empty value makes
+  # train.py fall back to configs/training.yaml.
+  TRAIN_N_TRIALS: ${{ inputs.n_trials || github.event.client_payload.n_trials || '0' }}
+  TRAIN_FINAL_EPOCHS: ${{ inputs.final_epochs || github.event.client_payload.final_epochs || '15' }}
 
 jobs:
   train:
     if: |
       github.event_name == 'workflow_dispatch' ||
-      startsWith(github.event.head_commit.message, 'Prefect retrain trigger')
+      (github.event_name == 'repository_dispatch' && github.event.action == 'retrain-model')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

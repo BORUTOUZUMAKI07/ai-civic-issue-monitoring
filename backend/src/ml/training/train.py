@@ -495,12 +495,12 @@ def main():
     # Env-var overrides allow right-sizing CPU/GPU runs without editing config.
     #
     # `os.getenv(key, default)` only falls back when the variable is *absent*.
-    # `workflow_dispatch` sets these from its inputs, and on a `push` event the
-    # `inputs` context is empty — GitHub still *defines* the variable, just as
-    # "" — so `int("" )` raised `ValueError` and killed every Prefect-triggered
-    # run before a single epoch. `x or default` treats "unset" and "set to
-    # nothing" the same, which is the only reading that makes one workflow do
-    # the right thing for both event types.
+    # `workflow_dispatch` sets these from its inputs; Prefect arrives as a
+    # `repository_dispatch` whose `inputs` context is empty — GitHub still
+    # *defines* the variable, just as "", so `int("")` raised `ValueError` and
+    # killed every Prefect-triggered run before a single epoch. `x or default`
+    # treats "unset" and "set to nothing" the same, which is the only reading
+    # that makes one workflow do the right thing for both event types.
     n_trials = int(os.getenv("TRAIN_N_TRIALS") or config.get("optuna", {}).get("n_trials", 20))
     n_epochs = int(os.getenv("TRAIN_EPOCHS") or config.get("training", {}).get("epochs", 20))
     final_epochs = int(os.getenv("TRAIN_FINAL_EPOCHS") or str(n_epochs))

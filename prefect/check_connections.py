@@ -68,6 +68,12 @@ def check() -> int:
     else:
         print(f"[DAGSHUB] OK: token set ({len(token)} chars) for {user}/{repo}")
 
+    github_token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
+    if not github_token or github_token.startswith("<"):
+        print("[GITHUB] WARN: GITHUB_TOKEN/GH_TOKEN not set locally (Actions dispatch + flow code)")
+    else:
+        print("[GITHUB] OK: token set (value hidden)")
+
     return 1 if failures else 0
 
 

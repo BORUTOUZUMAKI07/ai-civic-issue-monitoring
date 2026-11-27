@@ -93,8 +93,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Secrets encrypted at rest cannot be safely decrypted in all environments
-    # during downgrade; leave totp_secret values as-is.
+    # Schema is symmetric: every column added above is removed. TOTP ciphertext
+    # is intentionally NOT decrypted — the key may have rotated since upgrade,
+    # and a downgrade must never write plaintext secrets back into the table.
     with op.batch_alter_table("users") as batch_op:
         batch_op.drop_column("email_verified_at")
         batch_op.drop_column("email_verified")

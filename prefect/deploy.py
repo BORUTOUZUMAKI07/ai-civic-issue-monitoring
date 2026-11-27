@@ -4,9 +4,10 @@ Managed execution (Prefect Managed) only runs official Prefect images, so code i
 pulled from git at run time via `flow.from_source`, and Python dependencies are
 installed on the serverless container via `pip_packages`.
 
-Code source: the public DagsHub mirror of this repo (GitHub's public clone is
-currently unreachable for this account). Auth uses the `dagshub-token` Secret
-block, so no token is embedded in the deployment config.
+Code source: the canonical GitHub repository (git remote `github`). DagsHub is
+ML/DVC artifact storage only and its mirror can lag the code actually deployed.
+Auth uses the `github-token` Secret block, so no token is embedded in the
+deployment config.
 
 Usage:
     prefect cloud login                       # once: authenticate to a workspace
@@ -41,11 +42,22 @@ from prefect.runner.storage import GitRepository  # noqa: E402
 
 WORK_POOL = os.getenv("PREFECT_WORK_POOL", "civicpulse-managed")
 
-DAGSHUB_USER = (
-    os.getenv("DAGSHUB_USERNAME") or os.getenv("DAGSHUB_USER") or "ram.atchutratna"
+GITHUB_REPOSITORY = os.getenv(
+    "GITHUB_REPOSITORY", "BORUTOUZUMAKI07/ai-civic-issue-monitoring"
 )
-DAGSHUB_REPO = os.getenv("DAGSHUB_REPO", "ai-civic-issue-monitoring")
-DAGSHUB_GIT_URL = f"https://dagshub.com/{DAGSHUB_USER}/{DAGSHUB_REPO}.git"
+GITHUB_GIT_URL = f"https://github.com/{GITHUB_REPOSITORY}.git"
+
+# Accepted aliases for secrets whose conventional name differs between local
+# tooling and Prefect's job environment.
+SECRET_ENV_ALIASES = {"GITHUB_TOKEN": ("GH_TOKEN",)}
+
+
+def _secret_env_value(key: str) -> str:
+    for name in (key, *SECRET_ENV_ALIASES.get(key, ())):
+        value = os.getenv(name, "")
+        if value:
+            return value
+    return ""
 
 
 def build_source() -> GitRepository:
@@ -56,8 +68,8 @@ def build_source() -> GitRepository:
     workspace before any code had a chance to run.
     """
     return GitRepository(
-        url=DAGSHUB_GIT_URL,
-        credentials={"access_token": Secret.load("dagshub-token")},
+        url=GITHUB_GIT_URL,
+        credentials={"access_token": Secret.load("github-token")},
     )
 
 
@@ -105,6 +117,7 @@ SECRET_JOB_ENV = {
     "CIVICPULSE_DB_URI": "civicpulse-db-uri",
     "CIVICPULSE_MONGO_URI": "civicpulse-mongo-uri",
     "DAGSHUB_TOKEN": "dagshub-token",
+    "GITHUB_TOKEN": "github-token",
     "SMTP_PASS": "smtp-pass",
     "SLACK_WEBHOOK_URL": "slack-webhook-url",
 }
@@ -115,6 +128,7 @@ PLAIN_JOB_ENV = {
     for k, v in {
         "DAGSHUB_USERNAME": os.getenv("DAGSHUB_USERNAME", "ram.atchutratna"),
         "DAGSHUB_REPO": os.getenv("DAGSHUB_REPO", "ai-civic-issue-monitoring"),
+        "GITHUB_REPOSITORY": GITHUB_REPOSITORY,
         # Drift alerting (drift-detection flow)
         "SMTP_HOST": os.getenv("SMTP_HOST", ""),
         "SMTP_PORT": os.getenv("SMTP_PORT", ""),
@@ -133,7 +147,7 @@ def build_job_env() -> dict[str, str]:
     """
     env = dict(PLAIN_JOB_ENV)
     for key, block in SECRET_JOB_ENV.items():
-        if os.getenv(key, ""):
+        if _secret_env_value(key):
             env[key] = f"{{{{ prefect.blocks.secret.{block} }}}}"
     return env
 
@@ -145,7 +159,7 @@ def ensure_secret_blocks() -> None:
     ``prefect/.env`` ends up with blocks the deployments can reference.
     """
     for key, block in SECRET_JOB_ENV.items():
-        value = os.getenv(key, "")
+        value = _secret_env_value(key)
         if not value:
             print(f"Skipping Secret block '{block}': {key} is not set")
             continue
@@ -172,7 +186,7 @@ def ensure_automations(deployment_ids: dict[str, str]) -> None:
        (weekly cron), launch a mode=check run.
     2. ``drift-high-triggers-retrain``: on ``civicpulse.drift.high``
        (emitted by drift-detection when severity=high), launch a mode=trigger
-       run which pushes an empty commit and starts training.
+       run which dispatches the GitHub Actions training workflow.
     """
     retrain_dep_id = deployment_ids.get("retrain-model")
     if not retrain_dep_id:

@@ -4,8 +4,9 @@ Event-driven redesign to fit Prefect's 500 serverless min/mo budget AND the
 Hobby 5-deployment limit (retrain, drift, report, sla, archival):
 
 - One deployment "retrain-model" with a `mode` parameter:
-    mode="trigger" (weekly cron): check drift, if HIGH push empty commit,
-    write retrain_state flag, emit "civicpulse.retrain.triggered", then end (~1 min).
+    mode="trigger" (weekly cron): check drift, if HIGH dispatch the GitHub
+    Actions workflow via `repository_dispatch`, write retrain_state, emit
+    "civicpulse.retrain.triggered", then end (~1 min).
     mode="check" (fired by automation or self-reschedule): poll MLflow once;
     if not finished, re-schedule itself in 5 min (self-rescheduling) up to 2h.
     Each poll ~20s. Zero cost when idle.
@@ -15,13 +16,10 @@ Hobby 5-deployment limit (retrain, drift, report, sla, archival):
 from __future__ import annotations
 
 import json
+import math
 import os
-import shutil
-import subprocess
-import tempfile
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 
 import requests
 from prefect import flow, get_run_logger, task
@@ -30,14 +28,15 @@ from prefect.events import emit_event
 from connections import (
     DAGSHUB_REPO,
     DAGSHUB_USER,
+    GITHUB_REPOSITORY,
     MLFLOW_BASE,
     get_dagshub_token,
+    get_github_token,
     get_mongo_uri,
 )
 
 DAGSHUB_USER = DAGSHUB_USER or os.getenv("DAGSHUB_USERNAME") or "ram.atchutratna"
 DAGSHUB_REPO = DAGSHUB_REPO or os.getenv("DAGSHUB_REPO") or "ai-civic-issue-monitoring"
-DAGSHUB_GIT_URL = f"https://dagshub.com/{DAGSHUB_USER}/{DAGSHUB_REPO}.git"
 MLFLOW_EXPERIMENT = "civicpulse-peft-lora"
 MLFLOW_RUN_NAME = "final-peft-model"
 REGISTERED_MODEL = "civicpulse-mobilenetv2"
@@ -47,17 +46,30 @@ STATE_COLLECTION = "retrain_state"
 
 # ---------- Shared helpers ----------
 
-def _run_git(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
-    result = subprocess.run(
-        ["git", *args],
-        capture_output=True,
-        text=True,
-        timeout=120,
-        cwd=str(cwd),
+def dispatch_retrain(token: str, trigger_time_ms: int, repository: str | None = None) -> dict:
+    """Start the GitHub Actions training workflow through repository_dispatch.
+
+    The old flow pushed an empty commit to the DagsHub mirror. GitHub Actions
+    only watches the GitHub remote, so no training ever started. A dispatch is
+    explicit, needs no checkout and cannot race with ordinary source pushes.
+    The PAT is used in a header only; it is never logged or stored in Mongo.
+    """
+    repo = repository or GITHUB_REPOSITORY
+    response = requests.post(
+        f"https://api.github.com/repos/{repo}/dispatches",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+        json={
+            "event_type": "retrain-model",
+            "client_payload": {"trigger_time_ms": trigger_time_ms, "source": "prefect"},
+        },
+        timeout=30,
     )
-    if result.returncode != 0:
-        raise RuntimeError(f"git {args[0]} failed with exit code {result.returncode}: {result.stderr[-2000:]}")
-    return result
+    response.raise_for_status()
+    return {"status_code": response.status_code, "repository": repo}
 
 
 # ---------- Trigger flow (weekly, scheduled) ----------
@@ -84,35 +96,14 @@ def check_drift_status(uri: str) -> dict | None:
 @task(retries=2, retry_delay_seconds=60)
 def trigger_retraining(token: str) -> int:
     logger = get_run_logger()
-
-    home = Path(os.environ.get("HOME", "/tmp"))
-    netrc = home / ".netrc"
-    netrc.write_text(f"machine dagshub.com\n  login {DAGSHUB_USER}\n  password {token}\n")
-    os.chmod(netrc, 0o600)
-
-    work_dir = Path(tempfile.mkdtemp(prefix="civicpulse-retrain-"))
-    _run_git(["clone", "--depth", "1", DAGSHUB_GIT_URL, str(work_dir)], work_dir.parent)
-    _run_git(["config", "user.email", "civicpulse-prefect@civicpulse.com"], work_dir)
-    _run_git(["config", "user.name", "CivicPulse Prefect"], work_dir)
-
     trigger_time_ms = int(time.time() * 1000)
-    _run_git(
-        ["commit", "--allow-empty", "-m", f"Prefect retrain trigger [{trigger_time_ms}]"],
-        work_dir,
+    dispatch = dispatch_retrain(token, trigger_time_ms)
+    logger.info(
+        "Dispatched GitHub retrain workflow (repo=%s, ts=%s, http=%s)",
+        dispatch["repository"],
+        trigger_time_ms,
+        dispatch["status_code"],
     )
-    try:
-        _run_git(["push", "origin", "main"], work_dir)
-        logger.info(
-            "Pushed empty commit; training workflow should start (ts=%s)",
-            trigger_time_ms,
-        )
-    except RuntimeError as exc:
-        logger.warning(
-            "Empty-commit push failed (non-fatal, mirror is read-only): %s. "
-            "The retrain event still fires.",
-            str(exc)[:300],
-        )
-    shutil.rmtree(work_dir, ignore_errors=True)
     return trigger_time_ms
 
 
@@ -171,10 +162,10 @@ def retrain_model_flow(
 
 @task
 def run_trigger() -> dict:
-    """Weekly trigger: check drift → if HIGH, push commit, record state, emit event."""
+    """Weekly trigger: check drift → if HIGH, dispatch Actions, record state, emit event."""
     logger = get_run_logger()
     uri = get_mongo_uri()
-    token = get_dagshub_token()
+    token = get_github_token()
 
     drift_report = check_drift_status(uri)
     if (
@@ -196,6 +187,46 @@ def run_trigger() -> dict:
 
     log_skip(uri, drift_report)
     return {"retrained": False}
+
+
+# ---------- Registration gate (pure, unit-tested) ----------
+
+
+def _accuracy(value: object) -> float | None:
+    """Parse a metric value; missing/NaN/infinite values mean 'no metric'."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def extract_accuracy(run_data: dict) -> float | None:
+    """Read best_val_acc from an MLflow run without inventing a 0.0 value."""
+    for metric in run_data.get("metrics", []):
+        if metric.get("key") == "best_val_acc":
+            return _accuracy(metric.get("value"))
+    return None
+
+
+def should_register(new_acc: float | None, prev_acc: float | None) -> bool:
+    """Only register a real, positive improvement.
+
+    A missing metric used to default to 0.0 and ``prev_acc == 0`` forced
+    registration, so a metric-less run could replace the serving model. A
+    reported 0.0 is not a usable accuracy either.
+    """
+    if new_acc is None or not math.isfinite(new_acc) or new_acc <= 0.0:
+        return False
+    if prev_acc is None or not math.isfinite(prev_acc) or prev_acc <= 0.0:
+        return True
+    return new_acc > prev_acc
+
+
+def _fmt_acc(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.4f}"
 
 
 # ---------- Check logic (event-driven, self-rescheduling) ----------
@@ -246,10 +277,7 @@ def poll_training_status(token: str, trigger_time_ms: int) -> dict:
 
         status = info.get("status")
         if status == "FINISHED":
-            metrics = run["data"].get("metrics", [])
-            new_acc = float(
-                next((m["value"] for m in metrics if m.get("key") == "best_val_acc"), 0.0)
-            )
+            new_acc = extract_accuracy(run.get("data", {}))
             params = run["data"].get("params", [])
             best_params = {p.get("key"): p.get("value") for p in params}
             result = {
@@ -259,9 +287,9 @@ def poll_training_status(token: str, trigger_time_ms: int) -> dict:
                 "finished": True,
             }
             logger.info(
-                "Training FINISHED run=%s best_val_acc=%.4f",
+                "Training FINISHED run=%s best_val_acc=%s",
                 info["run_id"],
-                new_acc,
+                _fmt_acc(new_acc),
             )
             return result
         elif status in ("FAILED", "KILLED"):
@@ -279,17 +307,22 @@ def evaluate_and_register(uri: str, token: str, run_info: dict, drift_report: di
     auth = (DAGSHUB_USER, token)
     headers = {"Content-Type": "application/json"}
     new_run_id = run_info["run_id"]
-    new_acc = run_info["best_val_acc"]
-    best_params = run_info["best_params"]
+    new_acc = _accuracy(run_info.get("best_val_acc"))
+    best_params = run_info.get("best_params") or {}
 
     from pymongo import MongoClient
 
     with MongoClient(uri) as client:
         db = client[MONGO_DB]
         previous = list(db["retrain_logs"].find().sort("timestamp", -1).limit(1))
-        prev_acc = previous[0].get("new_val_acc", 0) if previous else 0
+        prev_acc = _accuracy(previous[0].get("new_val_acc")) if previous else None
 
-    registered = new_acc > prev_acc or prev_acc == 0
+    registered = should_register(new_acc, prev_acc)
+    reason = (
+        "registered"
+        if registered
+        else ("missing_validation_metric" if new_acc is None else "not_better")
+    )
     version = None
 
     if registered:
@@ -334,11 +367,11 @@ def evaluate_and_register(uri: str, token: str, run_info: dict, drift_report: di
                     transition_resp.text[:500],
                 )
             logger.info(
-                "Registered model %s v%s (acc: %.4f > prev: %.4f)",
+                "Registered model %s v%s (acc: %s > prev: %s)",
                 REGISTERED_MODEL,
                 version,
-                new_acc,
-                prev_acc,
+                _fmt_acc(new_acc),
+                _fmt_acc(prev_acc),
             )
         else:
             logger.warning(
@@ -347,16 +380,18 @@ def evaluate_and_register(uri: str, token: str, run_info: dict, drift_report: di
             )
     else:
         logger.info(
-            "New model NOT better (acc: %.4f <= prev: %.4f), skipping",
-            new_acc,
-            prev_acc,
+            "New model NOT registered (reason: %s, acc: %s, prev: %s)",
+            reason,
+            _fmt_acc(new_acc),
+            _fmt_acc(prev_acc),
         )
 
     log_entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "source": "dagshub_actions",
-        "new_val_acc": round(new_acc, 4),
-        "previous_val_acc": round(prev_acc, 4),
+        "new_val_acc": round(new_acc, 4) if new_acc is not None else None,
+        "previous_val_acc": round(prev_acc, 4) if prev_acc is not None else None,
+        "registration_reason": reason,
         "registered": registered,
         "registered_model": REGISTERED_MODEL,
         "model_version": version,
