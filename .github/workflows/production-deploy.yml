@@ -112,7 +112,7 @@ jobs:
             --output /tmp/render-deploy.json --write-out '%{http_code}' \
             "$RENDER_DEPLOY_HOOK_URL")"
           case "$code" in
-            200|202)
+            2??)
               echo "Render deploy accepted (HTTP $code)."
               ;;
             *)
@@ -130,7 +130,7 @@ jobs:
             --output /tmp/vercel-deploy.json --write-out '%{http_code}' \
             "$VERCEL_DEPLOY_HOOK_URL")"
           case "$code" in
-            200|202|204)
+            2??)
               echo "Vercel production deploy accepted (HTTP $code)."
               ;;
             *)

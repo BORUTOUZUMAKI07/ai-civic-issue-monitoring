@@ -187,7 +187,8 @@ two deploys.
 Actions → **Deploy production** → Run workflow. This deploys the current `main`
 tip without a new commit, which is useful after a transient hook failure. The
 automatic path always requires CI to be green. There is no staging target; the
-old manual SSH deploy workflow was removed.
+old manual SSH deploy workflow was removed. Both hooks are treated as accepted
+on any HTTP 2xx response; Vercel returns `201` with a pending job.
 
 ### Verify after a deploy
 
