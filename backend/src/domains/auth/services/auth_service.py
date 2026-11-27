@@ -37,12 +37,27 @@ from src.shared.errors import (
     InvalidCredentials,
     InvalidToken,
     RefreshTokenReuse,
+    TokenExpired,
     TokenRevoked,
     UnauthorizedError,
     UserNotFound,
 )
 
 logger = logging.getLogger("civicpulse")
+
+
+def _decode_for_revocation(token: str) -> dict[str, Any] | None:
+    """Return usable claims, or None for an expired/malformed token.
+
+    Kept out of ``logout`` so the loop never has an ``except: continue``
+    (Bandit B112): revocation should skip an unusable token and still process
+    the other half of the pair.
+    """
+    try:
+        return decode_token(token)
+    except (InvalidToken, TokenExpired):
+        return None
+
 
 _REFRESH_SESSION_PREFIX = "refresh:session:"
 _REFRESH_REVOKED_PREFIX = "refresh:revoked:"
@@ -239,9 +254,8 @@ class AuthService:
         for token in (access_token, refresh_token):
             if not token:
                 continue
-            try:
-                payload = decode_token(token)
-            except Exception:
+            payload = _decode_for_revocation(token)
+            if payload is None:
                 # An expired/malformed token has nothing to revoke; the other
                 # token in the pair is still processed below.
                 continue

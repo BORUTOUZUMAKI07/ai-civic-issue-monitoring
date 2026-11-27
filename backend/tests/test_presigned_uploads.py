@@ -66,7 +66,12 @@ async def test_presign_is_stable_for_the_same_idempotency_key(monkeypatch, clien
 
 
 @pytest.mark.asyncio
-async def test_presign_rejects_bad_extension_and_oversize(client, auth_headers):
+async def test_presign_rejects_bad_extension_and_oversize(monkeypatch, client, auth_headers):
+    # Validation lives behind the s3 branch. CI has no storage credentials, so
+    # without this the route returns 501 before either check can run.
+    monkeypatch.setattr(routes, "settings", SimpleNamespace(STORAGE_BACKEND="s3"))
+    monkeypatch.setattr(routes, "presign_put_upload", lambda *a, **k: {"url": "https://storage.example/put", "expires_in": 900})
+
     bad_ext = await client.post(
         "/api/v1/uploads/presign",
         json={"filename": "payload.svg", "purpose": "issue"},
