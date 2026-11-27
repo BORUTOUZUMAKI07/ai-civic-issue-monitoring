@@ -1,11 +1,10 @@
-"""Refresh must survive a Redis outage.
+"""Security-critical Redis state must fail closed.
 
-Redis backs refresh-token rotation and the post-replay lockout flag, but the
-``/auth/refresh`` route only catches :class:`AppError`. Before this test's fix,
-a Redis ``ConnectError`` propagated out of ``AuthService.refresh`` and every
-session renewal returned a 500 — an instance that was otherwise serving traffic
-correctly logged every user out. This pins the fail-open behaviour: with Redis
-unreachable, refresh still mints a fresh access/refresh pair.
+Refresh rotation, session revocation and one-time token consumption are security
+boundaries. When Redis is unavailable the service must not mint a replacement
+token, claim a logout succeeded, or accept a replayed reset/verification/2FA
+challenge. Rate limiting and caches still fail open by design — this file pins
+the opposite rule for the operations whose loss would enable an auth bypass.
 """
 
 from __future__ import annotations
@@ -16,6 +15,7 @@ import pytest
 
 from src.core.database import AsyncSessionLocal
 from src.core.security import create_refresh_token
+from src.core.security_store import SecurityStoreUnavailableError
 
 _USER_ID = 9001
 
@@ -29,18 +29,33 @@ class _DeadRedis:
     async def setex(self, *args, **kwargs):
         raise ConnectionError("redis down")
 
+    async def set(self, *args, **kwargs):
+        raise ConnectionError("redis down")
+
     async def eval(self, *args, **kwargs):
         raise ConnectionError("redis down")
 
     async def delete(self, *args, **kwargs):
         raise ConnectionError("redis down")
 
+    async def sadd(self, *args, **kwargs):
+        raise ConnectionError("redis down")
+
+    async def expire(self, *args, **kwargs):
+        raise ConnectionError("redis down")
+
     async def ping(self, *args, **kwargs):
         raise ConnectionError("redis down")
 
 
+@pytest.fixture
+def dead_redis():
+    with patch("src.core.redis.redis_client", _DeadRedis()):
+        yield
+
+
 @pytest.mark.asyncio
-async def test_refresh_survives_redis_outage(db_engine) -> None:
+async def test_refresh_refuses_to_mint_tokens_during_redis_outage(dead_redis, db_engine) -> None:
     from src.domains.auth.services.auth_service import AuthService
     from src.domains.users.models.user import User, UserRole
 
@@ -62,10 +77,44 @@ async def test_refresh_survives_redis_outage(db_engine) -> None:
             await session.rollback()
 
         token = create_refresh_token({"sub": str(_USER_ID)})
+        with pytest.raises(SecurityStoreUnavailableError):
+            await AuthService(session).refresh(token)
 
-        with patch("src.domains.auth.services.auth_service.redis_client", _DeadRedis()):
-            access_token, new_refresh_token = await AuthService(session).refresh(token)
 
-    assert access_token
-    assert new_refresh_token
-    assert new_refresh_token != token
+@pytest.mark.asyncio
+async def test_logout_does_not_claim_success_during_redis_outage(dead_redis, db_engine) -> None:
+    from src.core.security import create_access_token
+    from src.domains.auth.services.auth_service import AuthService
+
+    token = create_access_token({"sub": str(_USER_ID)})
+    async with AsyncSessionLocal() as session:
+        with pytest.raises(SecurityStoreUnavailableError):
+            await AuthService(session).logout(None, token)
+
+
+@pytest.mark.asyncio
+async def test_reset_token_cannot_be_consumed_during_redis_outage(dead_redis, db_engine) -> None:
+    from src.domains.auth.password_reset import create_password_reset_token, reset_password
+
+    token = create_password_reset_token(_USER_ID)
+    async with AsyncSessionLocal() as session:
+        with pytest.raises(SecurityStoreUnavailableError):
+            await reset_password(session, token, "NewPass123!")
+
+
+@pytest.mark.asyncio
+async def test_verification_token_cannot_be_consumed_during_redis_outage(dead_redis, db_engine) -> None:
+    from src.domains.auth.email_verification import create_email_verification_token, verify_email_token
+
+    token = create_email_verification_token(_USER_ID)
+    async with AsyncSessionLocal() as session:
+        with pytest.raises(SecurityStoreUnavailableError):
+            await verify_email_token(session, token)
+
+
+@pytest.mark.asyncio
+async def test_revoking_all_sessions_fails_closed_during_redis_outage(dead_redis, db_engine) -> None:
+    from src.domains.auth.password_reset import revoke_all_refresh_sessions
+
+    with pytest.raises(SecurityStoreUnavailableError):
+        await revoke_all_refresh_sessions(_USER_ID)

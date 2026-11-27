@@ -210,16 +210,14 @@ class TwoFactorService:
 
         from src.core.security import create_access_token, create_refresh_token
         from src.domains.auth.services.auth_service import (
-            clear_refresh_family_revocation,
-            clear_refresh_revocation,
+            clear_user_revocation,
             store_refresh_session,
         )
 
-        access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
+        await clear_user_revocation(user.id)
         refresh_token = create_refresh_token({"sub": str(user.id)})
-        await clear_refresh_family_revocation(user.id)
-        await clear_refresh_revocation(user.id)
         await store_refresh_session(refresh_token)
+        access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
         return access_token, refresh_token
 
     async def verify_challenge(self, user_id: int, code: str) -> tuple[str, str]:
@@ -268,19 +266,17 @@ class TwoFactorService:
 
         from src.core.security import create_access_token, create_refresh_token
         from src.domains.auth.services.auth_service import (
-            clear_refresh_family_revocation,
-            clear_refresh_revocation,
+            clear_user_revocation,
             store_refresh_session,
         )
 
         if totp_ok:
             await self.db.commit()
 
-        access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
+        await clear_user_revocation(user.id)
         refresh_token = create_refresh_token({"sub": str(user.id)})
-        await clear_refresh_family_revocation(user.id)
-        await clear_refresh_revocation(user.id)
         await store_refresh_session(refresh_token)
+        access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
         return access_token, refresh_token
 
     async def regenerate_recovery_codes(self, user_id: int, code: str) -> list[str]:

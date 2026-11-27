@@ -6,10 +6,10 @@ from uuid import uuid4
 
 import jwt
 
-from src.core import redis as redis_module
 from src.core.config import settings
 from src.core.email import send_email
 from src.core.security import hash_password_async
+from src.core.security_store import consume_one_time, mark_revoked
 from src.domains.users.repositories.user_repository import UserRepository
 from src.shared.errors import PasswordResetTokenInvalid
 
@@ -94,26 +94,21 @@ async def reset_password(db, token: str, new_password: str) -> None:
     await db.commit()
     await db.refresh(user)
 
+    # Both operations are security boundaries. If either fails, the password
+    # change must not be reported as successful: the reset token could be
+    # replayed or the old sessions could remain valid.
     await revoke_all_refresh_sessions(user.id)
-    from src.domains.auth.services.auth_service import clear_refresh_revocation
+    from src.domains.auth.services.auth_service import clear_user_revocation
 
-    await clear_refresh_revocation(user.id)
+    await clear_user_revocation(user.id)
 
 
 async def _consume_reset_jti(jti: str) -> bool:
     key = f"{_RESET_JTI_PREFIX}{jti}"
     ttl = settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES * 60
-    try:
-        was_new = await redis_module.redis_client.set(key, "1", ex=ttl, nx=True)
-        return not bool(was_new)
-    except Exception as exc:
-        logger.warning("password_reset: could not persist token consumption (%s)", exc)
-        return False
+    return await consume_one_time(key, ttl)
 
 
 async def revoke_all_refresh_sessions(user_id: int) -> None:
-    try:
-        ttl = settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400
-        await redis_module.redis_client.setex(f"refresh:revoked:{user_id}", ttl, "1")
-    except Exception as exc:
-        logger.warning("password_reset: could not revoke sessions for user %s (%s)", user_id, exc)
+    ttl = settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400
+    await mark_revoked(f"refresh:revoked:{user_id}", ttl)

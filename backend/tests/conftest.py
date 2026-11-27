@@ -24,6 +24,7 @@ NEVER connects to Aiven, Atlas, Upstash or any cloud resource during tests.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from typing import AsyncGenerator, Generator
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -84,11 +85,52 @@ def fake_redis_session():
         # fakeredis not installed → use a simple async no-op dict-based stub
         fake = _FallbackFakeRedis()
 
-    # Patch the redis_client object that all src.core.redis functions call
-    with patch("src.core.redis.redis_client", fake):
+    # Patch the redis_client object that all src.core.redis functions call.
+    # The wrapper only adds EVAL emulation for the rotation script; every other
+    # command delegates to the same in-memory store.
+    with patch("src.core.redis.redis_client", _EvalCapableRedis(fake)):
         # Also stub check_redis_health so it always returns True
         with patch("src.core.redis.check_redis_health", AsyncMock(return_value=True)):
             yield fake
+
+
+class _EvalCapableRedis:
+    """Add Lua-less emulation of the rotation script to the in-memory fake.
+
+    fakeredis on this platform has no Lua engine. Fail-open code used to hide
+    that by treating an EVAL error as a successful rotation; now that rotation
+    fails closed, unit tests need a fake that actually models the script so they
+    exercise the same control flow as production. The rate-limit script is left
+    unsupported on purpose so rate limiting keeps its documented fail-open
+    behaviour in unit tests.
+    """
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    async def eval(self, script, numkeys, *args):
+        if "obj.prev_jti == presented" not in script:
+            raise RuntimeError("unknown command 'eval'")
+        session_key = args[0]
+        presented, new_jti, grace, ttl, now = args[1:6]
+        raw = await self._inner.get(session_key)
+        if not raw:
+            return -1
+        record = json.loads(raw)
+        matched = record.get("jti") == presented or (
+            record.get("prev_jti") == presented
+            and (int(now) - int(record.get("prev_at") or 0)) <= int(grace)
+        )
+        if not matched:
+            return 0
+        record["prev_jti"] = record["jti"]
+        record["prev_at"] = int(now)
+        record["jti"] = new_jti
+        await self._inner.setex(session_key, int(ttl), json.dumps(record))
+        return 1
 
 
 class _FallbackFakeRedis:

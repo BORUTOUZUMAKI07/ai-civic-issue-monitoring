@@ -8,9 +8,9 @@ from uuid import uuid4
 import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core import redis as redis_module
 from src.core.config import settings
 from src.core.email import send_email
+from src.core.security_store import consume_one_time
 from src.domains.users.repositories.user_repository import UserRepository
 from src.shared.errors import EmailVerificationTokenInvalid
 
@@ -95,9 +95,4 @@ async def verify_email_token(db: AsyncSession, token: str) -> Any:
 async def _consume_verify_jti(jti: str) -> bool:
     key = f"{_VERIFY_JTI_PREFIX}{jti}"
     ttl = settings.EMAIL_VERIFY_TOKEN_EXPIRE_MINUTES * 60
-    try:
-        was_new = await redis_module.redis_client.set(key, "1", ex=ttl, nx=True)
-        return not bool(was_new)
-    except Exception as exc:
-        logger.warning("email_verify: could not persist token consumption (%s)", exc)
-        return False
+    return await consume_one_time(key, ttl)

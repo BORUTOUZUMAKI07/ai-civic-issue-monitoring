@@ -296,18 +296,15 @@ async def login_with_provider(db, provider: OAuthProvider, profile: dict | Any) 
 
         raise UnauthorizedError(detail="Account is deactivated.")
 
-    access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
-    refresh_token = create_refresh_token({"sub": str(user.id)})
-
     from src.domains.auth.services.auth_service import (
-        clear_refresh_family_revocation,
-        clear_refresh_revocation,
+        clear_user_revocation,
         store_refresh_session,
     )
 
-    await clear_refresh_family_revocation(user.id)
-    await clear_refresh_revocation(user.id)
+    await clear_user_revocation(user.id)
+    refresh_token = create_refresh_token({"sub": str(user.id)})
     await store_refresh_session(refresh_token)
+    access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
     logger.debug("oauth: signed in %s (created=%s)", user.email, created_here)
     return user, access_token, refresh_token
 

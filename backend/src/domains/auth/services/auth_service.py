@@ -11,13 +11,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core import redis as redis_module
 from src.core.config import settings
 from src.core.security import (
-    blacklist_token,
     create_access_token,
     create_refresh_token,
     decode_token,
     hash_password_async,
-    is_token_blacklisted,
     verify_password_for_login_async,
+)
+from src.core.security_store import (
+    SecurityStoreUnavailableError,
+    blacklist_jti,
+    delete_keys,
+    is_blacklisted,
+    is_revoked,
+    mark_revoked,
+    read_key,
+    rotate_session,
+    store_session,
 )
 from src.domains.auth.password_reset import revoke_all_refresh_sessions
 from src.domains.users.models.user import User, UserRole
@@ -135,13 +144,14 @@ class AuthService:
         if getattr(settings, "EMAIL_VERIFICATION_REQUIRED", False) and not getattr(user, "email_verified", True):
             raise EmailNotVerified()
 
-        access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
+        # Session state is a security boundary: if Redis cannot clear a stale
+        # revocation or record the new session, refuse to issue credentials that
+        # could neither be revoked nor refreshed.
+        await clear_user_revocation(user.id)
         refresh_token = create_refresh_token({"sub": str(user.id)})
-
-        await clear_refresh_family_revocation(user.id)
-        await clear_refresh_revocation(user.id)
         await store_refresh_session(refresh_token)
 
+        access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
         return access_token, refresh_token
 
     async def refresh(self, refresh_token: str) -> tuple[str, str]:
@@ -157,7 +167,7 @@ class AuthService:
         sid = payload.get("sid")
         fam = payload.get("fam")
 
-        if jti and await is_token_blacklisted(jti):
+        if jti and await is_blacklisted(jti):
             raise TokenRevoked()
 
         user_id = payload.get("sub")
@@ -199,72 +209,76 @@ class AuthService:
         return access_token, new_refresh
 
     async def _refresh_family_revoked(self, user_id: int, fam: str | None) -> bool:
-        try:
-            if await redis_client.get(f"{_REFRESH_REVOKED_PREFIX}{user_id}"):
-                return True
-            if fam and await redis_client.get(f"{_REFRESH_FAMILY_REVOKED_PREFIX}{fam}"):
-                return True
-            return False
-        except Exception as e:
-            logger.warning("refresh: Redis unavailable, treating family as not revoked: %s", e)
-            return False
+        keys = [f"{_REFRESH_REVOKED_PREFIX}{user_id}"]
+        if fam:
+            keys.append(f"{_REFRESH_FAMILY_REVOKED_PREFIX}{fam}")
+        # A failed read must not be read as "not revoked"; is_revoked raises
+        # SecurityStoreUnavailableError so no replacement token is minted.
+        return await is_revoked(*keys)
 
     async def _rotate_refresh_session(self, sid: str, jti: str, new_jti: str) -> int:
-        try:
-            result = await redis_client.eval(
-                _ROTATE_REFRESH_LUA,
-                1,
-                f"{_REFRESH_SESSION_PREFIX}{sid}",
-                jti,
-                new_jti,
-                str(_reuse_grace_seconds()),
-                str(_REFRESH_TTL),
-                str(int(time.time())),
-            )
-        except Exception as e:
-            logger.warning("refresh: Redis unavailable, skipping rotation bookkeeping: %s", e)
-            return 1
-        return int(result)
+        return await rotate_session(
+            _ROTATE_REFRESH_LUA,
+            1,
+            f"{_REFRESH_SESSION_PREFIX}{sid}",
+            jti,
+            new_jti,
+            str(_reuse_grace_seconds()),
+            str(_REFRESH_TTL),
+            str(int(time.time())),
+        )
 
     async def _blacklist_best_effort(self, jti: str, ttl_seconds: int) -> None:
-        try:
-            await blacklist_token(jti, ttl_seconds)
-        except Exception as e:
-            logger.warning("refresh: Redis unavailable, could not blacklist rotated token: %s", e)
+        # Kept as a method for call-site readability, but no longer best-effort:
+        # a rotated token that is not blacklisted stays valid and would let the
+        # old credential live on during an outage.
+        await blacklist_jti(jti, ttl_seconds)
 
     async def logout(self, refresh_token: Optional[str], access_token: Optional[str] = None) -> None:
+        failed = False
         for token in (access_token, refresh_token):
             if not token:
                 continue
             try:
                 payload = decode_token(token)
-                jti = payload.get("jti")
-                exp = payload.get("exp")
-                if jti and exp:
-                    ttl = int(exp) - int(time.time())
-                    if ttl > 0:
-                        await blacklist_token(jti, ttl)
-                sid = payload.get("sid")
-                if sid:
-                    await redis_client.delete(f"{_REFRESH_SESSION_PREFIX}{sid}")
-                    fam = payload.get("fam") or await _family_for_sid(sid)
-                    if fam:
-                        await redis_client.setex(f"{_REFRESH_FAMILY_REVOKED_PREFIX}{fam}", _REFRESH_TTL, "1")
-                        await redis_client.delete(f"{_REFRESH_FAMILY_INDEX_PREFIX}{sid}")
             except Exception:
-                logger.warning("logout: failed to blacklist a token")
+                # An expired/malformed token has nothing to revoke; the other
+                # token in the pair is still processed below.
                 continue
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            if jti and exp:
+                ttl = int(exp) - int(time.time())
+                if ttl > 0:
+                    try:
+                        await blacklist_jti(jti, ttl)
+                    except SecurityStoreUnavailableError:
+                        failed = True
+            sid = payload.get("sid")
+            if sid:
+                try:
+                    await self._revoke_session(sid, payload.get("fam"))
+                except SecurityStoreUnavailableError:
+                    failed = True
+        if failed:
+            # Report the outage rather than telling the user they are signed out
+            # when their credentials are still live.
+            raise SecurityStoreUnavailableError("logout")
+
+    async def _revoke_session(self, sid: str, fam: str | None) -> None:
+        await delete_keys(f"{_REFRESH_SESSION_PREFIX}{sid}")
+        resolved_fam = fam or await _family_for_sid(sid)
+        if resolved_fam:
+            await mark_revoked(f"{_REFRESH_FAMILY_REVOKED_PREFIX}{resolved_fam}", _REFRESH_TTL)
+            await delete_keys(f"{_REFRESH_FAMILY_INDEX_PREFIX}{sid}")
 
     async def _revoke_refresh_family(self, user_id: int, fam: str | None, sid: str | None = None) -> None:
-        try:
-            if fam:
-                await redis_client.setex(f"{_REFRESH_FAMILY_REVOKED_PREFIX}{fam}", _REFRESH_TTL, "1")
-                if sid:
-                    await redis_client.delete(f"{_REFRESH_SESSION_PREFIX}{sid}")
-                return
-            await redis_client.setex(f"{_REFRESH_REVOKED_PREFIX}{user_id}", _REFRESH_TTL, "1")
-        except Exception as e:
-            logger.warning("refresh: failed to revoke family for user %s: %s", user_id, e)
+        if fam:
+            await mark_revoked(f"{_REFRESH_FAMILY_REVOKED_PREFIX}{fam}", _REFRESH_TTL)
+            if sid:
+                await delete_keys(f"{_REFRESH_SESSION_PREFIX}{sid}")
+            return
+        await mark_revoked(f"{_REFRESH_REVOKED_PREFIX}{user_id}", _REFRESH_TTL)
 
     async def get_me(self, user_id: int) -> User:
         user = await self.user_repo.get(user_id)
@@ -285,53 +299,45 @@ class AuthService:
 
 
 async def _family_for_sid(sid: str) -> str | None:
-    try:
-        value = await redis_client.get(f"{_REFRESH_FAMILY_INDEX_PREFIX}{sid}")
-        return value if isinstance(value, str) and value else None
-    except Exception as e:
-        logger.warning("refresh: could not resolve family for sid %s: %s", sid, e)
-        return None
+    value = await read_key(f"{_REFRESH_FAMILY_INDEX_PREFIX}{sid}")
+    return value if isinstance(value, str) and value else None
 
 
-async def clear_refresh_family_revocation(user_id: int) -> None:
-    try:
-        await redis_client.delete(f"{_REFRESH_REVOKED_PREFIX}{user_id}")
-    except Exception as e:
-        logger.warning("refresh: failed to clear revocation flag for user %s: %s", user_id, e)
+async def clear_user_revocation(user_id: int) -> None:
+    """Single implementation for clearing a user-wide revocation marker.
 
-
-async def clear_refresh_revocation(user_id: int) -> None:
-    try:
-        await redis_client.delete(f"{_REFRESH_REVOKED_PREFIX}{user_id}")
-    except Exception as e:
-        logger.warning("refresh: failed to clear user revocation for user %s: %s", user_id, e)
+    Previously two identically-behaving helpers existed and were called in
+    sequence on every issuance path; one canonical function removes the drift
+    and keeps the fail-closed behaviour in one place.
+    """
+    await delete_keys(f"{_REFRESH_REVOKED_PREFIX}{user_id}")
 
 
 async def store_refresh_session(refresh_token: str) -> None:
-    try:
-        payload = decode_token(refresh_token)
-        sid = payload.get("sid")
-        jti = payload.get("jti")
-        fam = payload.get("fam")
-        user_id = payload.get("sub")
-        if not sid or not jti:
-            return
-        record = json.dumps(
-            {
-                "jti": jti,
-                "prev_jti": None,
-                "prev_at": 0,
-                "fam": fam,
-            }
-        )
-        await redis_client.setex(f"{_REFRESH_SESSION_PREFIX}{sid}", _REFRESH_TTL, record)
-        if fam:
-            await redis_client.setex(f"{_REFRESH_FAMILY_INDEX_PREFIX}{sid}", _REFRESH_TTL, fam)
-        if user_id and sid:
-            try:
-                await redis_client.sadd(f"{_REFRESH_USER_SESSIONS_PREFIX}{user_id}", sid)
-                await redis_client.expire(f"{_REFRESH_USER_SESSIONS_PREFIX}{user_id}", _REFRESH_TTL)
-            except Exception:  # nosec B110 - session index update is best-effort
-                pass
-    except Exception as e:
-        logger.warning("refresh: failed to store session record: %s", e)
+    payload = decode_token(refresh_token)
+    sid = payload.get("sid")
+    jti = payload.get("jti")
+    fam = payload.get("fam")
+    user_id = payload.get("sub")
+    if not sid or not jti:
+        return
+    record = json.dumps(
+        {
+            "jti": jti,
+            "prev_jti": None,
+            "prev_at": 0,
+            "fam": fam,
+        }
+    )
+    # The session record is what makes rotation and revocation possible — it
+    # must be written or issuance fails. The per-user index only powers the
+    # "list sessions" view, so it stays best-effort.
+    await store_session(f"{_REFRESH_SESSION_PREFIX}{sid}", record, _REFRESH_TTL)
+    if fam:
+        await store_session(f"{_REFRESH_FAMILY_INDEX_PREFIX}{sid}", fam, _REFRESH_TTL)
+    if user_id and sid:
+        try:
+            await redis_client.sadd(f"{_REFRESH_USER_SESSIONS_PREFIX}{user_id}", sid)
+            await redis_client.expire(f"{_REFRESH_USER_SESSIONS_PREFIX}{user_id}", _REFRESH_TTL)
+        except Exception:  # nosec B110 - session index update is best-effort
+            pass

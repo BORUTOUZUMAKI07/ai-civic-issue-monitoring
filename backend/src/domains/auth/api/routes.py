@@ -7,6 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.config import settings
 from src.core.database import get_db
 from src.core.security import create_ws_ticket
+from src.core.security_store import (
+    SecurityStoreUnavailableError,
+    consume_one_time,
+    delete_keys,
+)
 from src.domains.auth.email_verification import send_verification_email, verify_email_token
 from src.domains.auth.oauth import (
     code_challenge,
@@ -205,6 +210,11 @@ async def refresh(request: Request, response: Response, db: AsyncSession = Depen
         )
         _clear_auth_cookies(response)
         return JSONResponse(status_code=401, content={"detail": "Refresh token rejected"})
+    except SecurityStoreUnavailableError:
+        # Transient security-store outage: no replacement pair was minted. Keep
+        # the existing cookies so the client can retry rather than forcing a
+        # full re-login, and let the AppError handler emit the 503.
+        raise
     except AppError:
         _clear_auth_cookies(response)
         return JSONResponse(status_code=401, content={"detail": "Refresh token rejected"})
@@ -568,13 +578,9 @@ async def _consume_2fa_challenge(jti: str) -> None:
     from src.shared.errors import InvalidToken
 
     key = f"2fa:used:{jti}"
-    try:
-        from src.core.redis import redis_client
-
-        was_new = await redis_client.set(key, "1", ex=300, nx=True)
-    except Exception:
-        return
-    if not bool(was_new):
+    # consume_one_time raises SecurityStoreUnavailableError when Redis is down, so a
+    # challenge cannot be exchanged twice just because the store was unreachable.
+    if await consume_one_time(key, 300):
         raise InvalidToken()
 
 
@@ -615,11 +621,15 @@ async def revoke_session(body: dict, request: Request, user=Depends(get_current_
         from src.shared.errors import BadRequestError
 
         raise BadRequestError("session_id required")
+    # Revocation is a security write: if the store cannot record it, report the
+    # outage instead of telling the caller the session is gone when it is not.
+    await delete_keys(
+        f"refresh:session:{sid}",
+        f"refresh:family:{sid}",
+    )
     try:
-        await redis_client.delete(f"refresh:session:{sid}")
-        await redis_client.delete(f"refresh:family:{sid}")
         await redis_client.srem(f"refresh:user:sessions:{user.id}", sid)
-    except Exception:  # nosec B110 - session cleanup is best-effort
+    except Exception:  # nosec B110 - the per-user index only powers the list view
         pass
     await _audit_event("session_revoked", request, user.id, {"session_id": sid})
     return {"detail": "Session revoked"}
@@ -632,15 +642,16 @@ async def revoke_all_sessions(
     from src.core.redis import redis_client
     from src.domains.auth.password_reset import revoke_all_refresh_sessions
 
+    # The user-wide marker is the durable guarantee; the index walk is an
+    # optimisation and stays best-effort.
     await revoke_all_refresh_sessions(user.id)
     try:
         sid_list = await redis_client.smembers(f"refresh:user:sessions:{user.id}")
         for sid in sid_list or []:
-            await redis_client.delete(f"refresh:session:{sid}")
-            await redis_client.delete(f"refresh:family:{sid}")
-        await redis_client.delete(f"refresh:user:sessions:{user.id}")
-    except Exception:  # nosec B110 - session cleanup is best-effort
-        pass
+            await delete_keys(f"refresh:session:{sid}", f"refresh:family:{sid}")
+        await delete_keys(f"refresh:user:sessions:{user.id}")
+    except SecurityStoreUnavailableError:
+        raise
     await _audit_event("sessions_revoked_all", request, user.id)
     return {"detail": "All other sessions have been signed out."}
 
