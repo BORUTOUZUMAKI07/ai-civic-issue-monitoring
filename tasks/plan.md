@@ -7,7 +7,7 @@ Goal: close the remaining Nexus/url-shortner parity gaps, make the audit trail r
 - Refresh families, 30s reuse grace, Redis rotation Lua, and family-scoped revocation already exist in `backend/src/domains/auth/services/auth_service.py`, but grace is hard-coded, `REFRESH_REVOKE_ON_REUSE` is missing, and no refresh/replay audit events are emitted.
 - OAuth state/PKCE is stored server-side, but `consume_oauth_state()` uses non-atomic `get()` + `delete()` and the callback sets auth cookies directly on the frontend redirect. There is no one-time handoff code.
 - Auth events are written to Redis and best-effort Mongo `audit_logs`, but there is no admin query/report/export surface and no redaction policy at the event layer.
-- `.github/workflows/deploy.yml` is manual and gated; it polls only backend `/health`. No deployed smoke test exists.
+- Deployed smoke checks are run manually with `.github/workflows/smoke.yml`; there is no legacy SSH deploy workflow.
 - `pixi.lock` still has `dnspython 2.9.0` / `opentelemetry-api 1.45.1`; two CANNOT-fixed-yet allowlist entries remain in `backend/scripts/audit_deps.py`.
 
 ## Tasks
@@ -37,7 +37,7 @@ Acceptance:
 ### 4. Deployment + dependency cleanup
 Acceptance:
 - Reusable deployed-smoke workflow and root script check frontend, BFF proxy, login/session/refresh, and optional admin surfaces against a real URL.
-- `deploy.yml` invokes smoke after a successful deploy when `SMOKE_BASE_URL` is configured.
+- `production-deploy.yml` points operators to the manual smoke run once both builds are READY.
 - Docs list all required GitHub variables/secrets and how to run smoke manually.
 - `dnspython>=2.9.2` and `opentelemetry-api>=1.45.2` floors are in `pixi.toml` + `backend/pyproject.toml`, lock is refreshed, and temporary allowlist entries are removed.
 

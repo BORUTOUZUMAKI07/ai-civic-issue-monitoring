@@ -384,5 +384,6 @@ DevOps: Pixi, Docker Compose, Prefect Cloud, GitHub Actions, OpenTelemetry.
 
 ## Documentation
 
-- [`docs/deployment.md`](docs/deployment.md) — deployment runbook
+- [`docs/production-deployment.md`](docs/production-deployment.md) — production deployment runbook
+- [`docs/deployment.md`](docs/deployment.md) — release artifacts, remotes, and local stack
 - [`docs/adr/`](docs/adr/) — architecture decision records

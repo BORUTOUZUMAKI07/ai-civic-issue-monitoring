@@ -1,7 +1,7 @@
 name: Deployed smoke
 
 # Runs the real-CivicPulse checks against a deployed URL through the Next.js BFF.
-# Called by deploy.yml after a successful deployment, and also runnable by hand.
+# Run by hand after a production deploy once both builds are READY.
 
 on:
   workflow_call:

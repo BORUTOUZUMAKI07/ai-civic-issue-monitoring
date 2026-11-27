@@ -186,7 +186,8 @@ two deploys.
 
 Actions → **Deploy production** → Run workflow. This deploys the current `main`
 tip without a new commit, which is useful after a transient hook failure. The
-automatic path always requires CI to be green.
+automatic path always requires CI to be green. There is no staging target; the
+old manual SSH deploy workflow was removed.
 
 ### Verify after a deploy
 
