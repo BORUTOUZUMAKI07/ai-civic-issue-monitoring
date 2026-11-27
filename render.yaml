@@ -39,8 +39,29 @@ services:
         value: us-east-2
       - key: MONGODB_DB
         value: civicpulse_analytics
+
+      # Observability ships straight to New Relic's OTLP/HTTP ingest. Render's
+      # free services sleep, so a local collector would drop cold-start logs;
+      # direct ingest keeps startup proof intact. Telemetry is fail-open.
       - key: NEW_RELIC_ENABLED
-        value: "false"
+        value: "true"
+      - key: NEW_RELIC_OTLP_ENDPOINT
+        value: https://otlp.nr-data.net:4318
+      - key: NEW_RELIC_EXPORT_INTERVAL_SECONDS
+        value: "5"
+      - key: NEW_RELIC_APP_NAME
+        value: CivicPulse-API
+      # Set in the Render dashboard as a JSON object containing the New Relic
+      # license key: {"api-key":"<value>"}. Never commit the value.
+      - key: NEW_RELIC_OTLP_HEADERS
+        sync: false
+      # Optional Basic header. Generated values only; New Relic accepts the
+      # api-key header plus this pair, which keeps the local collector handshake
+      # identical. Never commit these values.
+      - key: OTLP_AUTH_USER
+        sync: false
+      - key: OTLP_AUTH_PASSWORD
+        sync: false
 
       # Paste these at Blueprint creation; never commit them.
       - key: DATABASE_URL

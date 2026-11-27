@@ -62,6 +62,8 @@ Later changes: **Render Dashboard → civicpulse-api → Environment → Environ
 | `AWS_ENDPOINT_URL_S3` | Neon Storage endpoint from Connect → Storage |
 | `AWS_ACCESS_KEY_ID` | Neon Storage access key ID |
 | `AWS_SECRET_ACCESS_KEY` | Neon Storage secret access key |
+| `NEW_RELIC_OTLP_HEADERS` | JSON object `{"api-key":"<New Relic license key>"}` |
+| `OTLP_AUTH_USER`, `OTLP_AUTH_PASSWORD` | Generated Basic-auth pair for the OTLP handshake |
 
 Already set in `render.yaml`, so do not re-enter unless you change them later:
 
@@ -75,7 +77,10 @@ Already set in `render.yaml`, so do not re-enter unless you change them later:
 | `NEON_STORAGE_BUCKET` | `uploads` |
 | `AWS_REGION` | `us-east-2` |
 | `MONGODB_DB` | `civicpulse_analytics` |
-| `NEW_RELIC_ENABLED` | `false` |
+| `NEW_RELIC_ENABLED` | `true` |
+| `NEW_RELIC_OTLP_ENDPOINT` | `https://otlp.nr-data.net:4318` |
+| `NEW_RELIC_EXPORT_INTERVAL_SECONDS` | `5` |
+| `NEW_RELIC_APP_NAME` | `CivicPulse-API` |
 
 Important: if `UPSTASH_REDIS_REST_URL` or `UPSTASH_REDIS_REST_TOKEN` exist in
 Render's Environment tab from an older setup, **delete them**. They switch the
@@ -90,7 +95,7 @@ Optional Render variables, only when you actually use those services:
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google OAuth. |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | GitHub OAuth. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `ALERT_EMAIL_TO` | Password reset and drift alerts. |
-| `NEW_RELIC_*`, `OTLP_*` | Observability, if you add the collector. |
+| `NEW_RELIC_*`, `OTLP_*` | Observability keys above; see `docs/new-relic-alerts.md` for alerts and runbooks. |
 
 ### Vercel → frontend project
 
@@ -172,8 +177,15 @@ Use the `github` remote, not `origin`.
 Verify after deploy (use the exact URL Render shows on the service page):
 
 ```text
-GET https://civicpulse-api-wknx.onrender.com/health → 200
+GET https://civicpulse-api-wknx.onrender.com/health           → 200
+GET https://civicpulse-api-wknx.onrender.com/health/telemetry → 200
+GET https://civicpulse-api-wknx.onrender.com/api/v1/ml/info   → model_type: onnx
 ```
+
+`/health/telemetry` is diagnostic only: observability is fail-open, so a broken
+sink never removes a working instance from rotation. After a fresh deploy its
+`status` should be `ok`, with `traces_ok`, `metrics_ok` and `logs_ok` all true.
+See `docs/new-relic-alerts.md` for the matching alerts and runbooks.
 
 The built image contains `/app/models/model.onnx`, so production uses the
 trained ONNX model.

@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "account_scope": "CivicPulse production service (CivicPulse-API)",
+  "policy": {
+    "name": "CivicPulse Production Observability",
+    "incident_preference": "PER_CONDITION"
+  },
+  "conditions": [
+    {
+      "name": "CivicPulse 5xx error rate",
+      "signal": "metric",
+      "severity": "critical",
+      "nrql": "FROM Metric SELECT 100.0 * filter(sum(http.server.requests), WHERE `http.response.status_code` >= 500) / sum(http.server.requests) WHERE metricName = 'http.server.requests' AND service.name = 'CivicPulse-API'",
+      "threshold": {
+        "operator": "above",
+        "value": 5,
+        "duration_minutes": 5
+      },
+      "runbook": "docs/new-relic-alerts.md#5xx-error-rate"
+    },
+    {
+      "name": "CivicPulse p95 latency",
+      "signal": "metric",
+      "severity": "warning",
+      "nrql": "FROM Metric SELECT percentile(http.server.request.duration, 95) WHERE metricName = 'http.server.request.duration' AND service.name = 'CivicPulse-API'",
+      "threshold": {
+        "operator": "above",
+        "value": 2,
+        "duration_minutes": 10,
+        "unit": "seconds"
+      },
+      "runbook": "docs/new-relic-alerts.md#p95-latency"
+    },
+    {
+      "name": "CivicPulse health failures",
+      "signal": "log",
+      "severity": "critical",
+      "nrql": "FROM Log SELECT count(*) WHERE event_type IN ('health_check_failure', 'dependency_degraded') AND service.name = 'CivicPulse-API'",
+      "threshold": {
+        "operator": "above",
+        "value": 0,
+        "duration_minutes": 5
+      },
+      "runbook": "docs/new-relic-alerts.md#health-failures"
+    },
+    {
+      "name": "CivicPulse dependency degradation",
+      "signal": "log",
+      "severity": "warning",
+      "nrql": "FROM Log SELECT count(*) WHERE event_type = 'dependency_degraded' AND dependency IN ('database', 'redis', 'mongodb') AND service.name = 'CivicPulse-API' FACET dependency",
+      "threshold": {
+        "operator": "above",
+        "value": 0,
+        "duration_minutes": 5
+      },
+      "runbook": "docs/new-relic-alerts.md#postgres-redis-or-mongodb-degradation"
+    },
+    {
+      "name": "CivicPulse frontend errors",
+      "signal": "log",
+      "severity": "warning",
+      "nrql": "FROM Log SELECT count(*) WHERE event_type = 'frontend_error' AND service.name = 'CivicPulse-API'",
+      "threshold": {
+        "operator": "above",
+        "value": 20,
+        "duration_minutes": 5
+      },
+      "runbook": "docs/new-relic-alerts.md#frontend-errors"
+    },
+    {
+      "name": "CivicPulse startup telemetry verification failed",
+      "signal": "log",
+      "severity": "warning",
+      "nrql": "FROM Log SELECT count(*) WHERE event_type = 'startup_telemetry_verification' AND telemetry_ok = false AND service.name = 'CivicPulse-API'",
+      "threshold": {
+        "operator": "above",
+        "value": 0,
+        "duration_minutes": 5
+      },
+      "runbook": "docs/new-relic-alerts.md#startup-telemetry-verification-failed"
+    }
+  ]
+}

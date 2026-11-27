@@ -160,15 +160,13 @@ class Settings(BaseSettings):
     # --- Cookie settings ---
     COOKIE_SECURE: bool = False
 
-    # --- Observability: 3-layer OTLP (Layer 1 -> 2 -> 3) ---
-    # The app exports structured logs, spans AND metrics over OTLP/HTTP to the
-    # Layer-2 OpenTelemetry collector (docker/otel-collector-config.yaml, compose
-    # service ``otel-collector``), which owns NEW_RELIC_LICENSE_KEY and fans the
-    # three signals out to New Relic (Layer 3, the sink). The app therefore never
-    # holds the vendor credential, and every signal travels the same
-    # vendor-neutral OTLP path -- swapping or adding a sink is a collector-config
-    # change, not an app change. No-op when disabled, the endpoint is unset, or
-    # the ``[observability]`` extras are not installed.
+    # --- Observability: OTLP logs, metrics and traces ---
+    # The app exports all three signals over OTLP/HTTP. Local Docker points at
+    # the Layer-2 collector (docker/otel-collector-config.yaml), which owns the
+    # vendor key; production points directly at New Relic's ingest instead,
+    # because a sleeping free Render service would drop cold-start telemetry.
+    # Either way the transport is vendor-neutral OTLP and export is fail-open:
+    # no-op when disabled, the endpoint is unset, or extras are not installed.
     NEW_RELIC_ENABLED: bool = False
     NEW_RELIC_OTLP_ENDPOINT: str = "http://localhost:4318"
     NEW_RELIC_EXPORT_INTERVAL_SECONDS: int = 30

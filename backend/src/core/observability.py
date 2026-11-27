@@ -1,11 +1,11 @@
-"""Layer-1 -> Layer-2 OTLP export for New Relic (env-gated).
+"""OTLP export for logs, metrics and traces (env-gated).
 
 Every line the app logs, every span the instrumentors record, and every RED
-metric the HTTP middleware records is forwarded to the Layer-2 OpenTelemetry
-collector over OTLP/HTTP (``docker/otel-collector-config.yaml``, the
-``otel-collector`` compose service). The collector owns the New Relic ingest
-key and fans the three signals out, so the app never holds a vendor credential
-and never speaks a vendor protocol -- only standard OTLP.
+metric the HTTP middleware records is forwarded over OTLP/HTTP. Local Docker
+points at the OpenTelemetry collector (``docker/otel-collector-config.yaml``);
+production points straight at New Relic's OTLP ingest, so a sleeping free
+Render service cannot drop cold-start telemetry. In both modes the app speaks
+only standard OTLP; only the configured endpoint and headers differ.
 
 Deliberately fail-open, in keeping with the rest of the stack:
 
@@ -56,7 +56,7 @@ _startup_telemetry_status: dict[str, Any] = {
 
 
 def _otlp_base_endpoint() -> str | None:
-    """The collector's OTLP/HTTP base URL, or ``None`` when unconfigured."""
+    """The configured OTLP/HTTP base URL, or ``None`` when unconfigured."""
     base = (settings.NEW_RELIC_OTLP_ENDPOINT or "").strip().rstrip("/")
     return base or None
 
