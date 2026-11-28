@@ -61,6 +61,11 @@ class Smoker:
         url = f"{self.base}{path}"
         data = None
         headers: dict[str, str] = {"Accept": "application/json, text/html;q=0.9"}
+        # The Next.js BFF CSRF guard rejects state-changing requests with no
+        # Origin (it fails closed). Browsers always send one; the smoke client
+        # must too, or every mutation is refused before reaching the backend.
+        if method in {"POST", "PUT", "PATCH", "DELETE"}:
+            headers["Origin"] = self.base
         if payload is not None:
             data = json.dumps(payload).encode("utf-8")
             headers["Content-Type"] = "application/json"
