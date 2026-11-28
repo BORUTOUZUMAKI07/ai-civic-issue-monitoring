@@ -451,8 +451,8 @@ def test_render_hosts_two_free_services_with_no_native_auto_deploy() -> None:
         "Render's TCP check must use the injected $PORT; an HTTP path would hit "
         "the OTLP receiver, not the internal :13133 /healthz extension"
     )
-    assert collector["dockerfilePath"] == "./docker/otel-collector.Dockerfile"
-    assert collector["dockerContext"] == "."
+    assert collector["dockerfilePath"] == "./otel-collector.Dockerfile"
+    assert collector["dockerContext"] == "./docker"
     collector_env = _render_env(collector)
     assert "PORT" not in collector_env, (
         "Render injects PORT dynamically; pinning 4318 would make the public 443 -> $PORT mapping unreachable"
@@ -461,6 +461,24 @@ def test_render_hosts_two_free_services_with_no_native_auto_deploy() -> None:
     assert collector_env["SERVICE_VERSION"]["value"], (
         "${env:SERVICE_VERSION} must be present or the collector will not start"
     )
+
+
+def test_render_collector_context_resolves_the_dockerfile_copy_sources() -> None:
+    """Render's build context must make every relative COPY in the Dockerfile resolvable."""
+    collector = _render_services()["civicpulse-otel-collector"]
+    context = REPO_ROOT / collector["dockerContext"]
+    dockerfile = context / Path(collector["dockerfilePath"]).name
+
+    copies = [
+        line.split()[1]
+        for line in dockerfile.read_text(encoding="utf-8").splitlines()
+        if line.startswith("COPY ") and not line.startswith("COPY --from=")
+    ]
+    assert copies, "the collector image must copy its config into the image"
+    for source in copies:
+        assert (context / source).is_file(), (
+            f"Render build context {collector['dockerContext']} cannot resolve COPY {source}"
+        )
 
 
 def test_render_keeps_the_vendor_key_on_the_collector_only() -> None:
