@@ -213,11 +213,13 @@ named error if one is missing; it never prints the values. The collector hook
 fires first so its cold start begins as early as possible.
 
 The hooks are branch-scoped: both Render services track `main`, and the Vercel
-hook is created for `main`, so each deploy builds the current `main` tip. Do
-**not** enable Git auto-deploy on either Render service or Vercel Git
-deployment for that branch, or one push will start duplicate deploys.
-`render.yaml` sets `autoDeployTrigger: "off"`; Vercel's `vercel.json` sets
-`git.deploymentEnabled: false`.
+hook is created for `main`. The workflow additionally appends `ref=<validated
+SHA>` to both Render hook requests, so those builds are pinned to the exact CI
+commit rather than merely the current branch tip. Vercel's branch-scoped hook
+does not take that parameter. Do **not** enable Git auto-deploy on either
+Render service or Vercel Git deployment for that branch, or one push will start
+duplicate deploys. `render.yaml` sets `autoDeployTrigger: "off"`; Vercel's
+`vercel.json` sets `git.deploymentEnabled: false`.
 
 ### Manual re-trigger
 

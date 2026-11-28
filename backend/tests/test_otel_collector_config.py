@@ -522,6 +522,39 @@ def test_deploy_workflow_triggers_collector_then_backend_then_frontend() -> None
     )
 
 
+def test_render_hooks_pin_the_ci_validated_sha() -> None:
+    """Nexus/LinkForge parity: both Render hooks build the exact validated commit."""
+    workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+
+    for secret, step_name in (
+        ("COLLECTOR_DEPLOY_HOOK_URL", "Trigger Render collector deploy"),
+        ("RENDER_DEPLOY_HOOK_URL", "Trigger Render backend deploy"),
+    ):
+        assert f'case "${secret}" in' in workflow, (
+            f"{secret} must handle hook URLs that already contain a query string"
+        )
+        start = workflow.index(f"name: {step_name}")
+        end = workflow.find("\n      - name:", start + 1)
+        if end == -1:
+            end = len(workflow)
+        body = workflow[start:end]
+        assert "DEPLOY_SHA: ${{ needs.resolve.outputs.sha }}" in body, (
+            f"{secret} must receive the CI-validated SHA it pins"
+        )
+
+    assert workflow.count("?ref=$DEPLOY_SHA") == 2, (
+        "both Render hooks must append ref when the hook URL has no query string"
+    )
+    assert workflow.count("&ref=$DEPLOY_SHA") == 2, (
+        "both Render hooks must append &ref when the hook URL already has one"
+    )
+
+    vercel_step = workflow[workflow.index("name: Trigger Vercel frontend deploy") :]
+    assert "ref=$DEPLOY_SHA" not in vercel_step, (
+        "the Vercel hook is branch-scoped; it must not receive Render's ref parameter"
+    )
+
+
 # ──────────────── the Docker half: the image must actually boot ────────────────
 #
 # Everything above asserts the *shape* of the tracked files. This section runs

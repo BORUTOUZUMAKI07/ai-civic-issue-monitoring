@@ -113,11 +113,19 @@ jobs:
       # telemetry loss is the accepted free-tier trade-off (fail-open).
       - name: Trigger Render collector deploy
         shell: bash
+        env:
+          DEPLOY_SHA: ${{ needs.resolve.outputs.sha }}
         run: |
           set -euo pipefail
+          # Nexus/LinkForge parity: pin the Render build to the CI-validated SHA.
+          # Branch-scoped hooks stay branch-scoped; `ref` only selects the commit.
+          case "$COLLECTOR_DEPLOY_HOOK_URL" in
+            *\?*) hook="$COLLECTOR_DEPLOY_HOOK_URL&ref=$DEPLOY_SHA" ;;
+            *) hook="$COLLECTOR_DEPLOY_HOOK_URL?ref=$DEPLOY_SHA" ;;
+          esac
           code="$(curl --silent --show-error --request POST \
             --output /tmp/collector-deploy.json --write-out '%{http_code}' \
-            "$COLLECTOR_DEPLOY_HOOK_URL")"
+            "$hook")"
           case "$code" in
             2??)
               echo "Collector deploy accepted (HTTP $code)."
@@ -131,11 +139,17 @@ jobs:
 
       - name: Trigger Render backend deploy
         shell: bash
+        env:
+          DEPLOY_SHA: ${{ needs.resolve.outputs.sha }}
         run: |
           set -euo pipefail
+          case "$RENDER_DEPLOY_HOOK_URL" in
+            *\?*) hook="$RENDER_DEPLOY_HOOK_URL&ref=$DEPLOY_SHA" ;;
+            *) hook="$RENDER_DEPLOY_HOOK_URL?ref=$DEPLOY_SHA" ;;
+          esac
           code="$(curl --silent --show-error --request POST \
             --output /tmp/render-deploy.json --write-out '%{http_code}' \
-            "$RENDER_DEPLOY_HOOK_URL")"
+            "$hook")"
           case "$code" in
             2??)
               echo "Render deploy accepted (HTTP $code)."
