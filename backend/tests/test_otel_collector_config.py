@@ -451,7 +451,9 @@ def test_render_hosts_two_free_services_with_no_native_auto_deploy() -> None:
         "Render's TCP check must use the injected $PORT; an HTTP path would hit "
         "the OTLP receiver, not the internal :13133 /healthz extension"
     )
-    assert collector["dockerfilePath"] == "./otel-collector.Dockerfile"
+    # Render resolves dockerfilePath from the repo root, but dockerContext is
+    # the build context used by COPY. Both are needed for a successful build.
+    assert collector["dockerfilePath"] == "./docker/otel-collector.Dockerfile"
     assert collector["dockerContext"] == "./docker"
     collector_env = _render_env(collector)
     assert "PORT" not in collector_env, (
@@ -464,10 +466,13 @@ def test_render_hosts_two_free_services_with_no_native_auto_deploy() -> None:
 
 
 def test_render_collector_context_resolves_the_dockerfile_copy_sources() -> None:
-    """Render's build context must make every relative COPY in the Dockerfile resolvable."""
+    """Render's build context must resolve COPY, and its Dockerfile path must be repo-root-relative."""
     collector = _render_services()["civicpulse-otel-collector"]
+    dockerfile = REPO_ROOT / collector["dockerfilePath"]
+    assert dockerfile.is_file(), (
+        f"Render resolves dockerfilePath from the repo root: {collector['dockerfilePath']}"
+    )
     context = REPO_ROOT / collector["dockerContext"]
-    dockerfile = context / Path(collector["dockerfilePath"]).name
 
     copies = [
         line.split()[1]

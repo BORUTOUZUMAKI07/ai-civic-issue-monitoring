@@ -90,11 +90,12 @@ services:
     region: ohio
     plan: free
     autoDeployTrigger: "off"
-    # Compose builds from ./docker with otel-collector.Dockerfile; Render must
-    # use the same context or the relative COPY of otel-collector-config.yaml
-    # cannot resolve (Render's build fails with "file not found").
+    # Render resolves dockerfilePath from the repo root but dockerContext is
+    # the COPY root. Compose uses the same context (docker/docker-compose.yml).
+    # Setting the context alone to ./docker breaks the Dockerfile lookup;
+    # setting only the path breaks COPY of otel-collector-config.yaml.
     dockerContext: ./docker
-    dockerfilePath: ./otel-collector.Dockerfile
+    dockerfilePath: ./docker/otel-collector.Dockerfile
     # No healthCheckPath: Render probes the injected $PORT, which is occupied by
     # the OTLP receiver. The collector's /healthz stays on internal :13133 for
     # local diagnostics (docker-compose publishes it).
